@@ -1,0 +1,42 @@
+# 环境变量文件
+.env
+# 保留示例文件
+!.env.example
+
+# Session 文件和目录
+sessions/
+*.session
+*.session-journal
+
+# 日志文件和目录
+logs/
+*.log
+
+# PM2 相关文件
+.pm2/
+pids/
+*.pid
+*.seed
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# 虚拟环境
+venv/
+env/
+ENV/
+
+# IDE 文件
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 操作系统文件
+.DS_Store
+Thumbs.db
+config.json

@@ -1,0 +1,121 @@
+{
+  "session_name": "telegram_forwarder_session",
+  "groups": [
+    {
+      "id": "example_group_1",
+      "name": "示例群组1 - 币安公告",
+      "source": "@binance_announcements",
+      "rules": [
+        {
+          "targets": ["@my_archive"],
+          "filters": {
+            "mode": "all"
+          }
+        },
+        {
+          "targets": ["@vip_channel"],
+          "filters": {
+            "mode": "include",
+            "rules": [
+              {
+                "type": "keyword",
+                "config": {
+                  "words": ["上线", "Alpha", "新币"],
+                  "match_case": false,
+                  "match_mode": "any"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "example_group_2",
+      "name": "示例群组2 - 交易群",
+      "source": "@trading_group",
+      "rules": [
+        {
+          "targets": ["@expert_signals"],
+          "filters": {
+            "mode": "include",
+            "rules": [
+              {
+                "type": "user",
+                "config": {
+                  "users": ["@expert_1", "@expert_2", 123456789],
+                  "forward_all": true
+                }
+              }
+            ]
+          }
+        },
+        {
+          "targets": ["@address_tracker"],
+          "filters": {
+            "mode": "include",
+            "rules": [
+              {
+                "type": "user_conditional",
+                "config": {
+                  "users": ["@kol_1", "@kol_2"],
+                  "conditions": [
+                    {
+                      "type": "regex",
+                      "config": {
+                        "pattern": "(?:0x[a-fA-F0-9]{40}|[1-9A-HJ-NP-Za-km-z]{32,44})",
+                        "description": "匹配加密货币地址"
+                      }
+                    }
+                  ],
+                  "condition_logic": "any"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "example_group_3",
+      "name": "示例群组3 - 多目标分发",
+      "source": -1001234567890,
+      "rules": [
+        {
+          "targets": ["@btc_channel"],
+          "filters": {
+            "mode": "include",
+            "rules": [
+              {
+                "type": "keyword",
+                "config": {
+                  "words": ["BTC", "Bitcoin", "比特币"]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "targets": ["@eth_channel"],
+          "filters": {
+            "mode": "include",
+            "rules": [
+              {
+                "type": "keyword",
+                "config": {
+                  "words": ["ETH", "Ethereum", "以太坊"]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "targets": ["@backup_channel"],
+          "filters": {
+            "mode": "all"
+          }
+        }
+      ]
+    }
+  ]
+}

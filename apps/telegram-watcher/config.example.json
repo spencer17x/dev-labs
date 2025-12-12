@@ -1,0 +1,40 @@
+{
+  "session_name": "session/telegram_watcher_session",
+  "log": {
+    "filename": "telegram_listener.log",
+    "path": "logs",
+    "level": "INFO"
+  },
+  "webhook": {
+    "url": "",
+    "timeout": 5
+  },
+  "proxy": {
+    "url": "",
+    "host": "",
+    "port": "",
+    "type": "http"
+  },
+  "targets": [
+    {
+      "id": "bwenews",
+      "name": "方程式新闻 BWEnews",
+      "type": "channel",
+      "chat_id": "1279597711",
+      "enabled": true
+    },
+    {
+      "id": "test_group",
+      "name": "TG消息聚合-测试",
+      "type": "group",
+      "chat_id": "@superdog_message_center_test",
+      "enabled": true
+    }
+  ],
+  "exclude": [
+    {
+      "chat_id": "@spam_group",
+      "reason": "垃圾群组"
+    }
+  ]
+}

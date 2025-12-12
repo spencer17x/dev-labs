@@ -1,0 +1,13 @@
+{
+  "groups": [
+    {
+      "id": -1001234567890,
+      "title": "Example Group",
+      "type": "supergroup",
+      "fromId": 123456789,
+      "fromUsername": "example_user"
+    }
+  ],
+  "admins": ["example_admin"],
+  "subUsers": ["example_twitter_user"]
+}

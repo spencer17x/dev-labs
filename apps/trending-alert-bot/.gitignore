@@ -1,0 +1,33 @@
+# 数据存储文件
+contracts_data.json
+contracts_data_sol.json
+contracts_data_bsc.json
+telegram_chats.json
+
+# 环境变量
+.env
+
+# 日志文件
+logs/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# 虚拟环境
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
