@@ -30,7 +30,23 @@ def _format_market_cap(value: float) -> str:
         return f"${value:.2f}"
 
 
-def format_initial_notification(contract: Dict, chain: str = "") -> str:
+def _format_kol_amount(amount: str) -> str:
+    """格式化KOL持仓数量"""
+    try:
+        value = float(amount)
+        if value >= 1_000_000_000:
+            return f"{value / 1_000_000_000:.2f}B"
+        elif value >= 1_000_000:
+            return f"{value / 1_000_000:.2f}M"
+        elif value >= 1_000:
+            return f"{value / 1_000:.2f}K"
+        else:
+            return f"{value:.2f}"
+    except:
+        return amount
+
+
+def format_initial_notification(contract: Dict, chain: str = "", kol_list: list = None) -> str:
     symbol = contract.get("symbol", "N/A")
     name = contract.get("name", "N/A")
     price = float(contract.get("priceUSD", 0))
@@ -66,6 +82,17 @@ def format_initial_notification(contract: Dict, chain: str = "") -> str:
 ⏰ 推送时间: {push_time}
 🏪 DEX: {dex_name}
 🎯 Launch From: {launch_from}"""
+
+    # 添加 KOL 持仓信息
+    if kol_list:
+        msg += f"\n\n👑 KOL 持仓 ({len(kol_list)}人):"
+        for kol in kol_list[:5]:  # 最多显示5个KOL
+            kol_name = kol.get("name", "Unknown")
+            hold_value_usd = float(kol.get("holdValueUSD", 0))
+            hold_percent = float(kol.get("holdPercent", 0))
+            msg += f"\n  • {kol_name}: {_format_market_cap(hold_value_usd)} ({hold_percent:.2f}%)"
+        if len(kol_list) > 5:
+            msg += f"\n  ... 还有 {len(kol_list) - 5} 位KOL"
 
     if links:
         msg += "\n\n📱 链接:"
