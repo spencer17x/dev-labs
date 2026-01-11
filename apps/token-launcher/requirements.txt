@@ -1,0 +1,17 @@
+# Twitter
+twikit>=2.0.0
+
+# HTTP
+aiohttp>=3.9.0
+
+# Telegram
+python-telegram-bot>=20.0
+
+# Config
+python-dotenv>=1.0.0
+
+# Web3 (for future multi-chain support)
+web3>=6.0.0
+
+# OpenAI (optional, for AI analysis)
+# openai>=1.0.0

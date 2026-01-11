@@ -1,0 +1,14 @@
+{
+  "twitter": {
+    "watch_users": ["elonmusk"],
+    "poll_interval": 30
+  },
+  "four_meme": {
+    "api_url": "https://four.meme/api",
+    "chain": "bsc"
+  },
+  "analyzer": {
+    "enabled": false
+  },
+  "_comment": "敏感信息请在 .env 文件中配置"
+}
