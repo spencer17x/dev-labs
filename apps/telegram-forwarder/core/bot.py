@@ -157,11 +157,52 @@ class TelegramForwarderBot:
         logger.info("=" * 60)
         logger.info("")
 
+    async def send_startup_notifications(self):
+        """向所有转发目标群组发送启动通知"""
+        logger.info("发送启动通知到目标群组...")
+
+        # 收集所有唯一的目标群组
+        notified_targets = set()
+
+        for group in self.config.groups:
+            if not group.enabled:
+                continue
+
+            for rule in group.rules:
+                if not rule.enabled:
+                    continue
+
+                for target_id in rule.target_ids:
+                    if target_id in notified_targets:
+                        continue
+
+                    try:
+                        message = (
+                            "🤖 **Telegram Forwarder Bot 已启动**\n\n"
+                            f"📡 正在监听并转发消息到此群组\n"
+                            f"⏰ 启动时间: {self._get_current_time()}"
+                        )
+                        await self.client.send_message(target_id, message)
+                        notified_targets.add(target_id)
+                        logger.info(f"  ✓ 已通知: {target_id}")
+                    except Exception as e:
+                        logger.warning(f"  ✗ 通知失败 {target_id}: {e}")
+
+        logger.info(f"启动通知发送完成，共通知 {len(notified_targets)} 个群组")
+
+    def _get_current_time(self) -> str:
+        """获取当前格式化时间"""
+        from datetime import datetime
+        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
     async def run(self):
         """运行机器人"""
         try:
             # 验证配置
             await self.validate_configuration()
+
+            # 发送启动通知
+            await self.send_startup_notifications()
 
             # 保持运行直到中断
             await self.client.run_until_disconnected()
