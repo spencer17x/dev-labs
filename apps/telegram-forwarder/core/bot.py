@@ -191,9 +191,10 @@ class TelegramForwarderBot:
         logger.info(f"启动通知发送完成，共通知 {len(notified_targets)} 个群组")
 
     def _get_current_time(self) -> str:
-        """获取当前格式化时间"""
-        from datetime import datetime
-        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        """获取当前格式化时间（北京时间 UTC+8）"""
+        from datetime import datetime, timezone, timedelta
+        beijing_tz = timezone(timedelta(hours=8))
+        return datetime.now(beijing_tz).strftime("%Y-%m-%d %H:%M:%S")
 
     async def run(self):
         """运行机器人"""
