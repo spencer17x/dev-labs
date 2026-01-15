@@ -13,6 +13,7 @@ class TokenInfo:
     description: str = ""
     image_url: str = ""
     twitter_url: str = ""
+    telegram_url: str = ""
     website_url: str = ""
 
 

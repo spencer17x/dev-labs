@@ -4,8 +4,10 @@
     "poll_interval": 30
   },
   "four_meme": {
-    "api_url": "https://four.meme/api",
-    "chain": "bsc"
+    "chain": "bsc",
+    "network": "mainnet",
+    "rpc_url": "https://bsc-dataseed1.binance.org/",
+    "buy_amount": 0
   },
   "analyzer": {
     "enabled": false
