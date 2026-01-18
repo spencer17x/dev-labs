@@ -364,7 +364,7 @@ def monitor_trending():
                     has_trend_notification = stored_contract and stored_contract.get("telegram_message_ids", {})
 
                     if not has_trend_notification:
-                        # 获取 KOL 持仓数据，无 KOL 则跳过通知
+                        # 获取 KOL 持仓数据
                         pair_address = contract.get("pairAddress", "")
                         kol_list = []
                         try:
@@ -372,10 +372,6 @@ def monitor_trending():
                             kol_list = kol_response.get("data", []) or []
                         except Exception as e:
                             print(f"⚠️ 获取 KOL 数据失败: {e}")
-
-                        if not kol_list:
-                            print(f"⏭️ [{chain.upper()}] {contract.get('symbol', 'N/A')} 无 KOL 持仓，跳过通知")
-                            break
 
                         # 获取叙事分析数据
                         narrative_data = None
