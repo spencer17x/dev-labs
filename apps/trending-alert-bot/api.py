@@ -229,16 +229,26 @@ def fetch_narrative(ca_address: str, chain: str = "sol") -> dict:
         "referer": f"https://debot.ai/token/{debot_chain}/{ca_address}",
         "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36",
     }
-
-    resp = requests.get(
-        "https://debot.ai/api/v1/nitter/story/latest",
-        params={
-            "request_id": request_id,
-            "ca_address": ca_address,
-        },
-        headers=headers,
-        timeout=30,
-        impersonate="chrome120",
-    )
+    url = "https://debot.ai/api/v1/nitter/story/latest"
+    params = {
+        "request_id": request_id,
+        "ca_address": ca_address,
+    }
+    try:
+        resp = requests.get(
+            url,
+            params=params,
+            headers=headers,
+            timeout=30,
+            impersonate="chrome120",
+        )
+    except Exception as e:
+        print(f"[fetch_narrative] 请求失败: {url}?request_id={request_id}&ca_address={ca_address}")
+        raise
+    # 404 表示该合约没有叙事数据，返回空结果而不是抛出异常
+    if resp.status_code == 404:
+        return {"success": False, "data": None}
+    if resp.status_code == 403:
+        print(f"[fetch_narrative] 403禁止: {resp.url}")
     resp.raise_for_status()
     return resp.json()

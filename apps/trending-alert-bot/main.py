@@ -94,6 +94,9 @@ def check_pending_narratives(storage: ContractStorage, chain: str = ""):
                             notifier.send_with_reply_sync(msg, token_address, storage, chain=chain)
         except Exception as e:
             print(f"⚠️ 检查叙事失败 {symbol}: {e}")
+            # 如果是 HTTP 错误，打印请求 URL
+            if hasattr(e, 'response') and e.response is not None:
+                print(f"[check_pending_narratives] 请求URL: {e.response.url}")
 
 
 def should_filter_contract(contract: dict, chain: str) -> bool:
