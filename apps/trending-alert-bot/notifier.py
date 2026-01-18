@@ -200,6 +200,45 @@ def format_multiplier_notification(
     return msg.strip()
 
 
+def format_narrative_notification(
+    token_address: str,
+    symbol: str,
+    narrative: Dict,
+    chain: str = ""
+) -> str:
+    """格式化叙事更新通知"""
+    chain_prefix = f"[{chain.upper()}] " if chain else ""
+
+    narrative_type = narrative.get("narrative_type", "")
+    rating = narrative.get("rating", {})
+    score = rating.get("score", "")
+    background = narrative.get("background", {})
+    origin_text = background.get("origin", {}).get("text", "")
+    distribution = narrative.get("distribution", {})
+    celebrity = distribution.get("celebrity_support", {}).get("text", "")
+    negative = distribution.get("negative_incidents", {}).get("text", "")
+
+    msg = f"""{chain_prefix}📖 叙事更新 📖
+
+💎 {symbol}
+📝 CA: <code>{token_address}</code>"""
+
+    if score:
+        msg += f"\n\n⭐ 评分: {score}/5"
+    if narrative_type:
+        msg += f"\n📌 类型: {narrative_type}"
+    if celebrity and celebrity != "None":
+        msg += f"\n👤 名人支持: {celebrity}"
+    if origin_text:
+        origin_short = origin_text[:200] + "..." if len(origin_text) > 200 else origin_text
+        msg += f"\n\n📜 背景:\n{origin_short}"
+    if negative:
+        negative_short = negative[:150] + "..." if len(negative) > 150 else negative
+        msg += f"\n\n⚠️ 风险提示:\n{negative_short}"
+
+    return msg.strip()
+
+
 def format_summary_report(
     chain_stats: Dict[str, Dict],
     next_report_time: str

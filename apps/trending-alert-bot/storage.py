@@ -148,3 +148,36 @@ class ContractStorage:
             self._save()
 
         return count
+
+    def update_narrative(self, token_address: str, narrative: Dict):
+        """更新合约的叙事数据"""
+        if token_address in self.data:
+            self.data[token_address]["narrative"] = narrative
+            self.data[token_address]["narrative_notified"] = True
+            self._save()
+
+    def get_narrative(self, token_address: str) -> Optional[Dict]:
+        """获取合约的叙事数据"""
+        if token_address in self.data:
+            return self.data[token_address].get("narrative")
+        return None
+
+    def is_narrative_notified(self, token_address: str) -> bool:
+        """检查叙事是否已通知"""
+        if token_address in self.data:
+            return self.data[token_address].get("narrative_notified", False)
+        return False
+
+    def mark_narrative_pending(self, token_address: str):
+        """标记叙事待更新"""
+        if token_address in self.data:
+            self.data[token_address]["narrative_pending"] = True
+            self._save()
+
+    def get_pending_narrative_contracts(self) -> List[str]:
+        """获取所有待更新叙事的合约"""
+        pending = []
+        for token_address, data in self.data.items():
+            if data.get("narrative_pending") and not data.get("narrative_notified"):
+                pending.append(token_address)
+        return pending
