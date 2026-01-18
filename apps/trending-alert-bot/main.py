@@ -3,7 +3,7 @@
 import time
 import os
 from datetime import datetime, timedelta
-from api import fetch_trending, fetch_kol_holders
+from api import fetch_trending, fetch_kol_holders, fetch_narrative
 from storage import ContractStorage
 from notifier import format_initial_notification, format_multiplier_notification, format_summary_report
 from config import CHECK_INTERVAL, SILENT_INIT, CHAINS, ENABLE_TELEGRAM, STORAGE_DIR, CHAIN_ALLOWLISTS, SUMMARY_REPORT_HOURS, SUMMARY_TOP_N
@@ -377,11 +377,22 @@ def monitor_trending():
                             print(f"⏭️ [{chain.upper()}] {contract.get('symbol', 'N/A')} 无 KOL 持仓，跳过通知")
                             break
 
+                        # 获取叙事分析数据
+                        narrative_data = None
+                        try:
+                            narrative_response = fetch_narrative(token_address, chain)
+                            if narrative_response.get("success"):
+                                history = narrative_response.get("data", {}).get("history", {})
+                                if history:
+                                    narrative_data = history.get("story", {})
+                        except Exception as e:
+                            print(f"⚠️ 获取叙事数据失败: {e}")
+
                         if not is_new:
                             current_market_cap = float(contract.get("marketCapUSD", 0))
                             storage.update_initial_price(token_address, current_price, current_market_cap)
 
-                        msg = format_initial_notification(contract, chain, kol_list)
+                        msg = format_initial_notification(contract, chain, kol_list, narrative_data)
                         print(msg)
                         print("\n" + "=" * 60 + "\n")
 

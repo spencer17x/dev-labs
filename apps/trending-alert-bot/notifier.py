@@ -46,7 +46,7 @@ def _format_kol_amount(amount: str) -> str:
         return amount
 
 
-def format_initial_notification(contract: Dict, chain: str = "", kol_list: list = None) -> str:
+def format_initial_notification(contract: Dict, chain: str = "", kol_list: list = None, narrative: dict = None) -> str:
     symbol = contract.get("symbol", "N/A")
     name = contract.get("name", "N/A")
     price = float(contract.get("priceUSD", 0))
@@ -65,6 +65,14 @@ def format_initial_notification(contract: Dict, chain: str = "", kol_list: list 
     push_time = format_beijing_time()
     chain_prefix = f"[{chain.upper()}] " if chain else ""
 
+    # 审计信息
+    audit_info = contract.get("auditInfo", {})
+    new_hp = audit_info.get("newHp", 0)  # 新钱包持仓
+    insider_hp = audit_info.get("insiderHp", 0)  # 老鼠仓持仓
+    snipers = audit_info.get("snipers", 0)  # 狙击钱包数
+    bundle_hp = audit_info.get("bundleHp", 0)  # 捆绑占比
+    dex_paid = audit_info.get("dexPaid", False)  # Dexs付费
+
     msg = f"""{chain_prefix}🔥 趋势发现 🔥
 
 💎 {symbol} ({name})
@@ -77,11 +85,43 @@ def format_initial_notification(contract: Dict, chain: str = "", kol_list: list 
 
 🔒 安全:
 📊 Top Holder: {top_holder:.2f}%
+🆕 新钱包持仓: {new_hp:.2f}%
+🐀 老鼠仓持仓: {insider_hp:.2f}%
+🎯 狙击钱包数: {snipers}
+📦 捆绑占比: {bundle_hp:.2f}%
+💵 Dexs付费: {"✅" if dex_paid else "❌"}
 
 ⏰ 创建时间: {time_ago}
 ⏰ 推送时间: {push_time}
 🏪 DEX: {dex_name}
 🎯 Launch From: {launch_from}"""
+
+    # 添加叙事分析
+    if narrative:
+        narrative_type = narrative.get("narrative_type", "")
+        rating = narrative.get("rating", {})
+        score = rating.get("score", "")
+        background = narrative.get("background", {})
+        origin_text = background.get("origin", {}).get("text", "")
+        distribution = narrative.get("distribution", {})
+        celebrity = distribution.get("celebrity_support", {}).get("text", "")
+        negative = distribution.get("negative_incidents", {}).get("text", "")
+
+        msg += "\n\n📖 叙事分析:"
+        if score:
+            msg += f"\n⭐ 评分: {score}/5"
+        if narrative_type:
+            msg += f"\n📌 类型: {narrative_type}"
+        if celebrity and celebrity != "None":
+            msg += f"\n👤 名人支持: {celebrity}"
+        if origin_text:
+            # 截取前150个字符
+            origin_short = origin_text[:150] + "..." if len(origin_text) > 150 else origin_text
+            msg += f"\n📜 背景: {origin_short}"
+        if negative:
+            # 截取前100个字符
+            negative_short = negative[:100] + "..." if len(negative) > 100 else negative
+            msg += f"\n⚠️ 风险: {negative_short}"
 
     # 添加 KOL 持仓信息
     if kol_list:
