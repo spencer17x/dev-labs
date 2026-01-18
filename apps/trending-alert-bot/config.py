@@ -12,10 +12,10 @@ SUMMARY_REPORT_HOURS = [0, 4, 8, 12, 16, 20]
 SUMMARY_TOP_N = 3
 SUMMARY_WIN_THRESHOLD = 5.0
 
-# 白名单配置
+# 白名单配置（空配置表示不过滤）
 CHAIN_ALLOWLISTS = {
-    "sol": {"launchFrom": ['pump']},
-    "bsc": {"launchFrom": ['four'], "dexName": ['Binance Exclusive']},
+    "sol": {},
+    "bsc": {},
 }
 
 # 存储
