@@ -19,38 +19,6 @@ def check_multipliers(contract: dict, storage: ContractStorage, chain: str = "")
         return
 
     stored_contract = storage.get_contract(token_address)
-
-
-def check_pending_narratives(storage: ContractStorage, chain: str = ""):
-    """检查待更新叙事的合约"""
-    pending_contracts = storage.get_pending_narrative_contracts()
-
-    for token_address in pending_contracts:
-        stored = storage.get_contract(token_address)
-        if not stored:
-            continue
-
-        symbol = stored.get("symbol", "N/A")
-
-        try:
-            narrative_response = fetch_narrative(token_address, chain)
-            if narrative_response.get("success"):
-                history = narrative_response.get("data", {}).get("history", {})
-                if history:
-                    narrative_data = history.get("story", {})
-                    if narrative_data:
-                        # 存储叙事并发送通知
-                        storage.update_narrative(token_address, narrative_data)
-
-                        msg = format_narrative_notification(token_address, symbol, narrative_data, chain)
-                        print(f"📖 [{chain.upper()}] {symbol} 叙事更新")
-                        print(msg)
-                        print("\n" + "=" * 60 + "\n")
-
-                        if ENABLE_TELEGRAM:
-                            notifier.send_with_reply_sync(msg, token_address, storage, chain=chain)
-        except Exception as e:
-            print(f"⚠️ 检查叙事失败 {symbol}: {e}")
     if not stored_contract:
         return
 
@@ -94,6 +62,38 @@ def check_pending_narratives(storage: ContractStorage, chain: str = ""):
 
         # 存储实际倍数（带小数），用于汇总报告显示真实最高倍数
         storage.update_notified_multiplier(token_address, multiplier)
+
+
+def check_pending_narratives(storage: ContractStorage, chain: str = ""):
+    """检查待更新叙事的合约"""
+    pending_contracts = storage.get_pending_narrative_contracts()
+
+    for token_address in pending_contracts:
+        stored = storage.get_contract(token_address)
+        if not stored:
+            continue
+
+        symbol = stored.get("symbol", "N/A")
+
+        try:
+            narrative_response = fetch_narrative(token_address, chain)
+            if narrative_response.get("success"):
+                history = narrative_response.get("data", {}).get("history", {})
+                if history:
+                    narrative_data = history.get("story", {})
+                    if narrative_data:
+                        # 存储叙事并发送通知
+                        storage.update_narrative(token_address, narrative_data)
+
+                        msg = format_narrative_notification(token_address, symbol, narrative_data, chain)
+                        print(f"📖 [{chain.upper()}] {symbol} 叙事更新")
+                        print(msg)
+                        print("\n" + "=" * 60 + "\n")
+
+                        if ENABLE_TELEGRAM:
+                            notifier.send_with_reply_sync(msg, token_address, storage, chain=chain)
+        except Exception as e:
+            print(f"⚠️ 检查叙事失败 {symbol}: {e}")
 
 
 def should_filter_contract(contract: dict, chain: str) -> bool:
