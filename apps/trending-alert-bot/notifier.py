@@ -67,6 +67,7 @@ def format_initial_notification(contract: Dict, chain: str = "", kol_list: list 
 
     # 审计信息
     audit_info = contract.get("auditInfo", {})
+    dev_hp = audit_info.get("devHp", 0)  # Dev持仓
     new_hp = audit_info.get("newHp", 0)  # 新钱包持仓
     insider_hp = audit_info.get("insiderHp", 0)  # 老鼠仓持仓
     snipers = audit_info.get("snipers", 0)  # 狙击钱包数
@@ -85,6 +86,7 @@ def format_initial_notification(contract: Dict, chain: str = "", kol_list: list 
 
 🔒 安全:
 📊 Top Holder: {top_holder:.2f}%
+👨‍💻 Dev持仓: {dev_hp:.2f}%
 🆕 新钱包持仓: {new_hp:.2f}%
 🐀 老鼠仓持仓: {insider_hp:.2f}%
 🎯 狙击钱包数: {snipers}
