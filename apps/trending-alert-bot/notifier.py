@@ -97,6 +97,7 @@ def format_initial_notification(contract: Dict, chain: str = "", kol_list: list 
 🎯 Launch From: {launch_from}"""
 
     # 添加叙事分析
+    msg += "\n\n📖 叙事分析:"
     if narrative:
         narrative_type = narrative.get("narrative_type", "")
         rating = narrative.get("rating", {})
@@ -107,21 +108,31 @@ def format_initial_notification(contract: Dict, chain: str = "", kol_list: list 
         celebrity = distribution.get("celebrity_support", {}).get("text", "")
         negative = distribution.get("negative_incidents", {}).get("text", "")
 
-        msg += "\n\n📖 叙事分析:"
+        has_content = False
         if score:
             msg += f"\n⭐ 评分: {score}/5"
+            has_content = True
         if narrative_type:
             msg += f"\n📌 类型: {narrative_type}"
+            has_content = True
         if celebrity and celebrity != "None":
             msg += f"\n👤 名人支持: {celebrity}"
+            has_content = True
         if origin_text:
             # 截取前150个字符
             origin_short = origin_text[:150] + "..." if len(origin_text) > 150 else origin_text
             msg += f"\n📜 背景: {origin_short}"
+            has_content = True
         if negative:
             # 截取前100个字符
             negative_short = negative[:100] + "..." if len(negative) > 100 else negative
             msg += f"\n⚠️ 风险: {negative_short}"
+            has_content = True
+
+        if not has_content:
+            msg += "\n暂无数据"
+    else:
+        msg += "\n暂无数据"
 
     # 添加 KOL 持仓信息
     if kol_list:
@@ -134,18 +145,24 @@ def format_initial_notification(contract: Dict, chain: str = "", kol_list: list 
         if len(kol_list) > 5:
             msg += f"\n  ... 还有 {len(kol_list) - 5} 位KOL"
 
+    msg += "\n\n📱 链接:"
     if links:
-        msg += "\n\n📱 链接:"
         link_icons = {
             "x": "🐦 Twitter",
             "web": "🌐 Website",
             "telegram": "📱 Telegram",
             "discord": "💬 Discord"
         }
+        has_links = False
         for key, url in links.items():
             if url:
                 icon_text = link_icons.get(key, f"🔗 {key.title()}")
                 msg += f"\n{icon_text}: {url}"
+                has_links = True
+        if not has_links:
+            msg += "\n暂无数据"
+    else:
+        msg += "\n暂无数据"
 
     return msg.strip()
 
