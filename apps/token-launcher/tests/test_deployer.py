@@ -39,6 +39,11 @@ async def main():
         logger.error("❌ 未配置代币信息，请在 config.json 中设置 token 字段")
         return
 
+    four_meme_config = config.get("four_meme", {})
+    if not four_meme_config.get("private_key"):
+        logger.error("❌ 未配置钱包私钥，请在 .env 中设置 FOUR_MEME_PRIVATE_KEY")
+        return
+
     deployer = FourMemeDeployer(four_meme_config)
 
     # 检查连接和余额
@@ -62,7 +67,7 @@ async def main():
     twitter_url = token_config.get("twitter_url", "")
     telegram_url = token_config.get("telegram_url", "")
     website_url = token_config.get("website_url", "")
-    buy_amount = float(token_config.get("buy_amount", 0))
+    buy_amount = float(four_meme_config.get("buy_amount", 0))
 
     test_token = TokenInfo(
         name=name,
