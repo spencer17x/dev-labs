@@ -4,7 +4,6 @@ import logging
 import asyncio
 from typing import Optional
 from web3 import Web3
-from web3.middleware import geth_poa_middleware
 from eth_account import Account
 from .base import BaseDeployer, TokenInfo, DeployResult
 
@@ -82,7 +81,6 @@ class FourMemeDeployer(BaseDeployer):
         # 初始化 Web3
         rpc_url = config.get("rpc_url") or BSC_RPC_URLS.get(self.network, BSC_RPC_URLS["mainnet"])
         self.w3 = Web3(Web3.HTTPProvider(rpc_url))
-        self.w3.middleware_onion.inject(geth_poa_middleware, layer=0)
 
         # 初始化账户
         if self.private_key:
