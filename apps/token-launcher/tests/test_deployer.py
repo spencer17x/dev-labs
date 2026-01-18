@@ -97,7 +97,7 @@ async def main():
 
     if not skip_confirm:
         confirm = input("\n⚠️  确认创建代币? 这将消耗 Gas 费用! (yes/no): ").strip().lower()
-        if confirm != "yes":
+        if confirm not in ("yes", "y"):
             logger.info("❌ 已取消")
             return
 
