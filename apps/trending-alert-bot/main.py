@@ -408,6 +408,11 @@ def monitor_trending():
                         except Exception as e:
                             print(f"⚠️ 获取 KOL 数据失败: {e}")
 
+                        # KOL 持仓过滤：至少有一个 KOL
+                        if not kol_list:
+                            print(f"⏭️ [{chain.upper()}] {contract.get('symbol', 'N/A')} 没有KOL上车，跳过通知")
+                            break
+
                         # 获取叙事分析数据
                         narrative_data = None
                         try:
