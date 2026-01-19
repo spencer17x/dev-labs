@@ -1,3 +1,30 @@
+                    # 审计数据过滤：大于50%跳过通知
+                    audit_info = contract.get("auditInfo", {})
+                    new_hp = audit_info.get("newHp", 0)
+                    if new_hp > 50:
+                        print(f"⏭️ [{chain.upper()}] {contract.get('symbol', 'N/A')} 新钱包持仓 {new_hp:.2f}% > 50%，跳过通知")
+                        break
+
+                    insider_hp = audit_info.get("insiderHp", 0)
+                    if insider_hp > 50:
+                        print(f"⏭️ [{chain.upper()}] {contract.get('symbol', 'N/A')} 老鼠仓持仓 {insider_hp:.2f}% > 50%，跳过通知")
+                        break
+
+                    bundle_hp = audit_info.get("bundleHp", 0)
+                    if bundle_hp > 50:
+                        print(f"⏭️ [{chain.upper()}] {contract.get('symbol', 'N/A')} 捆绑占比 {bundle_hp:.2f}% > 50%，跳过通知")
+                        break
+
+                    dev_hp = audit_info.get("devHp", 0)
+                    if dev_hp > 50:
+                        print(f"⏭️ [{chain.upper()}] {contract.get('symbol', 'N/A')} Dev持仓 {dev_hp:.2f}% > 50%，跳过通知")
+                        break
+
+                    security = contract.get("security", {})
+                    top_holder = security.get("topHolder", {}).get("value", 0)
+                    if top_holder > 50:
+                        print(f"⏭️ [{chain.upper()}] {contract.get('symbol', 'N/A')} Top10持仓 {top_holder:.2f}% > 50%，跳过通知")
+                        break
 """趋势通知机器人"""
 
 import time
@@ -408,10 +435,6 @@ def monitor_trending():
                         except Exception as e:
                             print(f"⚠️ 获取 KOL 数据失败: {e}")
 
-                        # KOL 持仓过滤：至少有一个 KOL
-                        if not kol_list:
-                            print(f"⏭️ [{chain.upper()}] {contract.get('symbol', 'N/A')} 没有KOL上车，跳过通知")
-                            break
 
                         # 获取叙事分析数据
                         narrative_data = None
