@@ -376,57 +376,51 @@ def monitor_trending():
                 response = fetch_trending(chain=chain)
                 contracts = response.get("data", [])
 
-                new_contracts_count = 0
-                tracked_contracts_count = 0
-
-                first_contract_notified = False
+                # 先进行审计过滤
+                filtered_contracts = []
                 for contract in contracts:
                     token_address = contract.get("tokenAddress")
                     current_price = float(contract.get("priceUSD", 0))
-
                     if not token_address or current_price <= 0:
                         continue
+                    audit_info = contract.get("auditInfo", {})
+                    new_hp = audit_info.get("newHp", 0)
+                    if new_hp > 50:
+                        print(f"⏭️ [{chain.upper()}] {contract.get('symbol', 'N/A')} 新钱包持仓 {new_hp:.2f}% > 50%，跳过通知")
+                        continue
+                    insider_hp = audit_info.get("insiderHp", 0)
+                    if insider_hp > 50:
+                        print(f"⏭️ [{chain.upper()}] {contract.get('symbol', 'N/A')} 老鼠仓持仓 {insider_hp:.2f}% > 50%，跳过通知")
+                        continue
+                    bundle_hp = audit_info.get("bundleHp", 0)
+                    if bundle_hp > 50:
+                        print(f"⏭️ [{chain.upper()}] {contract.get('symbol', 'N/A')} 捆绑占比 {bundle_hp:.2f}% > 50%，跳过通知")
+                        continue
+                    dev_hp = audit_info.get("devHp", 0)
+                    if dev_hp > 50:
+                        print(f"⏭️ [{chain.upper()}] {contract.get('symbol', 'N/A')} Dev持仓 {dev_hp:.2f}% > 50%，跳过通知")
+                        continue
+                    security = contract.get("security", {})
+                    top_holder = security.get("topHolder", {}).get("value", 0)
+                    if top_holder > 50:
+                        print(f"⏭️ [{chain.upper()}] {contract.get('symbol', 'N/A')} Top10持仓 {top_holder:.2f}% > 50%，跳过通知")
+                        continue
+                    filtered_contracts.append(contract)
 
+                new_contracts_count = 0
+                tracked_contracts_count = 0
+                first_contract_notified = False
+                for contract in filtered_contracts:
+                    token_address = contract.get("tokenAddress")
+                    current_price = float(contract.get("priceUSD", 0))
                     if should_filter_contract(contract, chain):
                         continue
-
                     is_new = storage.is_new_contract(token_address)
-
                     if is_new:
                         storage.add_contract(token_address, current_price, contract)
-
                     stored_contract = storage.get_contract(token_address)
                     has_trend_notification = stored_contract and stored_contract.get("telegram_message_ids", {})
-
                     if not has_trend_notification:
-                        # 审计数据过滤：大于50%跳过通知
-                        audit_info = contract.get("auditInfo", {})
-                        new_hp = audit_info.get("newHp", 0)
-                        if new_hp > 50:
-                            print(f"⏭️ [{chain.upper()}] {contract.get('symbol', 'N/A')} 新钱包持仓 {new_hp:.2f}% > 50%，跳过通知")
-                            break
-
-                        insider_hp = audit_info.get("insiderHp", 0)
-                        if insider_hp > 50:
-                            print(f"⏭️ [{chain.upper()}] {contract.get('symbol', 'N/A')} 老鼠仓持仓 {insider_hp:.2f}% > 50%，跳过通知")
-                            break
-
-                        bundle_hp = audit_info.get("bundleHp", 0)
-                        if bundle_hp > 50:
-                            print(f"⏭️ [{chain.upper()}] {contract.get('symbol', 'N/A')} 捆绑占比 {bundle_hp:.2f}% > 50%，跳过通知")
-                            break
-
-                        dev_hp = audit_info.get("devHp", 0)
-                        if dev_hp > 50:
-                            print(f"⏭️ [{chain.upper()}] {contract.get('symbol', 'N/A')} Dev持仓 {dev_hp:.2f}% > 50%，跳过通知")
-                            break
-
-                        security = contract.get("security", {})
-                        top_holder = security.get("topHolder", {}).get("value", 0)
-                        if top_holder > 50:
-                            print(f"⏭️ [{chain.upper()}] {contract.get('symbol', 'N/A')} Top10持仓 {top_holder:.2f}% > 50%，跳过通知")
-                            break
-
                         # 获取 KOL 持仓数据
                         pair_address = contract.get("pairAddress", "")
                         kol_list = []
