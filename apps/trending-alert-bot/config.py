@@ -14,8 +14,8 @@ SUMMARY_WIN_THRESHOLD = 5.0
 
 # 白名单配置（空配置表示不过滤）
 CHAIN_ALLOWLISTS = {
-    "sol": {"launchFrom": ["pump"]},
-    "bsc": {"launchFrom": ["four", "flap"], "dexName": ["Binance Exclusive"]},
+    "sol": {},
+    "bsc": {},
 }
 
 # 存储

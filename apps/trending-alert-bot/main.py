@@ -34,6 +34,7 @@ def check_multipliers(contract: dict, storage: ContractStorage, chain: str = "")
     if initial_price <= 0:
         return
 
+
     multiplier = current_price / initial_price
     current_integer_multiplier = int(multiplier)
 
@@ -62,6 +63,33 @@ def check_multipliers(contract: dict, storage: ContractStorage, chain: str = "")
 
         # 存储实际倍数（带小数），用于汇总报告显示真实最高倍数
         storage.update_notified_multiplier(token_address, multiplier)
+
+        # 新增：如果叙事未获取且未通知，尝试获取叙事并发送叙事更新
+        if not storage.get_narrative(token_address):
+            try:
+                narrative_response = fetch_narrative(token_address, chain)
+                if narrative_response.get("success"):
+                    history = narrative_response.get("data", {}).get("history", {})
+                    if history:
+                        narrative_data = history.get("story", {})
+                        if narrative_data:
+                            storage.update_narrative(token_address, narrative_data)
+                            symbol = contract.get("symbol", "N/A")
+                            msg_narr = format_narrative_notification(token_address, symbol, narrative_data, chain)
+                            print(f"📖 [{chain.upper()}] {symbol} 叙事更新 (倍数通知)")
+                            print(msg_narr)
+                            print("\n" + "=" * 60 + "\n")
+                            if ENABLE_TELEGRAM:
+                                notifier.send_with_reply_sync(msg_narr, token_address, storage, chain=chain)
+                        else:
+                            storage.mark_narrative_pending(token_address)
+                    else:
+                        storage.mark_narrative_pending(token_address)
+                else:
+                    storage.mark_narrative_pending(token_address)
+            except Exception as e:
+                print(f"⚠️ 倍数通知叙事获取失败 {contract.get('symbol', 'N/A')}: {e}")
+                storage.mark_narrative_pending(token_address)
 
 
 def check_pending_narratives(storage: ContractStorage, chain: str = ""):
@@ -376,16 +404,42 @@ def monitor_trending():
                 response = fetch_trending(chain=chain)
                 contracts = response.get("data", [])
 
+                # 审计过滤：大于30%跳过
+                filtered_contracts = []
+                for contract in contracts:
+                    audit_info = contract.get("auditInfo", {})
+                    new_hp = audit_info.get("newHp", 0)
+                    if new_hp > 30:
+                        print(f"⏭️ [{chain.upper()}] {contract.get('symbol', 'N/A')} 新钱包持仓 {new_hp:.2f}% > 30%，跳过通知")
+                        continue
+                    insider_hp = audit_info.get("insiderHp", 0)
+                    if insider_hp > 30:
+                        print(f"⏭️ [{chain.upper()}] {contract.get('symbol', 'N/A')} 老鼠仓持仓 {insider_hp:.2f}% > 30%，跳过通知")
+                        continue
+                    bundle_hp = audit_info.get("bundleHp", 0)
+                    if bundle_hp > 30:
+                        print(f"⏭️ [{chain.upper()}] {contract.get('symbol', 'N/A')} 捆绑占比 {bundle_hp:.2f}% > 30%，跳过通知")
+                        continue
+                    dev_hp = audit_info.get("devHp", 0)
+                    if dev_hp > 30:
+                        print(f"⏭️ [{chain.upper()}] {contract.get('symbol', 'N/A')} Dev持仓 {dev_hp:.2f}% > 30%，跳过通知")
+                        continue
+                    security = contract.get("security", {})
+                    top_holder = security.get("topHolder", {}).get("value", 0)
+                    if top_holder > 30:
+                        print(f"⏭️ [{chain.upper()}] {contract.get('symbol', 'N/A')} Top10持仓 {top_holder:.2f}% > 30%，跳过通知")
+                        continue
+                    filtered_contracts.append(contract)
+
                 new_contracts_count = 0
                 tracked_contracts_count = 0
                 first_contract_notified = False
-                for contract in contracts:
+
+                for contract in filtered_contracts:
                     token_address = contract.get("tokenAddress")
                     current_price = float(contract.get("priceUSD", 0))
                     if not token_address or current_price <= 0:
                         continue
-                    token_address = contract.get("tokenAddress")
-                    current_price = float(contract.get("priceUSD", 0))
                     if should_filter_contract(contract, chain):
                         continue
                     is_new = storage.is_new_contract(token_address)
@@ -403,22 +457,26 @@ def monitor_trending():
                         except Exception as e:
                             print(f"⚠️ 获取 KOL 数据失败: {e}")
 
-                        # 获取叙事分析数据
-                        narrative_data = None
-                        try:
-                            narrative_response = fetch_narrative(token_address, chain)
-                            if narrative_response.get("success"):
-                                history = narrative_response.get("data", {}).get("history", {})
-                                if history:
-                                    narrative_data = history.get("story", {})
-                        except Exception as e:
-                            print(f"⚠️ 获取叙事数据失败: {e}")
-
-                        # 存储叙事或标记待更新
-                        if narrative_data:
-                            storage.update_narrative(token_address, narrative_data)
-                        else:
-                            storage.mark_narrative_pending(token_address)
+                        # 获取叙事分析数据（仅首次趋势通知时获取）
+                        narrative_data = storage.get_narrative(token_address)
+                        if narrative_data is None:
+                            try:
+                                narrative_response = fetch_narrative(token_address, chain)
+                                if narrative_response.get("success"):
+                                    history = narrative_response.get("data", {}).get("history", {})
+                                    if history:
+                                        narrative_data = history.get("story", {})
+                                        if narrative_data:
+                                            storage.update_narrative(token_address, narrative_data)
+                                        else:
+                                            storage.mark_narrative_pending(token_address)
+                                    else:
+                                        storage.mark_narrative_pending(token_address)
+                                else:
+                                    storage.mark_narrative_pending(token_address)
+                            except Exception as e:
+                                print(f"⚠️ 获取叙事数据失败: {e}")
+                                storage.mark_narrative_pending(token_address)
 
                         if not is_new:
                             current_market_cap = float(contract.get("marketCapUSD", 0))
