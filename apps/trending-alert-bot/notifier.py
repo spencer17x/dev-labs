@@ -60,7 +60,7 @@ def _format_kol_sections(kol_holders=None, kol_leavers=None) -> str:
     if not holders and not leavers:
         return ""
 
-    lines = ["", "👑 KOL 状态:"]
+    lines = ["", "", "👑 KOL 状态:"]
 
     if holders:
         lines.append(f"🚀 已上车 ({len(holders)}):")
@@ -497,4 +497,3 @@ def format_surge_notification(
 ⏱ 时间窗口: {window_str}
 """
     return msg.strip()
-
