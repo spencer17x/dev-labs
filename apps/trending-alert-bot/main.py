@@ -3,12 +3,75 @@
 import time
 import os
 from datetime import datetime, timedelta
+from typing import List, Optional, Tuple
+
 from api import fetch_trending, fetch_kol_holders, fetch_narrative
 from storage import ContractStorage
-from notifier import format_initial_notification, format_multiplier_notification, format_summary_report, format_narrative_notification
-from config import CHECK_INTERVAL, SILENT_INIT, CHAINS, ENABLE_TELEGRAM, STORAGE_DIR, CHAIN_ALLOWLISTS, SUMMARY_REPORT_HOURS, SUMMARY_TOP_N
+from notifier import (
+    format_initial_notification,
+    format_multiplier_notification,
+    format_summary_report,
+    format_narrative_notification,
+)
+from config import (
+    CHECK_INTERVAL,
+    SILENT_INIT,
+    CHAINS,
+    ENABLE_TELEGRAM,
+    STORAGE_DIR,
+    CHAIN_ALLOWLISTS,
+    SUMMARY_REPORT_HOURS,
+    SUMMARY_TOP_N,
+)
 from telegram_bot import notifier
 from timezone_utils import beijing_now
+
+
+def _safe_float(value) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def split_kol_positions(kol_list: Optional[List[dict]]) -> Tuple[List[dict], List[dict]]:
+    """将KOL按是否仍持仓拆分"""
+    holders: list = []
+    leavers: list = []
+
+    if not kol_list:
+        return holders, leavers
+
+    for kol in kol_list:
+        hold_amount = _safe_float(kol.get("holdAmount"))
+        hold_percent = _safe_float(kol.get("holdPercent"))
+        hold_value = _safe_float(kol.get("holdValueUSD"))
+
+        if hold_amount > 0 or hold_percent > 0 or hold_value > 0:
+            holders.append(kol)
+        else:
+            leavers.append(kol)
+
+    return holders, leavers
+
+
+def load_kol_status(contract: dict, chain: str, context: str = "") -> Tuple[List[dict], List[dict]]:
+    token_address = contract.get("tokenAddress")
+    pair_address = contract.get("pairAddress", "")
+
+    if not token_address:
+        return [], []
+
+    try:
+        kol_response = fetch_kol_holders(token_address, pair_address, chain)
+        kol_list = kol_response.get("data", []) or []
+        return split_kol_positions(kol_list)
+    except Exception as e:
+        prefix = f"[{chain.upper()}] " if chain else ""
+        context_text = f"{context} " if context else ""
+        symbol = contract.get("symbol", "N/A")
+        print(f"⚠️ {prefix}{symbol} {context_text}获取 KOL 数据失败: {e}")
+        return [], []
 
 
 def check_multipliers(contract: dict, storage: ContractStorage, chain: str = ""):
@@ -46,6 +109,12 @@ def check_multipliers(contract: dict, storage: ContractStorage, chain: str = "")
 
     # 只在达到新的整数倍数时通知，避免价格回落或在整数边界反复通知
     if current_integer_multiplier > max_notified_integer:
+        kol_with_positions, kol_without_positions = load_kol_status(
+            contract,
+            chain,
+            context="倍数通知",
+        )
+
         msg = format_multiplier_notification(
             contract,
             initial_price,
@@ -53,7 +122,9 @@ def check_multipliers(contract: dict, storage: ContractStorage, chain: str = "")
             multiplier,
             stored_contract.get("initial_market_cap", 0),
             stored_contract.get("push_time", "N/A"),
-            chain
+            chain,
+            kol_with_positions,
+            kol_without_positions,
         )
         print(msg)
         print("\n" + "=" * 60 + "\n")
@@ -448,14 +519,11 @@ def monitor_trending():
                     stored_contract = storage.get_contract(token_address)
                     has_trend_notification = stored_contract and stored_contract.get("telegram_message_ids", {})
                     if not has_trend_notification:
-                        # 获取 KOL 持仓数据
-                        pair_address = contract.get("pairAddress", "")
-                        kol_list = []
-                        try:
-                            kol_response = fetch_kol_holders(token_address, pair_address, chain)
-                            kol_list = kol_response.get("data", []) or []
-                        except Exception as e:
-                            print(f"⚠️ 获取 KOL 数据失败: {e}")
+                        kol_with_positions, kol_without_positions = load_kol_status(
+                            contract,
+                            chain,
+                            context="趋势通知",
+                        )
 
                         # 获取叙事分析数据（仅首次趋势通知时获取）
                         narrative_data = storage.get_narrative(token_address)
@@ -482,7 +550,13 @@ def monitor_trending():
                             current_market_cap = float(contract.get("marketCapUSD", 0))
                             storage.update_initial_price(token_address, current_price, current_market_cap)
 
-                        msg = format_initial_notification(contract, chain, kol_list, narrative_data)
+                        msg = format_initial_notification(
+                            contract,
+                            chain,
+                            kol_with_positions,
+                            kol_without_positions,
+                            narrative_data,
+                        )
                         print(msg)
                         print("\n" + "=" * 60 + "\n")
 
@@ -540,4 +614,3 @@ def monitor_trending():
 
 if __name__ == "__main__":
     monitor_trending()
-

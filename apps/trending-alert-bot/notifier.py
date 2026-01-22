@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, List, Optional
 from datetime import datetime
 from timezone_utils import beijing_now, format_beijing_time
 
@@ -46,7 +46,61 @@ def _format_kol_amount(amount: str) -> str:
         return amount
 
 
-def format_initial_notification(contract: Dict, chain: str = "", kol_list: list = None, narrative: dict = None) -> str:
+def _safe_float(value) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _format_kol_sections(kol_holders=None, kol_leavers=None) -> str:
+    holders = kol_holders or []
+    leavers = kol_leavers or []
+
+    if not holders and not leavers:
+        return ""
+
+    lines = ["", "👑 KOL 状态:"]
+
+    if holders:
+        lines.append(f"🚀 已上车 ({len(holders)}):")
+        for kol in holders[:5]:
+            kol_name = kol.get("name", "Unknown")
+            hold_value_usd = _safe_float(kol.get("holdValueUSD"))
+            hold_percent = _safe_float(kol.get("holdPercent"))
+            buy_count = kol.get("buyCount", 0)
+            sell_count = kol.get("sellCount", 0)
+            lines.append(
+                f"  • {kol_name}: {_format_market_cap(hold_value_usd)} ({hold_percent:.2f}%) | 买{buy_count}/卖{sell_count}"
+            )
+        if len(holders) > 5:
+            lines.append(f"  ...还有 {len(holders) - 5} 位KOL")
+
+    if leavers:
+        lines.append(f"🛬 已下车 ({len(leavers)}):")
+        for kol in leavers[:6]:
+            kol_name = kol.get("name", "Unknown")
+            last_trade = kol.get("lastTradeTime")
+            suffix = ""
+            if last_trade:
+                try:
+                    suffix = f" · {_format_time_ago(int(last_trade))}"
+                except (TypeError, ValueError):
+                    pass
+            lines.append(f"  • {kol_name}{suffix}")
+        if len(leavers) > 6:
+            lines.append(f"  ...还有 {len(leavers) - 6} 位KOL")
+
+    return "\n".join(lines)
+
+
+def format_initial_notification(
+    contract: Dict,
+    chain: str = "",
+    kol_holders: Optional[List[Dict]] = None,
+    kol_leavers: Optional[List[Dict]] = None,
+    narrative: Optional[Dict] = None,
+) -> str:
     symbol = contract.get("symbol", "N/A")
     name = contract.get("name", "N/A")
     price = float(contract.get("priceUSD", 0))
@@ -136,16 +190,7 @@ def format_initial_notification(contract: Dict, chain: str = "", kol_list: list 
     else:
         msg += "\n暂无数据"
 
-    # 添加 KOL 持仓信息
-    if kol_list:
-        msg += f"\n\n👑 KOL 持仓 ({len(kol_list)}人):"
-        for kol in kol_list[:5]:  # 最多显示5个KOL
-            kol_name = kol.get("name", "Unknown")
-            hold_value_usd = float(kol.get("holdValueUSD", 0))
-            hold_percent = float(kol.get("holdPercent", 0))
-            msg += f"\n  • {kol_name}: {_format_market_cap(hold_value_usd)} ({hold_percent:.2f}%)"
-        if len(kol_list) > 5:
-            msg += f"\n  ... 还有 {len(kol_list) - 5} 位KOL"
+    msg += _format_kol_sections(kol_holders, kol_leavers)
 
     msg += "\n\n📱 链接:"
     if links:
@@ -176,7 +221,9 @@ def format_multiplier_notification(
     multiplier: float,
     initial_market_cap: float,
     push_time: str,
-    chain: str = ""
+    chain: str = "",
+    kol_holders: Optional[List[Dict]] = None,
+    kol_leavers: Optional[List[Dict]] = None,
 ) -> str:
     symbol = contract.get("symbol", "N/A")
     current_market_cap = float(contract.get("marketCapUSD", 0))
@@ -199,6 +246,7 @@ def format_multiplier_notification(
 ⏰ 推送时间: {push_time}
 ⏰ 当前时间: {current_time}
 """
+    msg += _format_kol_sections(kol_holders, kol_leavers)
     return msg.strip()
 
 
@@ -449,6 +497,4 @@ def format_surge_notification(
 ⏱ 时间窗口: {window_str}
 """
     return msg.strip()
-
-
 
