@@ -529,6 +529,9 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
                 # 审计过滤：大于30%跳过
                 filtered_contracts = []
                 for contract in contracts:
+                    launch_from = contract.get("launchFrom") or ""
+                    if not launch_from:
+                        continue
                     audit_info = contract.get("auditInfo", {})
                     new_hp = audit_info.get("newHp", 0)
                     if new_hp > 30:
@@ -612,9 +615,22 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
                         if ENABLE_TELEGRAM:
                             image_url = contract.get("imageUrl")
                             if image_url:
-                                message_ids = notifier.send_photo_sync(image_url, msg, token_address=token_address, chain=chain)
+                                print(
+                                    f"🖼️ [{chain.upper()}] 发送图片: {contract.get('symbol', 'N/A')} | "
+                                    f"{token_address} | url={image_url}"
+                                )
+                                message_ids = notifier.send_photo_sync(
+                                    image_url,
+                                    msg,
+                                    token_address=token_address,
+                                    chain=chain,
+                                )
                             else:
-                                message_ids = notifier.send_sync(msg, token_address=token_address, chain=chain)
+                                message_ids = notifier.send_sync(
+                                    msg,
+                                    token_address=token_address,
+                                    chain=chain,
+                                )
 
                             for chat_id, msg_id in message_ids.items():
                                 storage.update_telegram_message_id(token_address, chat_id, msg_id)

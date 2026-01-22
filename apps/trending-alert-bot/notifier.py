@@ -68,8 +68,8 @@ def _format_kol_sections(kol_holders=None, kol_leavers=None) -> str:
             kol_name = kol.get("name", "Unknown")
             hold_value_usd = _safe_float(kol.get("holdValueUSD"))
             hold_percent = _safe_float(kol.get("holdPercent"))
-            buy_count = kol.get("buyCount", 0)
-            sell_count = kol.get("sellCount", 0)
+            buy_count = kol.get("buyCount") or 0
+            sell_count = kol.get("sellCount") or 0
             lines.append(
                 f"  • {kol_name}: {_format_market_cap(hold_value_usd)} ({hold_percent:.2f}%) | 买{buy_count}/卖{sell_count}"
             )

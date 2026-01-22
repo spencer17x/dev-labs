@@ -261,12 +261,12 @@ class TelegramNotifier:
                     if "Flood control" in str(e):
                         print(f"⚠️  频率限制，跳过发送图片到 {chat['chat_id']}")
                     else:
-                        print(f"❌ 发送图片到 {chat['chat_id']} 失败: {e}")
+                        print(f"❌ 发送图片到 {chat['chat_id']} 失败: {e} | url={photo_url}")
 
             return message_ids
 
         except Exception as e:
-            print(f"❌ 发送图片消息时发生错误: {e}")
+            print(f"❌ 发送图片消息时发生错误: {e} | url={photo_url}")
             return {}
 
     def send_sync(self, message: str, chat_id: Optional[int] = None, reply_to_message_id: Optional[int] = None, token_address: str = None, chain: str = None) -> dict:
@@ -296,7 +296,7 @@ class TelegramNotifier:
             )
             return future.result(timeout=10)
         except Exception as e:
-            print(f"❌ 同步发送图片失败: {e}")
+            print(f"❌ 同步发送图片失败: {e} | url={photo_url}")
             return {}
 
     def send_with_reply_sync(self, message: str, token_address: str, storage, chat_id: Optional[int] = None, chain: str = None) -> bool:
