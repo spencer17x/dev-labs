@@ -83,11 +83,11 @@ def _format_kol_sections(kol_holders=None, kol_leavers=None) -> str:
                 f"  • {kol_name}: {_format_market_cap(hold_value_usd)} ({hold_percent:.2f}%) | 买{buy_count}/卖{sell_count}"
             )
         if len(holders) > 5:
-            lines.append(f"  ...还有 {len(holders) - 5} 位KOL")
+            lines.append("  ...")
 
     if leavers:
         lines.append(f"🛬 已下车 ({len(leavers)}):")
-        for kol in leavers[:6]:
+        for kol in leavers[:5]:
             kol_name = kol.get("name", "Unknown")
             last_trade = kol.get("lastTradeTime")
             suffix = ""
@@ -97,8 +97,8 @@ def _format_kol_sections(kol_holders=None, kol_leavers=None) -> str:
                 except (TypeError, ValueError):
                     pass
             lines.append(f"  • {kol_name}{suffix}")
-        if len(leavers) > 6:
-            lines.append(f"  ...还有 {len(leavers) - 6} 位KOL")
+        if len(leavers) > 5:
+            lines.append("  ...")
 
     return "\n".join(lines)
 
@@ -141,19 +141,12 @@ def format_initial_notification(
 💎 {symbol} ({name})
 📝 CA: <code>{token_address}</code>
 
-💰 价格: <b>${price:.8f}</b>
-📊 市值: <b>{_format_market_cap(market_cap)}</b>
-👥 Holders: <b>{holders:.2f}</b>
-📈 24h 涨跌幅: <b>{price_change_24h}%</b>
+💰 价格: ${price:.8f}
+📊 市值: {_format_market_cap(market_cap)}
+👥 Holders: {holders:.2f}
+📈 24h 涨跌幅: {price_change_24h}%
 
-🔒 安全:
-{_risk_marker(top_holder)} Top Holder: <b>{top_holder:.2f}%</b>
-{_risk_marker(dev_hp)} Dev持仓: <b>{dev_hp:.2f}%</b>
-{_risk_marker(new_hp)} 新钱包持仓: <b>{new_hp:.2f}%</b>
-{_risk_marker(insider_hp)} 老鼠仓持仓: <b>{insider_hp:.2f}%</b>
-🎯 狙击钱包数: <b>{snipers}</b>
-{_risk_marker(bundle_hp)} 捆绑占比: <b>{bundle_hp:.2f}%</b>
-💵 Dexs付费: <b>{"✅" if dex_paid else "❌"}</b>
+🔒 安全: {_risk_marker(top_holder)}Top Holder {top_holder:.2f}% | {_risk_marker(dev_hp)}Dev {dev_hp:.2f}% | {_risk_marker(new_hp)}新钱包 {new_hp:.2f}% | {_risk_marker(insider_hp)}老鼠仓 {insider_hp:.2f}% | 🎯狙击 {snipers} | {_risk_marker(bundle_hp)}捆绑 {bundle_hp:.2f}% | 💵Dexs付费 {"✅" if dex_paid else "❌"}
 
 ⏰ 创建时间: {time_ago}
 ⏰ 推送时间: {push_time}
@@ -206,12 +199,12 @@ def format_multiplier_notification(
 💎 {symbol}
 📝 CA: <code>{token_address}</code>
 
-💰 初始价格: <b>${initial_price:.8f}</b>
-💵 当前价格: <b>${current_price:.8f}</b>
-📈 涨幅: <b>{multiplier:.2f}X</b>
+💰 初始价格: ${initial_price:.8f}
+💵 当前价格: ${current_price:.8f}
+📈 涨幅: {multiplier:.2f}X
 
-📊 推送时市值: <b>{_format_market_cap(initial_market_cap)}</b>
-💎 当前市值: <b>{_format_market_cap(current_market_cap)}</b>
+📊 推送时市值: {_format_market_cap(initial_market_cap)}
+💎 当前市值: {_format_market_cap(current_market_cap)}
 
 ⏰ 推送时间: {push_time}
 ⏰ 当前时间: {current_time}
