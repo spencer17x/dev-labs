@@ -545,10 +545,6 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
                     dev_hp = audit_info.get("devHp", 0)
                     if dev_hp > 30:
                         continue
-                    security = contract.get("security", {})
-                    top_holder = security.get("topHolder", {}).get("value", 0)
-                    if top_holder > 30:
-                        continue
                     filtered_contracts.append(contract)
 
                 new_contracts_count = 0
@@ -625,6 +621,16 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
                                     token_address=token_address,
                                     chain=chain,
                                 )
+                                if not message_ids:
+                                    print(
+                                        f"↪️ [{chain.upper()}] 图片发送失败，降级为文本: "
+                                        f"{contract.get('symbol', 'N/A')} | {token_address}"
+                                    )
+                                    message_ids = notifier.send_sync(
+                                        msg,
+                                        token_address=token_address,
+                                        chain=chain,
+                                    )
                             else:
                                 message_ids = notifier.send_sync(
                                     msg,

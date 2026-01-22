@@ -53,6 +53,15 @@ def _safe_float(value) -> float:
         return 0.0
 
 
+def _risk_marker(value: float) -> str:
+    """风险分级: <10% 低, 10-20% 中, >=30% 高 (20-30% 仍按中)"""
+    if value >= 30:
+        return "🚨"
+    if value >= 10:
+        return "⚠️"
+    return "ℹ️"
+
+
 def _format_kol_sections(kol_holders=None, kol_leavers=None) -> str:
     holders = kol_holders or []
     leavers = kol_leavers or []
@@ -133,19 +142,19 @@ def format_initial_notification(
 💎 {symbol} ({name})
 📝 CA: <code>{token_address}</code>
 
-💰 价格: ${price:.8f}
-📊 市值: {_format_market_cap(market_cap)}
-👥 Holders: {holders:.2f}
-📈 24h 涨跌幅: {price_change_24h}%
+💰 价格: <b>${price:.8f}</b>
+📊 市值: <b>{_format_market_cap(market_cap)}</b>
+👥 Holders: <b>{holders:.2f}</b>
+📈 24h 涨跌幅: <b>{price_change_24h}%</b>
 
 🔒 安全:
-📊 Top Holder: {top_holder:.2f}%
-👨‍💻 Dev持仓: {dev_hp:.2f}%
-🆕 新钱包持仓: {new_hp:.2f}%
-🐀 老鼠仓持仓: {insider_hp:.2f}%
-🎯 狙击钱包数: {snipers}
-📦 捆绑占比: {bundle_hp:.2f}%
-💵 Dexs付费: {"✅" if dex_paid else "❌"}
+{_risk_marker(top_holder)} Top Holder: <b>{top_holder:.2f}%</b>
+{_risk_marker(dev_hp)} Dev持仓: <b>{dev_hp:.2f}%</b>
+{_risk_marker(new_hp)} 新钱包持仓: <b>{new_hp:.2f}%</b>
+{_risk_marker(insider_hp)} 老鼠仓持仓: <b>{insider_hp:.2f}%</b>
+🎯 狙击钱包数: <b>{snipers}</b>
+{_risk_marker(bundle_hp)} 捆绑占比: <b>{bundle_hp:.2f}%</b>
+💵 Dexs付费: <b>{"✅" if dex_paid else "❌"}</b>
 
 ⏰ 创建时间: {time_ago}
 ⏰ 推送时间: {push_time}
@@ -166,10 +175,10 @@ def format_initial_notification(
 
         has_content = False
         if score:
-            msg += f"\n⭐ 评分: {score}/5"
+            msg += f"\n⭐ 评分: <b>{score}/5</b>"
             has_content = True
         if narrative_type:
-            msg += f"\n📌 类型: {narrative_type}"
+            msg += f"\n📌 类型: <b>{narrative_type}</b>"
             has_content = True
         if celebrity and celebrity != "None":
             msg += f"\n👤 名人支持: {celebrity}"
@@ -236,12 +245,12 @@ def format_multiplier_notification(
 💎 {symbol}
 📝 CA: <code>{token_address}</code>
 
-💰 初始价格: ${initial_price:.8f}
-💵 当前价格: ${current_price:.8f}
-📈 涨幅: {multiplier:.2f}X
+💰 初始价格: <b>${initial_price:.8f}</b>
+💵 当前价格: <b>${current_price:.8f}</b>
+📈 涨幅: <b>{multiplier:.2f}X</b>
 
-📊 推送时市值: {_format_market_cap(initial_market_cap)}
-💎 当前市值: {_format_market_cap(current_market_cap)}
+📊 推送时市值: <b>{_format_market_cap(initial_market_cap)}</b>
+💎 当前市值: <b>{_format_market_cap(current_market_cap)}</b>
 
 ⏰ 推送时间: {push_time}
 ⏰ 当前时间: {current_time}
