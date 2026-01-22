@@ -108,7 +108,6 @@ def format_initial_notification(
     chain: str = "",
     kol_holders: Optional[List[Dict]] = None,
     kol_leavers: Optional[List[Dict]] = None,
-    narrative: Optional[Dict] = None,
 ) -> str:
     symbol = contract.get("symbol", "N/A")
     name = contract.get("name", "N/A")
@@ -160,44 +159,6 @@ def format_initial_notification(
 ⏰ 推送时间: {push_time}
 🏪 DEX: {dex_name}
 🎯 Launch From: {launch_from}"""
-
-    # 添加叙事分析
-    msg += "\n\n📖 叙事分析:"
-    if narrative:
-        narrative_type = narrative.get("narrative_type", "")
-        rating = narrative.get("rating", {})
-        score = rating.get("score", "")
-        background = narrative.get("background", {})
-        origin_text = background.get("origin", {}).get("text", "")
-        distribution = narrative.get("distribution", {})
-        celebrity = distribution.get("celebrity_support", {}).get("text", "")
-        negative = distribution.get("negative_incidents", {}).get("text", "")
-
-        has_content = False
-        if score:
-            msg += f"\n⭐ 评分: <b>{score}/5</b>"
-            has_content = True
-        if narrative_type:
-            msg += f"\n📌 类型: <b>{narrative_type}</b>"
-            has_content = True
-        if celebrity and celebrity != "None":
-            msg += f"\n👤 名人支持: {celebrity}"
-            has_content = True
-        if origin_text:
-            # 截取前150个字符
-            origin_short = origin_text[:150] + "..." if len(origin_text) > 150 else origin_text
-            msg += f"\n📜 背景: {origin_short}"
-            has_content = True
-        if negative:
-            # 截取前100个字符
-            negative_short = negative[:100] + "..." if len(negative) > 100 else negative
-            msg += f"\n⚠️ 风险: {negative_short}"
-            has_content = True
-
-        if not has_content:
-            msg += "\n暂无数据"
-    else:
-        msg += "\n暂无数据"
 
     msg += _format_kol_sections(kol_holders, kol_leavers)
 

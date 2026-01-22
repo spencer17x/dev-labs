@@ -600,7 +600,6 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
                             chain,
                             kol_with_positions,
                             kol_without_positions,
-                            narrative_data,
                         )
                         print(msg)
                         print("\n" + "=" * 60 + "\n")
@@ -640,6 +639,15 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
 
                             for chat_id, msg_id in message_ids.items():
                                 storage.update_telegram_message_id(token_address, chat_id, msg_id)
+
+                            if narrative_data:
+                                msg_narr = format_narrative_notification(
+                                    token_address,
+                                    contract.get("symbol", "N/A"),
+                                    narrative_data,
+                                    chain,
+                                )
+                                notifier.send_with_reply_sync(msg_narr, token_address, storage, chain=chain)
 
                         first_contract_notified = True
 
