@@ -1,5 +1,6 @@
 """趋势通知机器人"""
 
+import argparse
 import time
 import os
 from datetime import datetime, timedelta
@@ -25,6 +26,46 @@ from config import (
 )
 from telegram_bot import notifier
 from timezone_utils import beijing_now
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="趋势通知机器人")
+    parser.add_argument(
+        "-c",
+        "--clear-storage",
+        metavar="CHAIN[,CHAIN]",
+        default="",
+        help="启动前清理缓存，可填 'all' 或逗号/空格分隔的链名称",
+    )
+    return parser.parse_args()
+
+
+def normalize_clear_targets(raw_value: Optional[str]) -> List[str]:
+    """将用户输入的链名称解析为受支持的链列表"""
+
+    if not raw_value:
+        return []
+
+    normalized_input = raw_value.strip().lower()
+    if normalized_input == "all":
+        return list(CHAINS)
+
+    selections: List[str] = []
+    seen = set()
+
+    chunks = normalized_input.replace(",", " ").split()
+    for chunk in chunks:
+        if chunk not in CHAINS:
+            print(f"⚠️ 忽略未知链: {chunk}")
+            continue
+
+        if chunk in seen:
+            continue
+
+        selections.append(chunk)
+        seen.add(chunk)
+
+    return selections
 
 
 def _safe_float(value) -> float:
@@ -394,12 +435,22 @@ def should_send_summary_report(last_report_hour: int) -> bool:
     return False
 
 
-def monitor_trending():
+def monitor_trending(clear_storage: Optional[List[str]] = None):
     chains = CHAINS
+
+    clear_targets = set(clear_storage or [])
+    if "all" in clear_targets:
+        clear_targets = set(chains)
 
     storages = {}
     for chain in chains:
         storage_file = os.path.join(STORAGE_DIR, f"contracts_data_{chain}.json")
+        if chain in clear_targets:
+            if os.path.exists(storage_file):
+                os.remove(storage_file)
+                print(f"🗑️ 已清理 {chain.upper()} 本地缓存: {storage_file}")
+            else:
+                print(f"ℹ️ {chain.upper()} 无缓存文件可清理 ({storage_file})")
         storages[chain] = ContractStorage(storage_file)
 
     print(f"🤖 Bot 启动 | 链: {', '.join([c.upper() for c in chains])} | 间隔: {CHECK_INTERVAL}s")
@@ -613,4 +664,6 @@ def monitor_trending():
 
 
 if __name__ == "__main__":
-    monitor_trending()
+    cli_args = parse_args()
+    clear_targets = normalize_clear_targets(cli_args.clear_storage)
+    monitor_trending(clear_targets)
