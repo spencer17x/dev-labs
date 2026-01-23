@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # 基础设置
-CHECK_INTERVAL = 10
+CHECK_INTERVAL = 15
 CHAINS = ["bsc", "sol"]
 
 # 汇总报告配置
