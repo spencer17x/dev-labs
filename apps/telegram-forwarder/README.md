@@ -28,17 +28,14 @@ pip install -r requirements.txt
 
 从 [https://my.telegram.org](https://my.telegram.org) 获取 API_ID 和 API_HASH，创建 `.env` 文件：
 
-```bash
-cp .env.example .env
-```
-
-编辑 `.env`：
+手动创建 `.env`（与 `main.py` 同级）并编辑：
 
 ```env
 TELEGRAM_API_ID=your_api_id
 TELEGRAM_API_HASH=your_api_hash
 TELEGRAM_SESSION_PATH=telegram_forwarder_session  # 可选
 LOG_LEVEL=INFO  # 可选: DEBUG, INFO, WARNING, ERROR, CRITICAL
+# FORWARD_RULES_PATH=./forward_rules.json  # 可选：自定义规则文件路径
 ```
 
 2. **配置转发规则**
@@ -94,6 +91,7 @@ pm2 save
 
 ```json
 {
+  "session_name": "telegram_forwarder_session",
   "groups": [
     {
       "id": "unique_id",
@@ -121,6 +119,11 @@ pm2 save
 | `source`               | 源群组/频道  | `"@channel"` 或 `-1001234567890`  |
 | `rules[].targets`      | 目标群组列表 | `["@target1", "@target2"]`        |
 | `rules[].filters.mode` | 过滤模式     | `"all"`, `"include"`, `"exclude"` |
+
+### 可选配置
+
+- `session_name`：会话文件名或路径（等价于 `TELEGRAM_SESSION_PATH`）
+- 环境变量 `FORWARD_RULES_PATH`：自定义配置文件路径（默认 `forward_rules.json`）
 
 ### 过滤模式
 
@@ -213,15 +216,21 @@ pm2 save
 
 ## 🔧 工具
 
-### 获取群组 ID
+### 获取群组 / 用户 ID
 
 **方法 1：使用脚本**
 
 ```bash
-python get_chat_info.py
+python cli/list_my_groups.py
 ```
 
-按提示输入群组链接或用户名。
+可选择显示列表或导出 JSON（默认导出文件 `my_groups.json`）。
+
+**查询用户 ID**
+
+```bash
+python cli/query_user_id.py
+```
 
 **方法 2：使用 Bot**
 
@@ -247,6 +256,10 @@ python get_chat_info.py
 ```
 
 💡 设置 `LOG_LEVEL=DEBUG` 查看更详细的规则匹配过程。
+
+## 🔔 启动通知
+
+机器人启动后会向所有转发目标群组发送一条“已启动”通知消息；如需禁用该行为，可在 `core/bot.py` 中注释 `send_startup_notifications()` 调用。
 
 ## ❓ 常见问题
 
@@ -344,7 +357,8 @@ telegram-forwarder/
 │   └── entity_helper.py        # 实体信息处理
 └── cli/                         # 命令行工具
     ├── __init__.py
-    └── query_user_id.py        # 查询用户ID
+    ├── query_user_id.py        # 查询用户ID
+    └── list_my_groups.py       # 群组列表/导出
 ```
 
 ## 📚 文档
