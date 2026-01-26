@@ -1,4 +1,5 @@
 from typing import Dict, List, Optional
+from urllib.parse import quote
 from datetime import datetime
 from timezone_utils import beijing_now, format_beijing_time
 
@@ -133,10 +134,14 @@ def format_initial_notification(
                 icon_text = link_icons.get(key, f"🔗 {key.title()}")
                 msg += f"\n{icon_text}: {url}"
                 has_links = True
+        search_url = f"https://x.com/search?q={quote(token_address)}"
+        msg += f"\n🔎 搜索合约: {search_url}"
+        has_links = True
         if not has_links:
             msg += "\n暂无数据"
     else:
-        msg += "\n暂无数据"
+        search_url = f"https://x.com/search?q={quote(token_address)}"
+        msg += f"\n🔎 搜索合约: {search_url}"
 
     return msg.strip()
 
