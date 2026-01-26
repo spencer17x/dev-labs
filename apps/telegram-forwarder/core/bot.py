@@ -161,6 +161,14 @@ class TelegramForwarderBot:
         """向所有转发目标群组发送启动通知"""
         logger.info("发送启动通知到目标群组...")
 
+        group_lines, user_lines = self._build_monitor_summary()
+
+        summary = ""
+        if group_lines:
+            summary += "📡 监控群组:\n" + "\n".join(group_lines) + "\n\n"
+        if user_lines:
+            summary += "👤 监控用户:\n" + "\n".join(user_lines) + "\n\n"
+
         # 收集所有唯一的目标群组
         notified_targets = set()
 
@@ -179,7 +187,8 @@ class TelegramForwarderBot:
                     try:
                         message = (
                             "🤖 **Telegram Forwarder Bot 已启动**\n\n"
-                            f"📡 正在监听并转发消息到此群组\n"
+                            "📡 正在监听并转发消息到此群组\n\n"
+                            f"{summary}"
                             f"⏰ 启动时间: {self._get_current_time()}"
                         )
                         await self.client.send_message(target_id, message)
@@ -189,6 +198,64 @@ class TelegramForwarderBot:
                         logger.warning(f"  ✗ 通知失败 {target_id}: {e}")
 
         logger.info(f"启动通知发送完成，共通知 {len(notified_targets)} 个群组")
+
+    def _build_monitor_summary(self):
+        """构建监控群组与用户的摘要文本"""
+        enabled_groups = [g for g in self.config.groups if g.enabled]
+
+        group_lines = []
+        for group in enabled_groups:
+            group_lines.append(f"- {group.name} ({group.source_id})")
+
+        user_lines = []
+        for group in enabled_groups:
+            enabled_rules = [r for r in group.rules if r.enabled]
+
+            # 任何 all 规则都视为全量用户
+            if any(r.filter_mode == "all" for r in enabled_rules):
+                user_lines.append(f"- {group.name}: 全部用户")
+                continue
+
+            users = set()
+            for rule in enabled_rules:
+                for filter_rule in rule.filter_rules:
+                    self._collect_users_from_rule(filter_rule, users)
+
+            if users:
+                formatted_users = ", ".join(sorted(self._format_user(u) for u in users))
+                user_lines.append(f"- {group.name}: {formatted_users}")
+            else:
+                user_lines.append(f"- {group.name}: 未设置用户过滤")
+
+        return group_lines, user_lines
+
+    def _collect_users_from_rule(self, rule, users_set):
+        """从规则中递归收集 user/user_conditional 过滤的用户"""
+        if not isinstance(rule, dict):
+            return
+
+        rule_type = rule.get("type")
+        config = rule.get("config", {})
+
+        if rule_type in ("user", "user_conditional"):
+            for user in config.get("users", []):
+                users_set.add(user)
+
+            for condition in config.get("conditions", []):
+                self._collect_users_from_rule(condition, users_set)
+            return
+
+        if rule_type == "composite":
+            for sub_rule in config.get("rules", []):
+                self._collect_users_from_rule(sub_rule, users_set)
+
+    def _format_user(self, user) -> str:
+        """格式化用户标识"""
+        if isinstance(user, str):
+            if user.lstrip('-').isdigit():
+                return user
+            return user if user.startswith('@') else f"@{user}"
+        return str(user)
 
     def _get_current_time(self) -> str:
         """获取当前格式化时间（北京时间 UTC+8）"""
