@@ -53,20 +53,10 @@ def _safe_float(value) -> float:
         return 0.0
 
 
-def _risk_marker(value: float) -> str:
-    """风险分级: <10% 低, 10-20% 中, >=30% 高 (20-30% 仍按中)"""
-    if value >= 30:
-        return "🚨"
-    if value >= 10:
-        return "⚠️"
-    return "ℹ️"
-
-
 def _format_kol_sections(kol_holders=None, kol_leavers=None) -> str:
     holders = kol_holders or []
-    leavers = kol_leavers or []
 
-    if not holders and not leavers:
+    if not holders:
         return ""
 
     lines = ["", "", "👑 KOL 状态:"]
@@ -85,21 +75,6 @@ def _format_kol_sections(kol_holders=None, kol_leavers=None) -> str:
         if len(holders) > 5:
             lines.append("  ...")
 
-    if leavers:
-        lines.append(f"🛬 已下车 ({len(leavers)}):")
-        for kol in leavers[:5]:
-            kol_name = kol.get("name", "Unknown")
-            last_trade = kol.get("lastTradeTime")
-            suffix = ""
-            if last_trade:
-                try:
-                    suffix = f" · {_format_time_ago(int(last_trade))}"
-                except (TypeError, ValueError):
-                    pass
-            lines.append(f"  • {kol_name}{suffix}")
-        if len(leavers) > 5:
-            lines.append("  ...")
-
     return "\n".join(lines)
 
 
@@ -113,6 +88,7 @@ def format_initial_notification(
     name = contract.get("name", "N/A")
     price = float(contract.get("priceUSD", 0))
     market_cap = float(contract.get("marketCapUSD", 0))
+    volume_24h = float(contract.get("volume", 0))
     token_address = contract.get("tokenAddress", "N/A")
     price_change_24h = contract.get("priceChange24H", "N/A")
     holders = contract.get("holders", 0)
@@ -120,21 +96,10 @@ def format_initial_notification(
     dex_name = contract.get("dexName", "N/A")
     launch_from = contract.get("launchFrom", "N/A")
     links = contract.get("links", {})
-    security = contract.get("security", {})
-    top_holder = security.get("topHolder", {}).get("value", 0)
 
     time_ago = _format_time_ago(int(create_time)) if create_time else "N/A"
     push_time = format_beijing_time()
     chain_prefix = f"[{chain.upper()}] " if chain else ""
-
-    # 审计信息
-    audit_info = contract.get("auditInfo", {})
-    dev_hp = audit_info.get("devHp", 0)  # Dev持仓
-    new_hp = audit_info.get("newHp", 0)  # 新钱包持仓
-    insider_hp = audit_info.get("insiderHp", 0)  # 老鼠仓持仓
-    snipers = audit_info.get("snipers", 0)  # 狙击钱包数
-    bundle_hp = audit_info.get("bundleHp", 0)  # 捆绑占比
-    dex_paid = audit_info.get("dexPaid", False)  # Dexs付费
 
     msg = f"""{chain_prefix}🔥 趋势发现 🔥
 
@@ -144,9 +109,8 @@ def format_initial_notification(
 💰 价格: ${price:.8f}
 📊 市值: {_format_market_cap(market_cap)}
 👥 Holders: {holders:.2f}
+🔁 24h 交易量: {_format_market_cap(volume_24h)}
 📈 24h 涨跌幅: {price_change_24h}%
-
-🔒 安全: {_risk_marker(top_holder)}Top Holder {top_holder:.2f}% | {_risk_marker(dev_hp)}Dev {dev_hp:.2f}% | {_risk_marker(new_hp)}新钱包 {new_hp:.2f}% | {_risk_marker(insider_hp)}老鼠仓 {insider_hp:.2f}% | 🎯狙击 {snipers} | {_risk_marker(bundle_hp)}捆绑 {bundle_hp:.2f}% | 💵Dexs付费 {"✅" if dex_paid else "❌"}
 
 ⏰ 创建时间: {time_ago}
 ⏰ 推送时间: {push_time}
@@ -199,14 +163,11 @@ def format_multiplier_notification(
 💎 {symbol}
 📝 CA: <code>{token_address}</code>
 
-💰 初始价格: ${initial_price:.8f}
 💵 当前价格: ${current_price:.8f}
 📈 涨幅: {multiplier:.2f}X
 
-📊 推送时市值: {_format_market_cap(initial_market_cap)}
 💎 当前市值: {_format_market_cap(current_market_cap)}
 
-⏰ 推送时间: {push_time}
 ⏰ 当前时间: {current_time}
 """
     msg += _format_kol_sections(kol_holders, kol_leavers)

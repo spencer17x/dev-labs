@@ -6,13 +6,12 @@ import os
 from datetime import datetime, timedelta
 from typing import List, Optional, Tuple
 
-from api import fetch_trending, fetch_kol_holders, fetch_narrative
+from api import fetch_trending, fetch_kol_holders
 from storage import ContractStorage
 from notifier import (
     format_initial_notification,
     format_multiplier_notification,
     format_summary_report,
-    format_narrative_notification,
 )
 from config import (
     CHECK_INTERVAL,
@@ -76,7 +75,7 @@ def _safe_float(value) -> float:
 
 
 def split_kol_positions(kol_list: Optional[List[dict]]) -> Tuple[List[dict], List[dict]]:
-    """将KOL按是否仍持仓拆分"""
+    """仅保留持仓比例 >= 0.1% 的KOL"""
     holders: list = []
     leavers: list = []
 
@@ -84,14 +83,9 @@ def split_kol_positions(kol_list: Optional[List[dict]]) -> Tuple[List[dict], Lis
         return holders, leavers
 
     for kol in kol_list:
-        hold_amount = _safe_float(kol.get("holdAmount"))
         hold_percent = _safe_float(kol.get("holdPercent"))
-        hold_value = _safe_float(kol.get("holdValueUSD"))
-
-        if hold_amount > 0 or hold_percent > 0 or hold_value > 0:
+        if hold_percent >= 0.1:
             holders.append(kol)
-        else:
-            leavers.append(kol)
 
     return holders, leavers
 
@@ -176,67 +170,6 @@ def check_multipliers(contract: dict, storage: ContractStorage, chain: str = "")
         # 存储实际倍数（带小数），用于汇总报告显示真实最高倍数
         storage.update_notified_multiplier(token_address, multiplier)
 
-        # 新增：如果叙事未获取且未通知，尝试获取叙事并发送叙事更新
-        if not storage.get_narrative(token_address):
-            try:
-                narrative_response = fetch_narrative(token_address, chain)
-                if narrative_response.get("success"):
-                    history = narrative_response.get("data", {}).get("history", {})
-                    if history:
-                        narrative_data = history.get("story", {})
-                        if narrative_data:
-                            storage.update_narrative(token_address, narrative_data)
-                            symbol = contract.get("symbol", "N/A")
-                            msg_narr = format_narrative_notification(token_address, symbol, narrative_data, chain)
-                            print(f"📖 [{chain.upper()}] {symbol} 叙事更新 (倍数通知)")
-                            print(msg_narr)
-                            print("\n" + "=" * 60 + "\n")
-                            if ENABLE_TELEGRAM:
-                                notifier.send_with_reply_sync(msg_narr, token_address, storage, chain=chain)
-                        else:
-                            storage.mark_narrative_pending(token_address)
-                    else:
-                        storage.mark_narrative_pending(token_address)
-                else:
-                    storage.mark_narrative_pending(token_address)
-            except Exception as e:
-                print(f"⚠️ 倍数通知叙事获取失败 {contract.get('symbol', 'N/A')}: {e}")
-                storage.mark_narrative_pending(token_address)
-
-
-def check_pending_narratives(storage: ContractStorage, chain: str = ""):
-    """检查待更新叙事的合约"""
-    pending_contracts = storage.get_pending_narrative_contracts()
-
-    for token_address in pending_contracts:
-        stored = storage.get_contract(token_address)
-        if not stored:
-            continue
-
-        symbol = stored.get("symbol", "N/A")
-
-        try:
-            narrative_response = fetch_narrative(token_address, chain)
-            if narrative_response.get("success"):
-                history = narrative_response.get("data", {}).get("history", {})
-                if history:
-                    narrative_data = history.get("story", {})
-                    if narrative_data:
-                        # 存储叙事并发送通知
-                        storage.update_narrative(token_address, narrative_data)
-
-                        msg = format_narrative_notification(token_address, symbol, narrative_data, chain)
-                        print(f"📖 [{chain.upper()}] {symbol} 叙事更新")
-                        print(msg)
-                        print("\n" + "=" * 60 + "\n")
-
-                        if ENABLE_TELEGRAM:
-                            notifier.send_with_reply_sync(msg, token_address, storage, chain=chain)
-        except Exception as e:
-            print(f"⚠️ 检查叙事失败 {symbol}: {e}")
-            # 如果是 HTTP 错误，打印请求 URL
-            if hasattr(e, 'response') and e.response is not None:
-                print(f"[check_pending_narratives] 请求URL: {e.response.url}")
 
 
 def should_filter_contract(contract: dict, chain: str) -> bool:
@@ -570,27 +503,6 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
                             context="趋势通知",
                         )
 
-                        # 获取叙事分析数据（仅首次趋势通知时获取）
-                        narrative_data = storage.get_narrative(token_address)
-                        if narrative_data is None:
-                            try:
-                                narrative_response = fetch_narrative(token_address, chain)
-                                if narrative_response.get("success"):
-                                    history = narrative_response.get("data", {}).get("history", {})
-                                    if history:
-                                        narrative_data = history.get("story", {})
-                                        if narrative_data:
-                                            storage.update_narrative(token_address, narrative_data)
-                                        else:
-                                            storage.mark_narrative_pending(token_address)
-                                    else:
-                                        storage.mark_narrative_pending(token_address)
-                                else:
-                                    storage.mark_narrative_pending(token_address)
-                            except Exception as e:
-                                print(f"⚠️ 获取叙事数据失败: {e}")
-                                storage.mark_narrative_pending(token_address)
-
                         if not is_new:
                             current_market_cap = float(contract.get("marketCapUSD", 0))
                             storage.update_initial_price(token_address, current_price, current_market_cap)
@@ -640,15 +552,6 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
                             for chat_id, msg_id in message_ids.items():
                                 storage.update_telegram_message_id(token_address, chat_id, msg_id)
 
-                            if narrative_data:
-                                msg_narr = format_narrative_notification(
-                                    token_address,
-                                    contract.get("symbol", "N/A"),
-                                    narrative_data,
-                                    chain,
-                                )
-                                notifier.send_with_reply_sync(msg_narr, token_address, storage, chain=chain)
-
                         first_contract_notified = True
 
                     break
@@ -667,9 +570,6 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
                         storage.update_price_history(token_address, current_price)
                         check_multipliers(contract, storage, chain)
                         tracked_contracts_count += 1
-
-                # 检查待更新的叙事
-                check_pending_narratives(storage, chain)
 
                 if new_contracts_count > 0 or tracked_contracts_count > 0:
                     print(f"📊 [{chain.upper()}] 新合约: {new_contracts_count} | 追踪中: {tracked_contracts_count}")
