@@ -3,7 +3,7 @@ module.exports = {
     {
       name: 'telegram-forwarder',
       script: 'main.py',
-      interpreter: 'python3',
+      interpreter: 'python',
       instances: 1,
       autorestart: true,
       watch: false,
