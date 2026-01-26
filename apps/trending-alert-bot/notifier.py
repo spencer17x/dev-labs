@@ -84,6 +84,7 @@ def format_initial_notification(
     chain: str = "",
     kol_holders: Optional[List[Dict]] = None,
     kol_leavers: Optional[List[Dict]] = None,
+    is_anomaly: bool = False,
 ) -> str:
     symbol = contract.get("symbol", "N/A")
     name = contract.get("name", "N/A")
@@ -102,7 +103,8 @@ def format_initial_notification(
     push_time = format_beijing_time()
     chain_prefix = f"[{chain.upper()}] " if chain else ""
 
-    msg = f"""{chain_prefix}🔥 趋势发现 🔥
+    title = "⚡️ 异动通知" if is_anomaly else "📈 趋势通知"
+    msg = f"""{chain_prefix}{title}
 
 💎 {symbol} ({name})
 📝 CA: <code>{token_address}</code>
@@ -163,7 +165,7 @@ def format_multiplier_notification(
     token_address = contract.get("tokenAddress", "N/A")
     chain_prefix = f"[{chain.upper()}] " if chain else ""
 
-    msg = f"""{chain_prefix}🚀 倍数通知 {multiplier:.2f}X 🚀
+    msg = f"""{chain_prefix}🚀 倍数通知 {multiplier:.2f}X
 
 💎 {symbol}
 📝 CA: <code>{token_address}</code>
@@ -171,6 +173,7 @@ def format_multiplier_notification(
 💵 当前价格: ${current_price:.8f}
 📈 涨幅: {multiplier:.2f}X
 💎 当前市值: {_format_market_cap(current_market_cap)}
+
 ⏰ 当前时间: {current_time}
 """
     msg += _format_kol_sections(kol_holders, kol_leavers)
@@ -222,7 +225,7 @@ def format_summary_report(
 ) -> str:
     current_time = format_beijing_time("%Y-%m-%d %H:%M")
 
-    msg = f"""🏆 4小时趋势汇总报告 🏆
+    msg = f"""📊 4小时趋势汇总报告
 
 📅 报告时间: {current_time}\n"""
 
@@ -337,7 +340,7 @@ def format_milestone_notification(
     pair_address = contract.get("pairAddress", "")
 
     chain_prefix = f"[{chain.upper()}] " if chain else ""
-    msg = f"""{chain_prefix}🎯 市值里程碑 🎯
+    msg = f"""{chain_prefix}🎯 市值里程碑
 
 💰 {symbol} 突破 {_format_market_cap(milestone)} 市值！
 
@@ -398,7 +401,7 @@ def format_surge_notification(
     pair_address = contract.get("pairAddress", "")
 
     chain_prefix = f"[{chain.upper()}] " if chain else ""
-    msg = f"""{chain_prefix}⚡️ 短时暴涨 +{percentage:.0f}% ⚡️
+    msg = f"""{chain_prefix}⚡️ 短时暴涨 +{percentage:.0f}%
 
 🔥 {symbol} {window_str}内暴涨 {price_change:.1f}%！
 

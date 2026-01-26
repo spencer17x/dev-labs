@@ -24,7 +24,7 @@ from config import (
     SUMMARY_TOP_N,
 )
 from telegram_bot import notifier
-from timezone_utils import beijing_now
+from timezone_utils import beijing_now, beijing_today_start
 
 
 def parse_args():
@@ -507,11 +507,21 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
                             current_market_cap = float(contract.get("marketCapUSD", 0))
                             storage.update_initial_price(token_address, current_price, current_market_cap)
 
+                        create_time = contract.get("createTime")
+                        is_anomaly = True
+                        if create_time:
+                            try:
+                                create_dt = datetime.fromtimestamp(int(create_time) / 1000, tz=beijing_now().tzinfo)
+                                is_anomaly = create_dt.replace(tzinfo=None) < beijing_today_start().replace(tzinfo=None)
+                            except (TypeError, ValueError):
+                                is_anomaly = True
+
                         msg = format_initial_notification(
                             contract,
                             chain,
                             kol_with_positions,
                             kol_without_positions,
+                            is_anomaly,
                         )
                         print(msg)
                         print("\n" + "=" * 60 + "\n")
