@@ -5,10 +5,10 @@
 ## 功能特性
 
 - **多链监控**: 支持 Solana 和 BSC 双链趋势榜监控
-- **趋势通知**: 榜一合约首次上榜时推送详细信息
+- **趋势/异动通知**: 榜一合约首次上榜时推送详细信息，按合约创建时间区分趋势与异动
 - **倍数通知**: 价格达到整数倍（2X、3X、4X...）时自动推送
-- **汇总报告**: 每 4 小时推送当日数据统计和 TOP 合约
-- **Telegram 集成**: 支持多群组推送，消息引用回复
+- **汇总报告**: 每 4 小时推送当日数据统计和 TOP 合约（按群组独立统计）
+- **Telegram 集成**: 支持多群组推送，消息引用回复，群组独立模式
 - **白名单过滤**: 精准筛选目标平台和 DEX 的合约
 
 ## 快速开始
@@ -62,6 +62,12 @@ SILENT_INIT = True
 3. 编辑 `.env` 填入 `TELEGRAM_BOT_TOKEN=你的token`
 4. 启动 Bot 后，在群组/频道发送 `/start` 订阅通知
 
+### 群组模式命令（仅管理员）
+- `/set_trend`：设置为趋势通知
+- `/set_anomaly`：设置为异动通知
+- `/set_both`：趋势 + 异动通知
+- `/mode`：查看当前群组模式
+
 ## 运行
 
 ```bash
@@ -75,6 +81,14 @@ nohup python main.py > bot.log 2>&1 &
 pm2 start main.py --name trending-alert-bot --interpreter python3
 pm2 logs trending-alert-bot
 ```
+
+## 数据目录
+
+运行时数据存放于 `apps/trending-alert-bot/data/`：
+
+- `telegram_chats.json`：活跃聊天列表
+- `chat_settings.json`：群组通知模式配置
+- `contracts_data_{chain}_{chat_id}.json`：每个群组独立的合约跟踪数据
 
 ## 许可
 

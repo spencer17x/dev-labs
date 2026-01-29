@@ -19,8 +19,12 @@ CHAIN_ALLOWLISTS = {
 }
 
 # 存储
-STORAGE_DIR = os.path.dirname(__file__)
-CHATS_FILE = os.path.join(STORAGE_DIR, "telegram_chats.json")
+BASE_DIR = os.path.dirname(__file__)
+DATA_DIR = os.path.join(BASE_DIR, "data")
+os.makedirs(DATA_DIR, exist_ok=True)
+STORAGE_DIR = DATA_DIR
+CHATS_FILE = os.path.join(DATA_DIR, "telegram_chats.json")
+CHAT_SETTINGS_FILE = os.path.join(DATA_DIR, "chat_settings.json")
 
 # 运行
 SILENT_INIT = True

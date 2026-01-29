@@ -2,7 +2,7 @@ import json
 import os
 from datetime import datetime
 from typing import Dict, List, Optional
-from config import CHATS_FILE
+from config import CHATS_FILE, CHAT_SETTINGS_FILE
 from timezone_utils import format_beijing_time
 
 
@@ -109,3 +109,40 @@ class ChatStorage:
             print(f"   已发送消息: {chat.get('message_count', 0)} 条")
 
         print("\n" + "=" * 80)
+
+
+class ChatSettingsStore:
+    def __init__(self):
+        self.data: Dict[str, Dict] = self._load()
+
+    def _load(self) -> Dict[str, Dict]:
+        if os.path.exists(CHAT_SETTINGS_FILE):
+            try:
+                with open(CHAT_SETTINGS_FILE, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception as e:
+                print(f"⚠️  加载聊天设置失败: {e}")
+                return {}
+        return {}
+
+    def _save(self):
+        try:
+            with open(CHAT_SETTINGS_FILE, "w", encoding="utf-8") as f:
+                json.dump(self.data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"❌ 保存聊天设置失败: {e}")
+
+    def set_mode(self, chat_id: int, mode: str):
+        chat_id_str = str(chat_id)
+        self.data[chat_id_str] = {
+            "mode": mode,
+            "updated_at": format_beijing_time(),
+        }
+        self._save()
+
+    def get_mode(self, chat_id: int, default: str = "trend") -> str:
+        entry = self.data.get(str(chat_id), {})
+        return entry.get("mode", default)
+
+    def get_all(self) -> Dict[str, Dict]:
+        return self.data

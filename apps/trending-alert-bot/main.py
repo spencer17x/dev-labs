@@ -25,6 +25,7 @@ from config import (
 )
 from telegram_bot import notifier
 from timezone_utils import beijing_now, beijing_today_start
+from chat_storage import ChatStorage, ChatSettingsStore
 
 
 def parse_args():
@@ -109,7 +110,24 @@ def load_kol_status(contract: dict, chain: str, context: str = "") -> Tuple[List
         return [], []
 
 
-def check_multipliers(contract: dict, storage: ContractStorage, chain: str = ""):
+def is_anomaly_contract(contract: dict) -> bool:
+    """判断是否为异动：合约创建时间早于北京时间当天 00:00 或不可用"""
+    create_time = contract.get("createTime")
+    if not create_time:
+        return True
+    try:
+        create_dt = datetime.fromtimestamp(int(create_time) / 1000, tz=beijing_now().tzinfo)
+        return create_dt.replace(tzinfo=None) < beijing_today_start().replace(tzinfo=None)
+    except (TypeError, ValueError):
+        return True
+
+
+def check_multipliers(
+    contract: dict,
+    storage: ContractStorage,
+    chain: str = "",
+    chat_id: Optional[int] = None,
+):
     token_address = contract.get("tokenAddress")
     current_price = float(contract.get("priceUSD", 0))
 
@@ -164,8 +182,8 @@ def check_multipliers(contract: dict, storage: ContractStorage, chain: str = "")
         print(msg)
         print("\n" + "=" * 60 + "\n")
 
-        if ENABLE_TELEGRAM:
-            notifier.send_with_reply_sync(msg, token_address, storage, chain=chain)
+    if ENABLE_TELEGRAM:
+        notifier.send_with_reply_sync(msg, token_address, storage, chat_id=chat_id, chain=chain)
 
         # 存储实际倍数（带小数），用于汇总报告显示真实最高倍数
         storage.update_notified_multiplier(token_address, multiplier)
@@ -241,83 +259,8 @@ def initialize_storage(storage: ContractStorage, chain: str):
 
 
 def send_summary_report(storages: dict):
-    chain_stats = {}
-    all_trend_contracts = []
-
-    for chain, storage in storages.items():
-        today_contracts = storage.get_today_trend_contracts()
-
-        # 初始化链统计数据
-        chain_stats[chain] = {
-            "trend_count": len(today_contracts),
-            "total_multiplier_contracts": 0,
-            "win_count": 0,
-            "top_contracts": [],
-            "multiplier_distribution": {
-                "2x": 0,
-                "5x": 0,
-                "10x_plus": 0
-            }
-        }
-
-        for item in today_contracts:
-            token_address = item["token_address"]
-            stored_data = item["data"]
-
-            notified_multipliers = stored_data.get("notified_multipliers", [])
-            if notified_multipliers:
-                # 使用最高倍数通知，而不是当前实时倍数
-                max_multiplier = max(notified_multipliers)
-
-                # 统计有倍数通知的合约
-                chain_stats[chain]["total_multiplier_contracts"] += 1
-
-                # 统计倍数分布（按最高倍数归类：2x, 5x, 10x+）
-                max_int_multiplier = int(max_multiplier)
-                if max_int_multiplier >= 10:
-                    chain_stats[chain]["multiplier_distribution"]["10x_plus"] += 1
-                    chain_stats[chain]["win_count"] += 1
-                elif max_int_multiplier >= 5:
-                    chain_stats[chain]["multiplier_distribution"]["5x"] += 1
-                elif max_int_multiplier >= 2:
-                    chain_stats[chain]["multiplier_distribution"]["2x"] += 1
-
-                # 尝试获取最新数据，如果失败则使用存储的数据
-                contract_data = None
-                try:
-                    response = fetch_trending(chain=chain)
-                    contracts = response.get("data", [])
-
-                    for contract in contracts:
-                        if contract.get("tokenAddress") == token_address:
-                            contract_data = contract
-                            break
-                except Exception as e:
-                    print(f"❌ 获取 {chain} 链合约数据失败: {e}")
-
-                # 如果获取不到最新数据，使用存储的基本信息构造
-                if not contract_data:
-                    contract_data = {
-                        "tokenAddress": token_address,
-                        "symbol": stored_data.get("symbol", "N/A"),
-                        "name": stored_data.get("name", "N/A"),
-                        "priceUSD": stored_data.get("initial_price", 0),
-                        "marketCapUSD": stored_data.get("initial_market_cap", 0)
-                    }
-
-                contract_item = {
-                    "contract": contract_data,
-                    "stored_data": stored_data,
-                    "multiplier": max_multiplier,
-                    "chain": chain
-                }
-
-                all_trend_contracts.append(contract_item)
-                chain_stats[chain]["top_contracts"].append(contract_item)
-
-        # 对每个链的合约按倍数排序，取前3
-        chain_stats[chain]["top_contracts"].sort(key=lambda x: x["multiplier"], reverse=True)
-        chain_stats[chain]["top_contracts"] = chain_stats[chain]["top_contracts"][:SUMMARY_TOP_N]
+    if not storages:
+        return
 
     now = beijing_now()
     current_hour = now.hour
@@ -340,14 +283,99 @@ def send_summary_report(storages: dict):
 
     next_report_time_str = next_report_time.strftime("%Y-%m-%d %H:%M")
 
-    msg = format_summary_report(chain_stats, next_report_time_str)
+    # 按 chat_id 分组统计
+    chat_map: Dict[int, Dict[str, ContractStorage]] = {}
+    for storage_key, storage in storages.items():
+        chain, chat_id_str = storage_key.split(":", 1)
+        chat_id = int(chat_id_str)
+        chat_map.setdefault(chat_id, {})[chain] = storage
 
-    print("\n" + "=" * 60)
-    print(msg)
-    print("=" * 60 + "\n")
+    for chat_id, chain_storages in chat_map.items():
+        chain_stats = {}
 
-    if ENABLE_TELEGRAM:
-        notifier.send_sync(msg)
+        for chain, storage in chain_storages.items():
+            today_contracts = storage.get_today_trend_contracts()
+
+            # 初始化链统计数据
+            if chain not in chain_stats:
+                chain_stats[chain] = {
+                    "trend_count": 0,
+                    "total_multiplier_contracts": 0,
+                    "win_count": 0,
+                    "top_contracts": [],
+                    "multiplier_distribution": {
+                        "2x": 0,
+                        "5x": 0,
+                        "10x_plus": 0
+                    }
+                }
+            chain_stats[chain]["trend_count"] += len(today_contracts)
+
+            for item in today_contracts:
+                token_address = item["token_address"]
+                stored_data = item["data"]
+
+                notified_multipliers = stored_data.get("notified_multipliers", [])
+                if notified_multipliers:
+                    # 使用最高倍数通知，而不是当前实时倍数
+                    max_multiplier = max(notified_multipliers)
+
+                    # 统计有倍数通知的合约
+                    chain_stats[chain]["total_multiplier_contracts"] += 1
+
+                    # 统计倍数分布（按最高倍数归类：2x, 5x, 10x+）
+                    max_int_multiplier = int(max_multiplier)
+                    if max_int_multiplier >= 10:
+                        chain_stats[chain]["multiplier_distribution"]["10x_plus"] += 1
+                        chain_stats[chain]["win_count"] += 1
+                    elif max_int_multiplier >= 5:
+                        chain_stats[chain]["multiplier_distribution"]["5x"] += 1
+                    elif max_int_multiplier >= 2:
+                        chain_stats[chain]["multiplier_distribution"]["2x"] += 1
+
+                    # 尝试获取最新数据，如果失败则使用存储的数据
+                    contract_data = None
+                    try:
+                        response = fetch_trending(chain=chain)
+                        contracts = response.get("data", [])
+
+                        for contract in contracts:
+                            if contract.get("tokenAddress") == token_address:
+                                contract_data = contract
+                                break
+                    except Exception as e:
+                        print(f"❌ 获取 {chain} 链合约数据失败: {e}")
+
+                    # 如果获取不到最新数据，使用存储的基本信息构造
+                    if not contract_data:
+                        contract_data = {
+                            "tokenAddress": token_address,
+                            "symbol": stored_data.get("symbol", "N/A"),
+                            "name": stored_data.get("name", "N/A"),
+                            "priceUSD": stored_data.get("initial_price", 0),
+                            "marketCapUSD": stored_data.get("initial_market_cap", 0)
+                        }
+
+                    contract_item = {
+                        "contract": contract_data,
+                        "stored_data": stored_data,
+                        "multiplier": max_multiplier,
+                        "chain": chain
+                    }
+
+                    chain_stats[chain]["top_contracts"].append(contract_item)
+
+            # 对每个链的合约按倍数排序，取前N
+            chain_stats[chain]["top_contracts"].sort(key=lambda x: x["multiplier"], reverse=True)
+            chain_stats[chain]["top_contracts"] = chain_stats[chain]["top_contracts"][:SUMMARY_TOP_N]
+
+        msg = format_summary_report(chain_stats, next_report_time_str)
+        print("\n" + "=" * 60)
+        print(msg)
+        print("=" * 60 + "\n")
+
+        if ENABLE_TELEGRAM:
+            notifier.send_sync(msg, chat_id=chat_id)
 
 
 def should_send_summary_report(last_report_hour: int) -> bool:
@@ -370,21 +398,15 @@ def should_send_summary_report(last_report_hour: int) -> bool:
 
 def monitor_trending(clear_storage: Optional[List[str]] = None):
     chains = CHAINS
+    os.makedirs(STORAGE_DIR, exist_ok=True)
 
     clear_targets = set(clear_storage or [])
     if "all" in clear_targets:
         clear_targets = set(chains)
 
+    chat_storage = ChatStorage()
+    chat_settings = ChatSettingsStore()
     storages = {}
-    for chain in chains:
-        storage_file = os.path.join(STORAGE_DIR, f"contracts_data_{chain}.json")
-        if chain in clear_targets:
-            if os.path.exists(storage_file):
-                os.remove(storage_file)
-                print(f"🗑️ 已清理 {chain.upper()} 本地缓存: {storage_file}")
-            else:
-                print(f"ℹ️ {chain.upper()} 无缓存文件可清理 ({storage_file})")
-        storages[chain] = ContractStorage(storage_file)
 
     print(f"🤖 Bot 启动 | 链: {', '.join([c.upper() for c in chains])} | 间隔: {CHECK_INTERVAL}s")
     print(f"📊 策略: 趋势通知(榜一) + 整数倍通知(所有符合条件)")
@@ -395,11 +417,18 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
 
     print()
 
-    for chain in chains:
-        if SILENT_INIT:
-            initialize_storage(storages[chain], chain)
-        else:
-            print(f"⚠️  {chain.upper()} 将在第一次扫描时初始化")
+    active_chats = chat_storage.get_active_chats()
+    for chat in active_chats:
+        chat_id = chat["chat_id"]
+        for chain in chains:
+            storage_file = os.path.join(STORAGE_DIR, f"contracts_data_{chain}_{chat_id}.json")
+            if chain in clear_targets and os.path.exists(storage_file):
+                os.remove(storage_file)
+                print(f"🗑️ 已清理 {chain.upper()} 本地缓存: {storage_file}")
+            storage_key = f"{chain}:{chat_id}"
+            storages[storage_key] = ContractStorage(storage_file)
+            if SILENT_INIT:
+                initialize_storage(storages[storage_key], chain)
 
     if SILENT_INIT:
         print(f"\n⏳ 等待 {CHECK_INTERVAL} 秒后开始监控...\n")
@@ -425,15 +454,21 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
         try:
             scan_time = beijing_now().strftime('%H:%M:%S')
             print(f"\n🔍 [{scan_time}] 扫描趋势榜...")
+            active_chats = chat_storage.get_active_chats()
+            if not active_chats:
+                print("⚠️  当前没有活跃聊天，跳过本轮")
+                time.sleep(CHECK_INTERVAL)
+                continue
 
             # 每天 00:05 自动清理旧数据（北京时间）
             current_time = beijing_now()
             if current_time.day != last_cleanup_day and current_time.hour == 0 and current_time.minute >= 5:
                 print("\n🧹 开始清理旧数据...")
                 total_deleted = 0
-                for chain, storage in storages.items():
+                for storage_key, storage in storages.items():
                     deleted = storage.cleanup_old_data(days_to_keep=7)
                     if deleted > 0:
+                        chain = storage_key.split(":", 1)[0]
                         print(f"  • {chain.upper()}: 清理 {deleted} 个合约")
                         total_deleted += deleted
                 if total_deleted > 0:
@@ -451,11 +486,11 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
                         report_time_hour = hour
                         break
                 print(f"\n📊 发送 {report_time_hour}:00 汇总报告...")
+                # 汇总报告按全量统计（不区分群组）
                 send_summary_report(storages)
                 last_summary_hour = report_time_hour
 
             for chain in chains:
-                storage = storages[chain]
                 response = fetch_trending(chain=chain)
                 contracts = response.get("data", [])
 
@@ -480,109 +515,114 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
                         continue
                     filtered_contracts.append(contract)
 
-                new_contracts_count = 0
-                tracked_contracts_count = 0
-                first_contract_notified = False
+                for chat in active_chats:
+                    chat_id = chat["chat_id"]
+                    mode = chat_settings.get_mode(chat_id, "trend")
+                    storage_key = f"{chain}:{chat_id}"
+                    if storage_key not in storages:
+                        storage_file = os.path.join(STORAGE_DIR, f"contracts_data_{chain}_{chat_id}.json")
+                        storages[storage_key] = ContractStorage(storage_file)
+                        if SILENT_INIT:
+                            initialize_storage(storages[storage_key], chain)
 
-                for contract in filtered_contracts:
-                    token_address = contract.get("tokenAddress")
-                    current_price = float(contract.get("priceUSD", 0))
-                    if not token_address or current_price <= 0:
-                        continue
-                    if should_filter_contract(contract, chain):
-                        continue
-                    is_new = storage.is_new_contract(token_address)
-                    if is_new:
-                        storage.add_contract(token_address, current_price, contract)
-                    stored_contract = storage.get_contract(token_address)
-                    has_trend_notification = stored_contract and stored_contract.get("telegram_message_ids", {})
-                    if not has_trend_notification:
-                        kol_with_positions, kol_without_positions = load_kol_status(
-                            contract,
-                            chain,
-                            context="趋势通知",
-                        )
+                    storage = storages[storage_key]
+                    new_contracts_count = 0
+                    tracked_contracts_count = 0
 
-                        if not is_new:
-                            current_market_cap = float(contract.get("marketCapUSD", 0))
-                            storage.update_initial_price(token_address, current_price, current_market_cap)
-
-                        create_time = contract.get("createTime")
-                        is_anomaly = True
-                        if create_time:
-                            try:
-                                create_dt = datetime.fromtimestamp(int(create_time) / 1000, tz=beijing_now().tzinfo)
-                                is_anomaly = create_dt.replace(tzinfo=None) < beijing_today_start().replace(tzinfo=None)
-                            except (TypeError, ValueError):
-                                is_anomaly = True
-
-                        msg = format_initial_notification(
-                            contract,
-                            chain,
-                            kol_with_positions,
-                            kol_without_positions,
-                            is_anomaly,
-                        )
-                        print(msg)
-                        print("\n" + "=" * 60 + "\n")
-
+                    for contract in filtered_contracts:
+                        token_address = contract.get("tokenAddress")
+                        current_price = float(contract.get("priceUSD", 0))
+                        if not token_address or current_price <= 0:
+                            continue
+                        if should_filter_contract(contract, chain):
+                            continue
+                        is_new = storage.is_new_contract(token_address)
                         if is_new:
-                            new_contracts_count += 1
+                            storage.add_contract(token_address, current_price, contract)
+                        stored_contract = storage.get_contract(token_address)
+                        has_trend_notification = stored_contract and stored_contract.get("telegram_message_ids", {})
+                        if not has_trend_notification:
+                            kol_with_positions, kol_without_positions = load_kol_status(
+                                contract,
+                                chain,
+                                context="趋势通知",
+                            )
 
-                        if ENABLE_TELEGRAM:
-                            image_url = contract.get("imageUrl")
-                            if image_url:
-                                print(
-                                    f"🖼️ [{chain.upper()}] 发送图片: {contract.get('symbol', 'N/A')} | "
-                                    f"{token_address} | url={image_url}"
+                            if not is_new:
+                                current_market_cap = float(contract.get("marketCapUSD", 0))
+                                storage.update_initial_price(token_address, current_price, current_market_cap)
+
+                            is_anomaly = is_anomaly_contract(contract)
+
+                            if mode == "both" or (is_anomaly and mode == "anomaly") or (not is_anomaly and mode == "trend"):
+                                msg = format_initial_notification(
+                                    contract,
+                                    chain,
+                                    kol_with_positions,
+                                    kol_without_positions,
+                                    is_anomaly,
                                 )
-                                message_ids = notifier.send_photo_sync(
-                                    image_url,
-                                    msg,
-                                    token_address=token_address,
-                                    chain=chain,
-                                )
-                                if not message_ids:
-                                    print(
-                                        f"↪️ [{chain.upper()}] 图片发送失败，降级为文本: "
-                                        f"{contract.get('symbol', 'N/A')} | {token_address}"
-                                    )
-                                    message_ids = notifier.send_sync(
-                                        msg,
-                                        token_address=token_address,
-                                        chain=chain,
-                                    )
-                            else:
-                                message_ids = notifier.send_sync(
-                                    msg,
-                                    token_address=token_address,
-                                    chain=chain,
-                                )
+                                print(msg)
+                                print("\n" + "=" * 60 + "\n")
 
-                            for chat_id, msg_id in message_ids.items():
-                                storage.update_telegram_message_id(token_address, chat_id, msg_id)
+                                if is_new:
+                                    new_contracts_count += 1
 
-                        first_contract_notified = True
+                                if ENABLE_TELEGRAM:
+                                    image_url = contract.get("imageUrl")
+                                    if image_url:
+                                        print(
+                                            f"🖼️ [{chain.upper()}] 发送图片: {contract.get('symbol', 'N/A')} | "
+                                            f"{token_address} | url={image_url}"
+                                        )
+                                        message_ids = notifier.send_photo_sync(
+                                            image_url,
+                                            msg,
+                                            chat_id=chat_id,
+                                            token_address=token_address,
+                                            chain=chain,
+                                        )
+                                        if not message_ids:
+                                            print(
+                                                f"↪️ [{chain.upper()}] 图片发送失败，降级为文本: "
+                                                f"{contract.get('symbol', 'N/A')} | {token_address}"
+                                            )
+                                            message_ids = notifier.send_sync(
+                                                msg,
+                                                chat_id=chat_id,
+                                                token_address=token_address,
+                                                chain=chain,
+                                            )
+                                    else:
+                                        message_ids = notifier.send_sync(
+                                            msg,
+                                            chat_id=chat_id,
+                                            token_address=token_address,
+                                            chain=chain,
+                                        )
 
-                    break
+                                    for _, msg_id in message_ids.items():
+                                        storage.update_telegram_message_id(token_address, chat_id, msg_id)
 
-                for contract in contracts:
-                    token_address = contract.get("tokenAddress")
-                    current_price = float(contract.get("priceUSD", 0))
+                            break
 
-                    if not token_address or current_price <= 0:
-                        continue
+                    for contract in contracts:
+                        token_address = contract.get("tokenAddress")
+                        current_price = float(contract.get("priceUSD", 0))
 
-                    if should_filter_contract(contract, chain):
-                        continue
+                        if not token_address or current_price <= 0:
+                            continue
 
-                    if not storage.is_new_contract(token_address):
-                        storage.update_price_history(token_address, current_price)
-                        check_multipliers(contract, storage, chain)
-                        tracked_contracts_count += 1
+                        if should_filter_contract(contract, chain):
+                            continue
 
-                if new_contracts_count > 0 or tracked_contracts_count > 0:
-                    print(f"📊 [{chain.upper()}] 新合约: {new_contracts_count} | 追踪中: {tracked_contracts_count}")
+                        if not storage.is_new_contract(token_address):
+                            storage.update_price_history(token_address, current_price)
+                            check_multipliers(contract, storage, chain, chat_id=chat_id)
+                            tracked_contracts_count += 1
+
+                    if new_contracts_count > 0 or tracked_contracts_count > 0:
+                        print(f"📊 [{chain.upper()}] 新合约: {new_contracts_count} | 追踪中: {tracked_contracts_count}")
 
             print(f"⏳ 等待 {CHECK_INTERVAL}s...")
             time.sleep(CHECK_INTERVAL)

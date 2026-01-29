@@ -5,13 +5,14 @@ from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ChatMemberHandler, ContextTypes, filters
 from telegram.error import TelegramError
 from config import TELEGRAM_BOT_TOKEN, ENABLE_TELEGRAM, MESSAGE_BUTTONS
-from chat_storage import ChatStorage
+from chat_storage import ChatStorage, ChatSettingsStore
 
 
 class TelegramNotifier:
     def __init__(self):
         self.enabled = ENABLE_TELEGRAM
         self.chat_storage = ChatStorage()
+        self.chat_settings = ChatSettingsStore()
         self.app = None
         self.bot_thread = None
         self.bot_loop = None
@@ -21,6 +22,10 @@ class TelegramNotifier:
         self.app.add_handler(CommandHandler("start", self._cmd_start))
         self.app.add_handler(CommandHandler("chats", self._cmd_list_chats))
         self.app.add_handler(CommandHandler("status", self._cmd_status))
+        self.app.add_handler(CommandHandler("set_trend", self._cmd_set_trend))
+        self.app.add_handler(CommandHandler("set_anomaly", self._cmd_set_anomaly))
+        self.app.add_handler(CommandHandler("set_both", self._cmd_set_both))
+        self.app.add_handler(CommandHandler("mode", self._cmd_mode))
 
         # 添加聊天成员状态变化处理器
         self.app.add_handler(
@@ -37,6 +42,8 @@ class TelegramNotifier:
             "last_name": chat.last_name,
         }
         self.chat_storage.add_chat(chat.id, chat_info)
+        if str(chat.id) not in self.chat_settings.get_all():
+            self.chat_settings.set_mode(chat.id, "trend")
 
         welcome_msg = f"""🤖 Bot 已启动
 
@@ -45,6 +52,55 @@ class TelegramNotifier:
 命令: /chats /status"""
 
         await update.message.reply_text(welcome_msg)
+
+    async def _is_admin(self, update: Update) -> bool:
+        chat = update.effective_chat
+        user = update.effective_user
+        if not chat or not user:
+            return False
+        if chat.type == "private":
+            return True
+        try:
+            member = await self.app.bot.get_chat_member(chat.id, user.id)
+            return member.status in ["administrator", "creator"]
+        except Exception as e:
+            print(f"⚠️  获取管理员状态失败: {e}")
+            return False
+
+    async def _cmd_set_trend(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not await self._is_admin(update):
+            await update.message.reply_text("⛔️ 仅管理员可配置通知模式")
+            return
+        chat = update.effective_chat
+        self.chat_settings.set_mode(chat.id, "trend")
+        await update.message.reply_text("✅ 已设置为趋势通知")
+
+    async def _cmd_set_anomaly(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not await self._is_admin(update):
+            await update.message.reply_text("⛔️ 仅管理员可配置通知模式")
+            return
+        chat = update.effective_chat
+        self.chat_settings.set_mode(chat.id, "anomaly")
+        await update.message.reply_text("✅ 已设置为异动通知")
+
+    async def _cmd_set_both(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not await self._is_admin(update):
+            await update.message.reply_text("⛔️ 仅管理员可配置通知模式")
+            return
+        chat = update.effective_chat
+        self.chat_settings.set_mode(chat.id, "both")
+        await update.message.reply_text("✅ 已设置为趋势 + 异动通知")
+
+    async def _cmd_mode(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        chat = update.effective_chat
+        mode = self.chat_settings.get_mode(chat.id)
+        if mode == "trend":
+            label = "趋势通知"
+        elif mode == "anomaly":
+            label = "异动通知"
+        else:
+            label = "趋势 + 异动通知"
+        await update.message.reply_text(f"📌 当前模式: {label}")
 
     async def _cmd_list_chats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
@@ -77,10 +133,18 @@ class TelegramNotifier:
 
     async def _cmd_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         active_count = len(self.chat_storage.get_active_chats())
+        mode = self.chat_settings.get_mode(update.effective_chat.id)
+        if mode == "trend":
+            mode_label = "趋势通知"
+        elif mode == "anomaly":
+            mode_label = "异动通知"
+        else:
+            mode_label = "趋势 + 异动通知"
 
         msg = f"""📊 状态: 正常
 📱 活跃聊天: {active_count}
-🔔 通知: 已启用"""
+🔔 通知: 已启用
+📌 当前模式: {mode_label}"""
 
         await update.message.reply_text(msg)
 
@@ -99,6 +163,8 @@ class TelegramNotifier:
                 "last_name": chat.last_name,
             }
             self.chat_storage.add_chat(chat.id, chat_info)
+            if str(chat.id) not in self.chat_settings.get_all():
+                self.chat_settings.set_mode(chat.id, "trend")
 
             chat_name = chat.title or chat.first_name or "未知"
             welcome_msg = f"""👋 已添加到 {self._get_chat_type_name(chat.type)} '{chat_name}'
