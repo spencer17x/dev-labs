@@ -63,6 +63,7 @@ SILENT_INIT = True
 4. 启动 Bot 后，在群组/频道发送 `/start` 订阅通知
 
 ### 群组模式命令（仅管理员）
+
 - `/set_trend`：设置为趋势通知
 - `/set_anomaly`：设置为异动通知
 - `/set_both`：趋势 + 异动通知
