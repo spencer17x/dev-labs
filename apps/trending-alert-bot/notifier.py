@@ -174,7 +174,6 @@ def format_multiplier_notification(
 📈 涨幅: {multiplier:.2f}X
 💎 当前市值: {_format_market_cap(current_market_cap)}
 
-⏰ 当前时间: {current_time}
 """
     msg += _format_kol_sections(kol_holders, kol_leavers)
     return msg.strip()
