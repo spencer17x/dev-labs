@@ -2,7 +2,7 @@ import asyncio
 import threading
 from typing import Optional, List, Dict
 from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, ChatMemberHandler, ContextTypes, filters
+from telegram.ext import Application, CommandHandler, ChatMemberHandler, ContextTypes, MessageHandler, filters
 from telegram.error import TelegramError
 from config import TELEGRAM_BOT_TOKEN, ENABLE_TELEGRAM, MESSAGE_BUTTONS
 from chat_storage import ChatStorage, ChatSettingsStore
@@ -23,6 +23,7 @@ class TelegramNotifier:
         self.app.add_handler(CommandHandler("status", self._cmd_status))
         self.app.add_handler(CommandHandler("help", self._cmd_help))
         self.app.add_handler(CommandHandler("mode", self._cmd_mode))
+        self.app.add_handler(MessageHandler(filters.ALL, self._handle_any_message))
 
         # 添加聊天成员状态变化处理器
         self.app.add_handler(
@@ -159,6 +160,25 @@ class TelegramNotifier:
 
         elif old_status in ["member", "administrator"] and new_status in ["left", "kicked"]:
             self.chat_storage.remove_chat(chat.id)
+
+    async def _handle_any_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """自动恢复群组记录：任意消息触发时补写聊天信息"""
+        chat = update.effective_chat
+        if not chat:
+            return
+        if self.chat_storage.get_chat(chat.id):
+            return
+
+        chat_info = {
+            "type": chat.type,
+            "title": chat.title,
+            "username": chat.username,
+            "first_name": chat.first_name,
+            "last_name": chat.last_name,
+        }
+        self.chat_storage.add_chat(chat.id, chat_info)
+        if str(chat.id) not in self.chat_settings.get_all():
+            self.chat_settings.set_mode(chat.id, "trend")
 
     def _get_chat_type_name(self, chat_type: str) -> str:
         type_map = {

@@ -450,6 +450,9 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
         try:
             scan_time = beijing_now().strftime('%H:%M:%S')
             print(f"\n🔍 [{scan_time}] 扫描趋势榜...")
+            # 重新加载聊天与设置，避免运行中新增群组无法被识别
+            chat_storage = ChatStorage()
+            chat_settings = ChatSettingsStore()
             active_chats = chat_storage.get_active_chats()
             if not active_chats:
                 print("⚠️  当前没有活跃聊天，跳过本轮")
