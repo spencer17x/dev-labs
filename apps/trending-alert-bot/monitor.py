@@ -517,6 +517,8 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
                     new_contracts_count = 0
                     tracked_contracts_count = 0
 
+                    trend_contract = None
+                    anomaly_contract = None
                     for contract in filtered_contracts:
                         token_address = contract.get("tokenAddress")
                         current_price = float(contract.get("priceUSD", 0))
@@ -524,75 +526,92 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
                             continue
                         if should_filter_contract(contract, chain):
                             continue
+                        if is_anomaly_contract(contract):
+                            if anomaly_contract is None:
+                                anomaly_contract = contract
+                        else:
+                            if trend_contract is None:
+                                trend_contract = contract
+                        if trend_contract and anomaly_contract:
+                            break
+
+                    def _send_candidate(contract: dict, is_anomaly: bool):
+                        nonlocal new_contracts_count
+                        token_address = contract.get("tokenAddress")
+                        current_price = float(contract.get("priceUSD", 0))
+                        if not token_address or current_price <= 0:
+                            return
                         is_new = storage.is_new_contract(token_address)
                         if is_new:
                             storage.add_contract(token_address, current_price, contract)
                         stored_contract = storage.get_contract(token_address)
                         has_trend_notification = stored_contract and stored_contract.get("telegram_message_ids", {})
-                        if not has_trend_notification:
-                            kol_with_positions, kol_without_positions = load_kol_status(
-                                contract,
-                                chain,
-                                context="趋势通知",
-                            )
+                        if has_trend_notification:
+                            return
 
-                            if not is_new:
-                                current_market_cap = float(contract.get("marketCapUSD", 0))
-                                storage.update_initial_price(token_address, current_price, current_market_cap)
+                        kol_with_positions, kol_without_positions = load_kol_status(
+                            contract,
+                            chain,
+                            context="趋势通知",
+                        )
 
-                            is_anomaly = is_anomaly_contract(contract)
+                        if not is_new:
+                            current_market_cap = float(contract.get("marketCapUSD", 0))
+                            storage.update_initial_price(token_address, current_price, current_market_cap)
 
-                            if mode == "both" or (is_anomaly and mode == "anomaly") or (not is_anomaly and mode == "trend"):
-                                msg = format_initial_notification(
-                                    contract,
-                                    chain,
-                                    kol_with_positions,
-                                    kol_without_positions,
-                                    is_anomaly,
+                        msg = format_initial_notification(
+                            contract,
+                            chain,
+                            kol_with_positions,
+                            kol_without_positions,
+                            is_anomaly,
+                        )
+                        print(msg)
+                        print("\n" + "=" * 60 + "\n")
+
+                        if is_new:
+                            new_contracts_count += 1
+
+                        if ENABLE_TELEGRAM:
+                            image_url = contract.get("imageUrl")
+                            if image_url:
+                                print(
+                                    f"🖼️ [{chain.upper()}] 发送图片: {contract.get('symbol', 'N/A')} | "
+                                    f"{token_address} | url={image_url}"
                                 )
-                                print(msg)
-                                print("\n" + "=" * 60 + "\n")
+                                message_ids = notifier.send_photo_sync(
+                                    image_url,
+                                    msg,
+                                    chat_id=chat_id,
+                                    token_address=token_address,
+                                    chain=chain,
+                                )
+                                if not message_ids:
+                                    print(
+                                        f"↪️ [{chain.upper()}] 图片发送失败，降级为文本: "
+                                        f"{contract.get('symbol', 'N/A')} | {token_address}"
+                                    )
+                                    message_ids = notifier.send_sync(
+                                        msg,
+                                        chat_id=chat_id,
+                                        token_address=token_address,
+                                        chain=chain,
+                                    )
+                            else:
+                                message_ids = notifier.send_sync(
+                                    msg,
+                                    chat_id=chat_id,
+                                    token_address=token_address,
+                                    chain=chain,
+                                )
 
-                                if is_new:
-                                    new_contracts_count += 1
+                            for _, msg_id in message_ids.items():
+                                storage.update_telegram_message_id(token_address, chat_id, msg_id)
 
-                                if ENABLE_TELEGRAM:
-                                    image_url = contract.get("imageUrl")
-                                    if image_url:
-                                        print(
-                                            f"🖼️ [{chain.upper()}] 发送图片: {contract.get('symbol', 'N/A')} | "
-                                            f"{token_address} | url={image_url}"
-                                        )
-                                        message_ids = notifier.send_photo_sync(
-                                            image_url,
-                                            msg,
-                                            chat_id=chat_id,
-                                            token_address=token_address,
-                                            chain=chain,
-                                        )
-                                        if not message_ids:
-                                            print(
-                                                f"↪️ [{chain.upper()}] 图片发送失败，降级为文本: "
-                                                f"{contract.get('symbol', 'N/A')} | {token_address}"
-                                            )
-                                            message_ids = notifier.send_sync(
-                                                msg,
-                                                chat_id=chat_id,
-                                                token_address=token_address,
-                                                chain=chain,
-                                            )
-                                    else:
-                                        message_ids = notifier.send_sync(
-                                            msg,
-                                            chat_id=chat_id,
-                                            token_address=token_address,
-                                            chain=chain,
-                                        )
-
-                                    for _, msg_id in message_ids.items():
-                                        storage.update_telegram_message_id(token_address, chat_id, msg_id)
-
-                            break
+                    if mode in ["trend", "both"] and trend_contract:
+                        _send_candidate(trend_contract, False)
+                    if mode in ["anomaly", "both"] and anomaly_contract:
+                        _send_candidate(anomaly_contract, True)
 
                     for contract in contracts:
                         token_address = contract.get("tokenAddress")
