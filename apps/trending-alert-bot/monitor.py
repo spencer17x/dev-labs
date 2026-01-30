@@ -489,6 +489,7 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
                 send_summary_report(storages)
                 last_summary_hour = report_time_hour
 
+            found_any_anomaly = False
             for chain in chains:
                 response = fetch_trending(chain=chain)
                 contracts = response.get("data", [])
@@ -514,6 +515,27 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
                         continue
                     filtered_contracts.append(contract)
 
+                trend_contract = None
+                anomaly_contract = None
+                for contract in filtered_contracts:
+                    token_address = contract.get("tokenAddress")
+                    current_price = float(contract.get("priceUSD", 0))
+                    if not token_address or current_price <= 0:
+                        continue
+                    if should_filter_contract(contract, chain):
+                        continue
+                    if is_anomaly_contract(contract):
+                        if anomaly_contract is None:
+                            anomaly_contract = contract
+                    else:
+                        if trend_contract is None:
+                            trend_contract = contract
+                    if trend_contract and anomaly_contract:
+                        break
+
+                if anomaly_contract is not None:
+                    found_any_anomaly = True
+
                 for chat in active_chats:
                     chat_id = chat["chat_id"]
                     mode = chat_settings.get_mode(chat_id, "trend")
@@ -527,24 +549,6 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
                     storage = storages[storage_key]
                     new_contracts_count = 0
                     tracked_contracts_count = 0
-
-                    trend_contract = None
-                    anomaly_contract = None
-                    for contract in filtered_contracts:
-                        token_address = contract.get("tokenAddress")
-                        current_price = float(contract.get("priceUSD", 0))
-                        if not token_address or current_price <= 0:
-                            continue
-                        if should_filter_contract(contract, chain):
-                            continue
-                        if is_anomaly_contract(contract):
-                            if anomaly_contract is None:
-                                anomaly_contract = contract
-                        else:
-                            if trend_contract is None:
-                                trend_contract = contract
-                        if trend_contract and anomaly_contract:
-                            break
 
                     def _send_candidate(contract: dict, is_anomaly: bool):
                         nonlocal new_contracts_count
@@ -644,6 +648,9 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
 
             print(f"⏳ 等待 {CHECK_INTERVAL}s...")
             time.sleep(CHECK_INTERVAL)
+
+            if not found_any_anomaly:
+                print("ℹ️ 本轮未找到异动数据")
 
         except KeyboardInterrupt:
             print("\n\n👋 机器人已停止")
