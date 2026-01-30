@@ -104,6 +104,19 @@ class TelegramNotifier:
 
 
     async def _cmd_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        chat = update.effective_chat
+        if chat and not self.chat_storage.get_chat(chat.id):
+            chat_info = {
+                "type": chat.type,
+                "title": chat.title,
+                "username": chat.username,
+                "first_name": chat.first_name,
+                "last_name": chat.last_name,
+            }
+            self.chat_storage.add_chat(chat.id, chat_info)
+            if str(chat.id) not in self.chat_settings.get_all():
+                self.chat_settings.set_mode(chat.id, "trend")
+
         active_count = len(self.chat_storage.get_active_chats())
         mode = self.chat_settings.get_mode(update.effective_chat.id)
         if mode == "trend":
