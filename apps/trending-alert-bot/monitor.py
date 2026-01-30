@@ -399,9 +399,17 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
 
     if ENABLE_TELEGRAM:
         notifier.start_bot()
-        startup_message = "✅ Bot 已启动，开始监控趋势与异动通知"
         for chat in chat_storage.get_active_chats():
-            notifier.send_sync(startup_message, chat_id=chat["chat_id"])
+            chat_id = chat["chat_id"]
+            mode = chat_settings.get_mode(chat_id, "trend")
+            if mode == "trend":
+                mode_label = "趋势通知"
+            elif mode == "anomaly":
+                mode_label = "异动通知"
+            else:
+                mode_label = "趋势 + 异动通知"
+            startup_message = f"✅ Bot 已启动，当前群组模式：{mode_label}"
+            notifier.send_sync(startup_message, chat_id=chat_id)
 
     print()
 
