@@ -9,6 +9,7 @@
 - **倍数通知**: 价格达到整数倍（2X、3X、4X...）时自动推送
 - **汇总报告**: 每 4 小时推送当日数据统计和 TOP 合约（按群组独立统计）
 - **Telegram 集成**: 支持多群组推送，消息引用回复，群组独立模式
+- **启动提示**: Bot 启动后会向已加入的群组发送“已启动”提示
 - **白名单过滤**: 精准筛选目标平台和 DEX 的合约
 
 ## 快速开始
@@ -82,6 +83,11 @@ nohup python main.py > bot.log 2>&1 &
 pm2 start main.py --name trending-alert-bot --interpreter python3
 pm2 logs trending-alert-bot
 ```
+
+## 结构说明
+
+- `main.py`：入口与参数解析
+- `monitor.py`：主监控逻辑与通知调度
 
 ## 数据目录
 
