@@ -16,6 +16,7 @@ from config import (
     STORAGE_DIR,
     SUMMARY_REPORT_HOURS,
     SUMMARY_TOP_N,
+    NOTIFY_COOLDOWN_HOURS,
 )
 from notifier import (
     format_initial_notification,
@@ -24,7 +25,7 @@ from notifier import (
 )
 from storage import ContractStorage
 from telegram_bot import notifier
-from timezone_utils import beijing_now, beijing_today_start
+from timezone_utils import beijing_now, beijing_today_start, parse_time_to_beijing
 
 
 def normalize_clear_targets(raw_value: Optional[str]) -> List[str]:
@@ -177,6 +178,18 @@ def check_multipliers(
 
         # 存储实际倍数（带小数），用于汇总报告显示真实最高倍数
         storage.update_notified_multiplier(token_address, multiplier)
+
+
+def is_on_cooldown(storage: ContractStorage, token_address: str, hours: int = NOTIFY_COOLDOWN_HOURS) -> bool:
+    last_notify_time = storage.get_last_notify_time(token_address)
+    if not last_notify_time:
+        return False
+    try:
+        last_dt = parse_time_to_beijing(last_notify_time).replace(tzinfo=None)
+        now_dt = beijing_now().replace(tzinfo=None)
+        return (now_dt - last_dt) < timedelta(hours=hours)
+    except Exception:
+        return False
 
 
 def should_filter_contract(contract: dict, chain: str) -> bool:
@@ -563,6 +576,8 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
                         has_trend_notification = stored_contract and stored_contract.get("telegram_message_ids", {})
                         if has_trend_notification:
                             return
+                        if is_on_cooldown(storage, token_address):
+                            return
 
                         if not is_new:
                             current_market_cap = float(contract.get("marketCapUSD", 0))
@@ -614,8 +629,10 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
                                     chain=chain,
                                 )
 
-                            for _, msg_id in message_ids.items():
-                                storage.update_telegram_message_id(token_address, chat_id, msg_id)
+                                    for _, msg_id in message_ids.items():
+                                        storage.update_telegram_message_id(token_address, chat_id, msg_id)
+                                    if message_ids:
+                                        storage.update_last_notify_time(token_address)
 
                     if mode in ["trend", "both"] and trend_contract:
                         contract, kol_with_positions, kol_without_positions = trend_contract

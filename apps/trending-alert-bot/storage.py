@@ -83,6 +83,16 @@ class ContractStorage:
             self.data[token_address]["notified_multipliers"] = []
             self._save()
 
+    def update_last_notify_time(self, token_address: str):
+        if token_address in self.data:
+            self.data[token_address]["last_notify_time"] = format_beijing_time()
+            self._save()
+
+    def get_last_notify_time(self, token_address: str) -> Optional[str]:
+        if token_address in self.data:
+            return self.data[token_address].get("last_notify_time")
+        return None
+
     def get_today_trend_contracts(self) -> List[Dict]:
         # 使用不带时区的北京时间进行比较
         today_start = beijing_today_start().replace(tzinfo=None)
