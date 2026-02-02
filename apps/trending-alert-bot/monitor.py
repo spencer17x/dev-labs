@@ -629,10 +629,10 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
                                     chain=chain,
                                 )
 
-                                    for _, msg_id in message_ids.items():
-                                        storage.update_telegram_message_id(token_address, chat_id, msg_id)
-                                    if message_ids:
-                                        storage.update_last_notify_time(token_address)
+                            for _, msg_id in message_ids.items():
+                                storage.update_telegram_message_id(token_address, chat_id, msg_id)
+                            if message_ids:
+                                storage.update_last_notify_time(token_address)
 
                     if mode in ["trend", "both"] and trend_contract:
                         contract, kol_with_positions, kol_without_positions = trend_contract
