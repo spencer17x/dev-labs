@@ -78,23 +78,27 @@ def split_kol_positions(kol_list: Optional[List[dict]]) -> Tuple[List[dict], Lis
     return holders, leavers
 
 
-def load_kol_status(contract: dict, chain: str, context: str = "") -> Tuple[List[dict], List[dict]]:
+def fetch_kol_list(contract: dict, chain: str, context: str = "") -> List[dict]:
     token_address = contract.get("tokenAddress")
     pair_address = contract.get("pairAddress", "")
 
     if not token_address:
-        return [], []
+        return []
 
     try:
         kol_response = fetch_kol_holders(token_address, pair_address, chain)
-        kol_list = kol_response.get("data", []) or []
-        return split_kol_positions(kol_list)
+        return kol_response.get("data", []) or []
     except Exception as e:
         prefix = f"[{chain.upper()}] " if chain else ""
         context_text = f"{context} " if context else ""
         symbol = contract.get("symbol", "N/A")
         print(f"⚠️ {prefix}{symbol} {context_text}获取 KOL 数据失败: {e}")
-        return [], []
+        return []
+
+
+def load_kol_status(contract: dict, chain: str, context: str = "") -> Tuple[List[dict], List[dict]]:
+    kol_list = fetch_kol_list(contract, chain, context=context)
+    return split_kol_positions(kol_list)
 
 
 def is_anomaly_contract(contract: dict) -> bool:
@@ -494,24 +498,10 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
                 response = fetch_trending(chain=chain)
                 contracts = response.get("data", [])
 
-                # 审计过滤：大于30%跳过
                 filtered_contracts = []
                 for contract in contracts:
                     launch_from = contract.get("launchFrom") or ""
                     if not launch_from:
-                        continue
-                    audit_info = contract.get("auditInfo", {})
-                    new_hp = audit_info.get("newHp", 0)
-                    if new_hp > 30:
-                        continue
-                    insider_hp = audit_info.get("insiderHp", 0)
-                    if insider_hp > 30:
-                        continue
-                    bundle_hp = audit_info.get("bundleHp", 0)
-                    if bundle_hp > 30:
-                        continue
-                    dev_hp = audit_info.get("devHp", 0)
-                    if dev_hp > 30:
                         continue
                     filtered_contracts.append(contract)
 
@@ -524,12 +514,22 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
                         continue
                     if should_filter_contract(contract, chain):
                         continue
-                    if is_anomaly_contract(contract):
-                        if anomaly_contract is None:
-                            anomaly_contract = contract
+
+                    is_anomaly = is_anomaly_contract(contract)
+                    if is_anomaly and anomaly_contract is not None:
+                        continue
+                    if not is_anomaly and trend_contract is not None:
+                        continue
+
+                    kol_list = fetch_kol_list(contract, chain, context="筛选KOL")
+                    if not kol_list:
+                        continue
+
+                    if is_anomaly:
+                        anomaly_contract = (contract, *split_kol_positions(kol_list))
                     else:
-                        if trend_contract is None:
-                            trend_contract = contract
+                        trend_contract = (contract, *split_kol_positions(kol_list))
+
                     if trend_contract and anomaly_contract:
                         break
 
@@ -550,7 +550,7 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
                     new_contracts_count = 0
                     tracked_contracts_count = 0
 
-                    def _send_candidate(contract: dict, is_anomaly: bool):
+                    def _send_candidate(contract: dict, kol_with_positions: List[dict], kol_without_positions: List[dict], is_anomaly: bool):
                         nonlocal new_contracts_count
                         token_address = contract.get("tokenAddress")
                         current_price = float(contract.get("priceUSD", 0))
@@ -563,12 +563,6 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
                         has_trend_notification = stored_contract and stored_contract.get("telegram_message_ids", {})
                         if has_trend_notification:
                             return
-
-                        kol_with_positions, kol_without_positions = load_kol_status(
-                            contract,
-                            chain,
-                            context="趋势通知",
-                        )
 
                         if not is_new:
                             current_market_cap = float(contract.get("marketCapUSD", 0))
@@ -624,9 +618,11 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
                                 storage.update_telegram_message_id(token_address, chat_id, msg_id)
 
                     if mode in ["trend", "both"] and trend_contract:
-                        _send_candidate(trend_contract, False)
+                        contract, kol_with_positions, kol_without_positions = trend_contract
+                        _send_candidate(contract, kol_with_positions, kol_without_positions, False)
                     if mode in ["anomaly", "both"] and anomaly_contract:
-                        _send_candidate(anomaly_contract, True)
+                        contract, kol_with_positions, kol_without_positions = anomaly_contract
+                        _send_candidate(contract, kol_with_positions, kol_without_positions, True)
 
                     for contract in contracts:
                         token_address = contract.get("tokenAddress")

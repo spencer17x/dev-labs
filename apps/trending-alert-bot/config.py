@@ -5,7 +5,7 @@ load_dotenv()
 
 # 基础设置
 CHECK_INTERVAL = 15
-CHAINS = ["bsc", "sol"]
+CHAINS = ["bsc", "sol", "base"]
 
 # 汇总报告配置
 SUMMARY_REPORT_HOURS = [0, 4, 8, 12, 16, 20]
