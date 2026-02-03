@@ -17,6 +17,7 @@ from config import (
     SUMMARY_REPORT_HOURS,
     SUMMARY_TOP_N,
     NOTIFY_COOLDOWN_HOURS,
+    MULTIPLIER_CONFIRMATIONS,
 )
 from notifier import (
     format_initial_notification,
@@ -146,38 +147,58 @@ def check_multipliers(
     current_integer_multiplier = int(multiplier)
 
     if current_integer_multiplier < 2:
+        storage.clear_pending_multiplier(token_address)
         return
 
     # 获取已通知的最高整数倍数
     max_notified_integer = storage.get_max_notified_integer_multiplier(token_address)
 
     # 只在达到新的整数倍数时通知，避免价格回落或在整数边界反复通知
-    if current_integer_multiplier > max_notified_integer:
-        kol_with_positions, kol_without_positions = load_kol_status(
-            contract,
-            chain,
-            context="倍数通知",
-        )
+    if current_integer_multiplier <= max_notified_integer:
+        storage.clear_pending_multiplier(token_address)
+        return
 
-        msg = format_multiplier_notification(
-            contract,
-            initial_price,
-            current_price,
-            multiplier,
-            stored_contract.get("initial_market_cap", 0),
-            stored_contract.get("push_time", "N/A"),
-            chain,
-            kol_with_positions,
-            kol_without_positions,
-        )
-        print(msg)
-        print("\n" + "=" * 60 + "\n")
+    pending = storage.get_pending_multiplier(token_address) or {}
+    pending_int = pending.get("multiplier_int")
+    pending_count = pending.get("count", 0)
 
-        if ENABLE_TELEGRAM:
-            notifier.send_with_reply_sync(msg, token_address, storage, chat_id=chat_id, chain=chain)
+    if pending_int == current_integer_multiplier:
+        pending_count += 1
+    else:
+        pending_int = current_integer_multiplier
+        pending_count = 1
 
-        # 存储实际倍数（带小数），用于汇总报告显示真实最高倍数
-        storage.update_notified_multiplier(token_address, multiplier)
+    if pending_count < MULTIPLIER_CONFIRMATIONS:
+        storage.update_pending_multiplier(token_address, pending_int, pending_count)
+        return
+
+    storage.clear_pending_multiplier(token_address)
+
+    kol_with_positions, kol_without_positions = load_kol_status(
+        contract,
+        chain,
+        context="倍数通知",
+    )
+
+    msg = format_multiplier_notification(
+        contract,
+        initial_price,
+        current_price,
+        multiplier,
+        stored_contract.get("initial_market_cap", 0),
+        stored_contract.get("push_time", "N/A"),
+        chain,
+        kol_with_positions,
+        kol_without_positions,
+    )
+    print(msg)
+    print("\n" + "=" * 60 + "\n")
+
+    if ENABLE_TELEGRAM:
+        notifier.send_with_reply_sync(msg, token_address, storage, chat_id=chat_id, chain=chain)
+
+    # 存储实际倍数（带小数），用于汇总报告显示真实最高倍数
+    storage.update_notified_multiplier(token_address, multiplier)
 
 
 def is_on_cooldown(storage: ContractStorage, token_address: str, hours: int = NOTIFY_COOLDOWN_HOURS) -> bool:

@@ -15,6 +15,9 @@ SUMMARY_WIN_THRESHOLD = 5.0
 # 通知冷却（小时）
 NOTIFY_COOLDOWN_HOURS = 24
 
+# 倍数通知确认次数
+MULTIPLIER_CONFIRMATIONS = 2
+
 # 白名单配置（空配置表示不过滤）
 CHAIN_ALLOWLISTS = {
     "sol": {},

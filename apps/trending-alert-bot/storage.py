@@ -58,6 +58,24 @@ class ContractStorage:
                 return int(max(multipliers))
         return 0
 
+    def get_pending_multiplier(self, token_address: str) -> Optional[Dict]:
+        if token_address in self.data:
+            return self.data[token_address].get("pending_multiplier")
+        return None
+
+    def update_pending_multiplier(self, token_address: str, multiplier_int: int, count: int):
+        if token_address in self.data:
+            self.data[token_address]["pending_multiplier"] = {
+                "multiplier_int": multiplier_int,
+                "count": count,
+            }
+            self._save()
+
+    def clear_pending_multiplier(self, token_address: str):
+        if token_address in self.data and "pending_multiplier" in self.data[token_address]:
+            del self.data[token_address]["pending_multiplier"]
+            self._save()
+
     def update_price_history(self, token_address: str, price: float):
         # price_history 已移除以节省空间，保留此方法以保持兼容性
         pass
