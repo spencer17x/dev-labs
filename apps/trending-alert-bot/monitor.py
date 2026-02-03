@@ -516,6 +516,23 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
                     launch_from = contract.get("launchFrom") or ""
                     if not launch_from:
                         continue
+                    audit_info = contract.get("auditInfo", {})
+                    new_hp = audit_info.get("newHp", 0)
+                    if new_hp > 30:
+                        continue
+                    insider_hp = audit_info.get("insiderHp", 0)
+                    if insider_hp > 30:
+                        continue
+                    bundle_hp = audit_info.get("bundleHp", 0)
+                    if bundle_hp > 30:
+                        continue
+                    dev_hp = audit_info.get("devHp", 0)
+                    if dev_hp > 30:
+                        continue
+                    security = contract.get("security", {})
+                    honey_pot = security.get("honeyPot", {}).get("value", False)
+                    if honey_pot:
+                        continue
                     filtered_contracts.append(contract)
 
                 trend_contract = None

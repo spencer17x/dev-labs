@@ -170,8 +170,8 @@ def format_multiplier_notification(
 💎 {symbol}
 📝 CA: <code>{token_address}</code>
 
-💵 当前价格: ${current_price:.8f}
 📈 涨幅: {multiplier:.2f}X
+💵 当前价格: ${current_price:.8f}
 💎 当前市值: {_format_market_cap(current_market_cap)}
 
 """
