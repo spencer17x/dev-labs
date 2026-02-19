@@ -1,7 +1,7 @@
 {
   "chain": "base",
   "telegram_bot_token": "REPLACE_WITH_BASE_BOT_TOKEN",
-  "data_dir": "apps/trending-alert-bot/data/base-bot",
+  "data_dir": "data/base-bot",
   "chain_allowlists": {
     "base": {}
   }

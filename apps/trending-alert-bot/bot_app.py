@@ -3,6 +3,7 @@
 import json
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 COMMON_ALLOWED_KEYS = {
@@ -31,6 +32,18 @@ class BotRuntimeConfig:
     notify_cooldown_hours: int = 24
     multiplier_confirmations: int = 2
     chain_allowlist: Optional[Dict[str, Any]] = None
+
+
+def _app_root() -> Path:
+    return Path(__file__).resolve().parent
+
+
+def _resolve_data_dir(raw_data_dir: str) -> str:
+    path = Path(raw_data_dir).expanduser()
+    if path.is_absolute():
+        return str(path)
+    # Relative path is resolved from startup directory (cwd).
+    return str((Path.cwd() / path).resolve())
 
 
 def _load_json_file(path: str) -> Dict[str, Any]:
@@ -67,6 +80,7 @@ def load_runtime_config(bot_config_path: str, common_config_path: Optional[str] 
     data_dir = merged.get("data_dir", "").strip()
     if not data_dir:
         raise ValueError("bot config missing 'data_dir'")
+    resolved_data_dir = _resolve_data_dir(data_dir)
 
     allowlists = merged.get("chain_allowlists", {})
     chain_allowlist = allowlists.get(chain, {})
@@ -74,7 +88,7 @@ def load_runtime_config(bot_config_path: str, common_config_path: Optional[str] 
     return BotRuntimeConfig(
         chain=chain,
         telegram_bot_token=token,
-        data_dir=data_dir,
+        data_dir=resolved_data_dir,
         check_interval=int(merged.get("check_interval", 15)),
         notify_cooldown_hours=int(merged.get("notify_cooldown_hours", 24)),
         multiplier_confirmations=int(merged.get("multiplier_confirmations", 2)),

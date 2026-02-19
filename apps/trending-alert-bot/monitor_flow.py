@@ -41,6 +41,12 @@ def _safe_float(value) -> float:
         return 0.0
 
 
+def _safe_dict(value) -> Dict:
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
 def split_kol_positions(kol_list: Optional[List[dict]]) -> Tuple[List[dict], List[dict]]:
     """仅保留持仓比例 >= 0.1% 的KOL"""
     holders: list = []
@@ -244,7 +250,7 @@ def _passes_base_filters(contract: dict) -> bool:
     launch_from = contract.get("launchFrom") or ""
     if not launch_from:
         return False
-    audit_info = contract.get("auditInfo", {})
+    audit_info = _safe_dict(contract.get("auditInfo"))
     if audit_info.get("newHp", 0) > 30:
         return False
     if audit_info.get("insiderHp", 0) > 30:
@@ -253,8 +259,9 @@ def _passes_base_filters(contract: dict) -> bool:
         return False
     if audit_info.get("devHp", 0) > 30:
         return False
-    security = contract.get("security", {})
-    if security.get("honeyPot", {}).get("value", False):
+    security = _safe_dict(contract.get("security"))
+    honey_pot = _safe_dict(security.get("honeyPot"))
+    if honey_pot.get("value", False):
         return False
     return True
 

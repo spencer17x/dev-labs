@@ -45,7 +45,7 @@ pip install -r requirements.txt
 {
   "chain": "bsc",
   "telegram_bot_token": "REPLACE_WITH_BSC_BOT_TOKEN",
-  "data_dir": "apps/trending-alert-bot/data/bsc-bot",
+  "data_dir": "data/bsc-bot",
   "chain_allowlists": {
     "bsc": {}
   }
@@ -69,6 +69,10 @@ python run.py start bsc --dry-run
 # 停止
 python run.py stop bsc
 python run.py stop all
+
+# 重启
+python run.py restart bsc
+python run.py restart all
 
 # 查看日志
 python run.py logs bsc

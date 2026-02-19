@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 CHAINS = {"bsc", "sol", "base"}
-ACTIONS = {"start", "stop", "logs"}
+ACTIONS = {"start", "stop", "logs", "restart"}
 
 
 def _pm2_name(chain: str) -> str:
@@ -67,7 +67,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Trending alert bot launcher")
     parser.add_argument(
         "action_or_target",
-        choices=["start", "stop", "logs", "bsc", "sol", "base", "all"],
+        choices=["start", "stop", "logs", "restart", "bsc", "sol", "base", "all"],
         help="Action or target chain",
     )
     parser.add_argument(
@@ -121,6 +121,14 @@ def main():
 
     if action == "logs":
         _logs_target(target)
+        return
+
+    if action == "restart":
+        _stop_target(target)
+        if target in CHAINS:
+            _run_single(target, args.common_config, False)
+        else:
+            _run_all()
         return
 
     raise RuntimeError(f"unsupported action: {action}")
