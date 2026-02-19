@@ -4,9 +4,15 @@ set -euo pipefail
 DRY_RUN="${DRY_RUN:-false}"
 DEFAULT_INITIAL_VERSION="${DEFAULT_INITIAL_VERSION:-0.1.0}"
 CHANGED_APPS="${CHANGED_APPS:-}"
+ALLOW_EXISTING_TAG_RELEASE="${ALLOW_EXISTING_TAG_RELEASE:-false}"
 
 if [[ "${DRY_RUN}" != "true" && "${DRY_RUN}" != "false" ]]; then
   echo "DRY_RUN must be true or false" >&2
+  exit 1
+fi
+
+if [[ "${ALLOW_EXISTING_TAG_RELEASE}" != "true" && "${ALLOW_EXISTING_TAG_RELEASE}" != "false" ]]; then
+  echo "ALLOW_EXISTING_TAG_RELEASE must be true or false" >&2
   exit 1
 fi
 
@@ -53,6 +59,11 @@ semver_bump() {
 latest_tag_for_app() {
   local app="$1"
   git tag --list "${app}/v*" --sort=-v:refname | head -n 1
+}
+
+previous_tag_for_app() {
+  local app="$1"
+  git tag --list "${app}/v*" --sort=-v:refname | sed -n '2p'
 }
 
 has_breaking_changes() {
@@ -194,11 +205,12 @@ make_notes_file() {
 create_release_for_app() {
   local app="$1"
   local path="apps/${app}"
-  local latest_tag range commit_count bump current_version new_version new_tag notes_file
+  local latest_tag previous_tag range commit_count bump current_version new_version new_tag notes_file
   local remote_url repo_url
   local gh_token
 
   latest_tag="$(latest_tag_for_app "${app}")"
+  previous_tag="$(previous_tag_for_app "${app}")"
 
   if [[ -n "${latest_tag}" ]]; then
     range="${latest_tag}..HEAD"
@@ -208,7 +220,50 @@ create_release_for_app() {
 
   commit_count="$(commit_count_for_path "${range}" "${path}")"
   if [[ "${commit_count}" == "0" ]]; then
-    echo "[skip] ${app}: no changes"
+    if [[ "${ALLOW_EXISTING_TAG_RELEASE}" != "true" || -z "${latest_tag}" ]]; then
+      echo "[skip] ${app}: no changes"
+      return
+    fi
+
+    new_tag="${latest_tag}"
+    if [[ -n "${previous_tag}" ]]; then
+      range="${previous_tag}..${latest_tag}"
+    else
+      range="${latest_tag}"
+    fi
+    commit_count="$(commit_count_for_path "${range}" "${path}")"
+    bump="existing-tag"
+
+    remote_url="$(git config --get remote.origin.url || true)"
+    repo_url=""
+    if [[ "${remote_url}" =~ ^git@github.com:(.+)\.git$ ]]; then
+      repo_url="https://github.com/${BASH_REMATCH[1]}"
+    elif [[ "${remote_url}" =~ ^https://github.com/(.+)\.git$ ]]; then
+      repo_url="https://github.com/${BASH_REMATCH[1]}"
+    elif [[ "${remote_url}" =~ ^https://github.com/(.+)$ ]]; then
+      repo_url="https://github.com/${BASH_REMATCH[1]}"
+    fi
+
+    notes_file="$(mktemp)"
+    make_notes_file "${app}" "${new_tag}" "${previous_tag}" "${range}" "${path}" "${notes_file}" "${repo_url}"
+
+    echo "[release] ${app}: ${new_tag} (${bump}, commits=${commit_count})"
+    if [[ "${DRY_RUN}" == "true" ]]; then
+      echo "[dry-run] would create missing release for existing tag ${new_tag}"
+      sed -n '1,80p' "${notes_file}"
+      rm -f "${notes_file}"
+      return
+    fi
+
+    gh_token="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
+    if GH_TOKEN="${gh_token}" gh release view "${new_tag}" >/dev/null 2>&1; then
+      echo "[skip] ${app}: release ${new_tag} already exists"
+      rm -f "${notes_file}"
+      return
+    fi
+
+    GH_TOKEN="${gh_token}" gh release create "${new_tag}" --title "${new_tag}" --notes-file "${notes_file}"
+    rm -f "${notes_file}"
     return
   fi
 

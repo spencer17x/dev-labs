@@ -25,7 +25,10 @@ If an app has no previous tag, first release defaults to `v0.1.0`.
   - `workflow_dispatch` (manual)
 - Inputs:
   - `dry_run=true/false`
+  - `allow_existing_tag_release=true/false` (optional, default `false`)
   - `apps` (required, comma-separated app names)
+
+If `allow_existing_tag_release=true` and an app has no new commits after latest tag, the script can still create a missing GitHub Release for that latest existing tag.
 
 ## PR preview
 
@@ -63,6 +66,12 @@ or:
 
 ```bash
 pnpm release:dry-run
+```
+
+Backfill missing release for latest existing tag (no new commits):
+
+```bash
+ALLOW_EXISTING_TAG_RELEASE=true CHANGED_APPS=trending-alert-bot bash scripts/release/by-directory.sh
 ```
 
 Only run for selected apps:
