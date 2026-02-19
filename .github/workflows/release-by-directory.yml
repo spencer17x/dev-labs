@@ -1,0 +1,72 @@
+name: Release By Directory
+
+concurrency:
+  group: release-by-directory-${{ github.ref }}
+  cancel-in-progress: false
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'apps/**'
+      - 'scripts/release/**'
+      - '.github/workflows/release-by-directory.yml'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Run without creating tags/releases'
+        required: false
+        default: true
+        type: boolean
+      apps:
+        description: 'Comma-separated app list (optional), e.g. trending-alert-bot,token-launcher'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Git Identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Detect changed apps (push)
+        if: github.event_name == 'push'
+        id: changed
+        run: |
+          before="${{ github.event.before }}"
+          after="${{ github.sha }}"
+          if [ -z "$before" ] || [ "$before" = "0000000000000000000000000000000000000000" ]; then
+            files=$(git diff-tree --no-commit-id --name-only -r "$after" || true)
+          else
+            files=$(git diff --name-only "$before" "$after" || true)
+          fi
+
+          apps=$(echo "$files" | awk -F/ '/^apps\/[^/]+\// {print $2}' | sort -u | paste -sd, -)
+          echo "apps=$apps" >> "$GITHUB_OUTPUT"
+          echo "Changed apps: $apps"
+
+      - name: No app changes detected
+        if: github.event_name == 'push' && steps.changed.outputs.apps == ''
+        run: echo "No app directory changed in this push. Skip release."
+
+      - name: Generate tags and releases by directory
+        if: github.event_name == 'workflow_dispatch' || steps.changed.outputs.apps != ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
+          CHANGED_APPS: ${{ github.event_name == 'workflow_dispatch' && inputs.apps || steps.changed.outputs.apps }}
+        run: |
+          bash scripts/release/by-directory.sh

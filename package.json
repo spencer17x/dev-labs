@@ -6,7 +6,9 @@
     "pnpm": "10.16.1"
   },
   "scripts": {
-    "new": "vite-node scripts/create-project.ts"
+    "new": "vite-node scripts/create-project.ts",
+    "release:dry-run": "DRY_RUN=true bash scripts/release/by-directory.sh",
+    "release:check-commits": "bash scripts/release/check-conventional-commits.sh"
   },
   "devDependencies": {
     "@types/node": "^24.1.0",

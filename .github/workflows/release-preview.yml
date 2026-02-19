@@ -1,0 +1,132 @@
+name: Release Preview
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'apps/**'
+      - 'scripts/release/**'
+      - '.github/workflows/release-preview.yml'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed apps (PR)
+        id: changed
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          files=$(git diff --name-only "$base" "$head" || true)
+          apps=$(echo "$files" | awk -F/ '/^apps\/[^/]+\// {print $2}' | sort -u | paste -sd, -)
+          echo "apps=$apps" >> "$GITHUB_OUTPUT"
+          echo "Changed apps: $apps"
+
+      - name: No app changes detected
+        if: steps.changed.outputs.apps == ''
+        run: echo "No app directory changed in this PR. Skip release preview."
+
+      - name: Preview release notes and tags
+        if: steps.changed.outputs.apps != ''
+        env:
+          DRY_RUN: 'true'
+          CHANGED_APPS: ${{ steps.changed.outputs.apps }}
+        run: |
+          bash scripts/release/by-directory.sh | tee release-preview.txt
+
+      - name: Comment release preview
+        if: steps.changed.outputs.apps != '' && github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- release-preview-comment -->';
+            let body = fs.readFileSync('release-preview.txt', 'utf8');
+            if (body.length > 60000) {
+              body = body.slice(0, 60000) + '\n\n... (truncated)';
+            }
+            const releaseLines = body
+              .split('\n')
+              .map(line => line.trim())
+              .filter(line => line.startsWith('[release] '));
+            const groups = { major: [], minor: [], patch: [], none: [], other: [] };
+            for (const line of releaseLines) {
+              const text = line.replace('[release] ', '');
+              const m = text.match(/\(([^,]+),\s*commits=\d+\)$/);
+              const bump = m ? m[1] : 'other';
+              if (groups[bump]) {
+                groups[bump].push(text);
+              } else {
+                groups.other.push(text);
+              }
+            }
+
+            const summaryLines = [];
+            const order = ['none', 'patch', 'minor', 'major', 'other'];
+            const labels = {
+              major: 'major',
+              minor: 'minor',
+              patch: 'patch',
+              none: 'initial',
+              other: 'other'
+            };
+            for (const key of order) {
+              if (groups[key].length === 0) continue;
+              summaryLines.push(`- ${labels[key]}: ${groups[key].length}`);
+              for (const item of groups[key]) {
+                summaryLines.push(`  - ${item}`);
+              }
+            }
+            if (summaryLines.length === 0) {
+              summaryLines.push('- No release candidates generated');
+            }
+            const commentBody = [
+              marker,
+              '### Release Preview (dry-run)',
+              '',
+              '**Summary (by bump type)**',
+              ...summaryLines,
+              '',
+              '<details>',
+              '<summary>Full dry-run output</summary>',
+              '',
+              '```text',
+              body,
+              '```',
+              '</details>'
+            ].join('\n');
+
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
+              issue_number,
+              per_page: 100
+            });
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body: commentBody
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number,
+                body: commentBody
+              });
+            }
