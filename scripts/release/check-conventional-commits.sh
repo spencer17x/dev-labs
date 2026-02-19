@@ -19,7 +19,7 @@ fi
 # type(scope)!: subject
 # type!: subject
 # type: subject
-pattern='^(feat|fix|chore|refactor|docs|style|test|perf|build|ci|revert)(\([a-z0-9._/-]+\))?(!)?: .+'
+pattern='^(feat|fix|chore|refactor|docs|style|test|perf|build|ci|revert|release)(\([a-z0-9._/-]+\))?(!)?: .+'
 
 invalid=0
 while IFS= read -r msg; do
