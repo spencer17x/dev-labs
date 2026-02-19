@@ -147,3 +147,10 @@ db.json
 
 # Session directories
 sessions/
+
+# trending-alert-bot local bot configs (contain bot tokens)
+apps/trending-alert-bot/configs/bots/*.json
+!apps/trending-alert-bot/configs/bots/*.example.json
+
+# token-launcher runtime data
+apps/token-launcher/data/*.json

@@ -1,3 +1,2 @@
 curl-cffi
 python-telegram-bot
-python-dotenv

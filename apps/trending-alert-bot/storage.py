@@ -76,10 +76,6 @@ class ContractStorage:
             del self.data[token_address]["pending_multiplier"]
             self._save()
 
-    def update_price_history(self, token_address: str, price: float):
-        # price_history 已移除以节省空间，保留此方法以保持兼容性
-        pass
-
     def update_telegram_message_id(self, token_address: str, chat_id: int, message_id: int):
         if token_address in self.data:
             if "telegram_message_ids" not in self.data[token_address]:
@@ -163,49 +159,3 @@ class ContractStorage:
             self._save()
 
         return len(to_delete)
-
-    def remove_all_price_history(self) -> int:
-        """一次性移除所有合约的 price_history，用于清理旧数据"""
-        count = 0
-        for token_address in self.data:
-            if "price_history" in self.data[token_address]:
-                del self.data[token_address]["price_history"]
-                count += 1
-
-        if count > 0:
-            self._save()
-
-        return count
-
-    def update_narrative(self, token_address: str, narrative: Dict):
-        """更新合约的叙事数据"""
-        if token_address in self.data:
-            self.data[token_address]["narrative"] = narrative
-            self.data[token_address]["narrative_notified"] = True
-            self._save()
-
-    def get_narrative(self, token_address: str) -> Optional[Dict]:
-        """获取合约的叙事数据"""
-        if token_address in self.data:
-            return self.data[token_address].get("narrative")
-        return None
-
-    def is_narrative_notified(self, token_address: str) -> bool:
-        """检查叙事是否已通知"""
-        if token_address in self.data:
-            return self.data[token_address].get("narrative_notified", False)
-        return False
-
-    def mark_narrative_pending(self, token_address: str):
-        """标记叙事待更新"""
-        if token_address in self.data:
-            self.data[token_address]["narrative_pending"] = True
-            self._save()
-
-    def get_pending_narrative_contracts(self) -> List[str]:
-        """获取所有待更新叙事的合约"""
-        pending = []
-        for token_address, data in self.data.items():
-            if data.get("narrative_pending") and not data.get("narrative_notified"):
-                pending.append(token_address)
-        return pending

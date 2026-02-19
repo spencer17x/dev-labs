@@ -1,0 +1,8 @@
+{
+  "chain": "sol",
+  "telegram_bot_token": "REPLACE_WITH_SOL_BOT_TOKEN",
+  "data_dir": "apps/trending-alert-bot/data/sol-bot",
+  "chain_allowlists": {
+    "sol": {}
+  }
+}

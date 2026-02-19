@@ -1,0 +1,8 @@
+{
+  "chain": "bsc",
+  "telegram_bot_token": "REPLACE_WITH_BSC_BOT_TOKEN",
+  "data_dir": "apps/trending-alert-bot/data/bsc-bot",
+  "chain_allowlists": {
+    "bsc": {}
+  }
+}

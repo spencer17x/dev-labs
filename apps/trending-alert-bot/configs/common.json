@@ -1,0 +1,5 @@
+{
+  "check_interval": 15,
+  "notify_cooldown_hours": 24,
+  "multiplier_confirmations": 2
+}

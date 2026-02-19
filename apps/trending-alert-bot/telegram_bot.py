@@ -5,14 +5,13 @@ from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ChatMemberHandler, ContextTypes, MessageHandler, filters
 from telegram.error import TelegramError
 from config import TELEGRAM_BOT_TOKEN, ENABLE_TELEGRAM, MESSAGE_BUTTONS
-from chat_storage import ChatStorage, ChatSettingsStore
+from chat_storage import ChatStorage
 
 
 class TelegramNotifier:
     def __init__(self):
         self.enabled = ENABLE_TELEGRAM
         self.chat_storage = ChatStorage()
-        self.chat_settings = ChatSettingsStore()
         self.app = None
         self.bot_thread = None
         self.bot_loop = None
@@ -22,7 +21,6 @@ class TelegramNotifier:
         self.app.add_handler(CommandHandler("start", self._cmd_start))
         self.app.add_handler(CommandHandler("status", self._cmd_status))
         self.app.add_handler(CommandHandler("help", self._cmd_help))
-        self.app.add_handler(CommandHandler("mode", self._cmd_mode))
         self.app.add_handler(MessageHandler(filters.ALL, self._handle_any_message))
 
         # 添加聊天成员状态变化处理器
@@ -40,68 +38,13 @@ class TelegramNotifier:
             "last_name": chat.last_name,
         }
         self.chat_storage.add_chat(chat.id, chat_info)
-        if str(chat.id) not in self.chat_settings.get_all():
-            self.chat_settings.set_mode(chat.id, "trend")
-
-        # 支持 /start <trend|anomaly|both> 一次性设置模式
-        if context.args:
-            mode_arg = (context.args[0] or "").lower()
-            if mode_arg in ["trend", "anomaly", "both"]:
-                if not await self._is_admin(update):
-                    await update.message.reply_text("⛔️ 仅管理员可设置通知模式")
-                else:
-                    self.chat_settings.set_mode(chat.id, mode_arg)
-
-        mode = self.chat_settings.get_mode(chat.id)
-        if mode == "trend":
-            mode_label = "趋势通知"
-        elif mode == "anomaly":
-            mode_label = "异动通知"
-        else:
-            mode_label = "趋势 + 异动通知"
 
         welcome_msg = f"""🤖 Bot 已启动
 
 ✅ {self._get_chat_type_name(chat.type)}已添加到通知列表
-📌 当前模式: {mode_label}
-
-命令: /status /mode /help
-快速设置: /start trend|anomaly|both"""
+命令: /status /help"""
 
         await update.message.reply_text(welcome_msg)
-
-    async def _is_admin(self, update: Update) -> bool:
-        chat = update.effective_chat
-        user = update.effective_user
-        if not chat or not user:
-            return False
-        if chat.type == "private":
-            return True
-        try:
-            member = await self.app.bot.get_chat_member(chat.id, user.id)
-            return member.status in ["administrator", "creator"]
-        except Exception as e:
-            print(f"⚠️  获取管理员状态失败: {e}")
-            return False
-
-    async def _cmd_mode(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        chat = update.effective_chat
-        if context.args:
-            mode_arg = (context.args[0] or "").lower()
-            if mode_arg in ["trend", "anomaly", "both"]:
-                if not await self._is_admin(update):
-                    await update.message.reply_text("⛔️ 仅管理员可设置通知模式")
-                else:
-                    self.chat_settings.set_mode(chat.id, mode_arg)
-        mode = self.chat_settings.get_mode(chat.id)
-        if mode == "trend":
-            label = "趋势通知"
-        elif mode == "anomaly":
-            label = "异动通知"
-        else:
-            label = "趋势 + 异动通知"
-        await update.message.reply_text(f"📌 当前模式: {label}")
-
 
     async def _cmd_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat = update.effective_chat
@@ -114,32 +57,20 @@ class TelegramNotifier:
                 "last_name": chat.last_name,
             }
             self.chat_storage.add_chat(chat.id, chat_info)
-            if str(chat.id) not in self.chat_settings.get_all():
-                self.chat_settings.set_mode(chat.id, "trend")
 
         active_count = len(self.chat_storage.get_active_chats())
-        mode = self.chat_settings.get_mode(update.effective_chat.id)
-        if mode == "trend":
-            mode_label = "趋势通知"
-        elif mode == "anomaly":
-            mode_label = "异动通知"
-        else:
-            mode_label = "趋势 + 异动通知"
 
         msg = f"""📊 状态: 正常
 📱 活跃聊天: {active_count}
-🔔 通知: 已启用
-📌 当前模式: {mode_label}"""
+🔔 通知: 已启用"""
 
         await update.message.reply_text(msg)
 
     async def _cmd_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg = """🤖 可用命令:
 /start - 订阅并初始化
-/start trend|anomaly|both - 初始化并设置模式
 /status - 查看运行状态
-/mode - 查看当前群模式
-/mode trend|anomaly|both - 设置当前群模式 (管理员)"""
+/help - 查看命令说明"""
         await update.message.reply_text(msg)
 
     async def _handle_chat_member_updated(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -157,14 +88,12 @@ class TelegramNotifier:
                 "last_name": chat.last_name,
             }
             self.chat_storage.add_chat(chat.id, chat_info)
-            if str(chat.id) not in self.chat_settings.get_all():
-                self.chat_settings.set_mode(chat.id, "trend")
 
             chat_name = chat.title or chat.first_name or "未知"
             welcome_msg = f"""👋 已添加到 {self._get_chat_type_name(chat.type)} '{chat_name}'
 
 ✅ 已启用通知
-命令: /chats /status"""
+命令: /status /help"""
 
             try:
                 await context.bot.send_message(chat_id=chat.id, text=welcome_msg)
@@ -190,8 +119,6 @@ class TelegramNotifier:
             "last_name": chat.last_name,
         }
         self.chat_storage.add_chat(chat.id, chat_info)
-        if str(chat.id) not in self.chat_settings.get_all():
-            self.chat_settings.set_mode(chat.id, "trend")
 
     def _get_chat_type_name(self, chat_type: str) -> str:
         type_map = {
@@ -446,13 +373,15 @@ class TelegramNotifier:
         time.sleep(1)
 
     def stop_bot(self):
-        if self.app and self.app.updater:
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    loop.stop()
-            except Exception as e:
-                print(f"⚠️  停止 Bot 时出错: {e}")
+        if not self.bot_loop:
+            return
+
+        try:
+            self.bot_loop.call_soon_threadsafe(self.bot_loop.stop)
+            if self.bot_thread and self.bot_thread.is_alive():
+                self.bot_thread.join(timeout=5)
+        except Exception as e:
+            print(f"⚠️  停止 Bot 时出错: {e}")
 
 
 notifier = TelegramNotifier()

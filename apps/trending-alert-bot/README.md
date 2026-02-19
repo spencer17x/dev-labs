@@ -1,102 +1,120 @@
-# 趋势通知机器人
+# Trending Alert Bot
 
-多链合约趋势监控与智能通知推送系统。
+单链、单 Bot 的合约通知系统。每个 Bot 只服务一条链，并独立维护自己的群组与通知数据。
 
-## 功能特性
+## Core Design
 
-- **多链监控**: 支持 Solana 和 BSC 双链趋势榜监控
-- **趋势/异动通知**: 榜一合约首次上榜时推送详细信息，按合约创建时间区分趋势与异动
-- **倍数通知**: 价格达到整数倍（2X、3X、4X...）时自动推送
-- **汇总报告**: 每 4 小时推送当日数据统计和 TOP 合约（按群组独立统计）
-- **Telegram 集成**: 支持多群组推送，消息引用回复，群组独立模式
-- **启动提示**: Bot 启动后会向已加入的群组发送“已启动”提示
-- **白名单过滤**: 精准筛选目标平台和 DEX 的合约
+- 单 Bot 单链：一个进程只监控一个 `chain`
+- 配置驱动：仅使用 `configs/common.json` + `configs/bots/*.json`
+- 数据隔离：每个 Bot 使用独立 `data_dir`
+- 群组隔离：每个群组独立 `contracts_data_{chat_id}.json`
 
-## 快速开始
+## Features
+
+- 趋势通知：符合条件的当日合约（榜一）
+- 异动通知：符合条件的非当日合约（榜一）
+- 倍数通知：整数倍确认后推送
+- 汇总报告：按群组独立统计
+- Telegram 指令：`/start`、`/status`、`/help`
+
+## Install
 
 ```bash
-# 安装依赖
 pip install -r requirements.txt
-
-# 配置 Telegram（可选）
-cp .env.example .env
-# 编辑 .env 填入 TELEGRAM_BOT_TOKEN
-
-# 启动
-python main.py
 ```
 
-## 配置
+## Config
 
-编辑 `config.py`:
+### 1) Common config
 
-```python
-# 基础设置
-CHECK_INTERVAL = 10  # 扫描间隔（秒）
-CHAINS = ["bsc", "sol"]  # 监控的链
+`configs/common.json`
 
-# 汇总报告配置
-SUMMARY_REPORT_HOURS = [0, 4, 8, 12, 16, 20]  # 报告时间点（整点）
-SUMMARY_TOP_N = 3  # 显示各链 TOP N 合约
-SUMMARY_WIN_THRESHOLD = 5.0  # 胜率计算阈值（≥5X 为胜）
-
-# 白名单配置（OR 逻辑：满足任一条件即通过）
-CHAIN_ALLOWLISTS = {
-    "sol": {"launchFrom": ['pump']},  # SOL: pump 平台
-    "bsc": {
-        "launchFrom": ['four'],  # BSC: four 平台
-        "dexName": ['Binance Exclusive']  # 或 Binance Exclusive DEX
-    },
+```json
+{
+  "check_interval": 15,
+  "notify_cooldown_hours": 24,
+  "multiplier_confirmations": 2
 }
-
-# 静默初始化（启动时不主动推送已存在的榜一合约）
-SILENT_INIT = True
 ```
 
-## Telegram 设置
+### 2) Bot config
 
-1. 找 [@BotFather](https://t.me/BotFather) 创建 Bot，获取 Token
-2. 创建 `.env` 文件：
-   ```bash
-   cp .env.example .env
-   ```
-3. 编辑 `.env` 填入 `TELEGRAM_BOT_TOKEN=你的token`
-4. 启动 Bot 后，在群组/频道发送 `/start` 订阅通知
+`configs/bots/bsc.json`（示例）
 
-### 群组模式命令（仅管理员）
+```json
+{
+  "chain": "bsc",
+  "telegram_bot_token": "REPLACE_WITH_BSC_BOT_TOKEN",
+  "data_dir": "apps/trending-alert-bot/data/bsc-bot",
+  "chain_allowlists": {
+    "bsc": {}
+  }
+}
+```
 
-- `/set_trend`：设置为趋势通知
-- `/set_anomaly`：设置为异动通知
-- `/set_both`：趋势 + 异动通知
-- `/mode`：查看当前群组模式
-
-## 运行
+## Run
 
 ```bash
-# 前台运行（测试）
-python main.py
+# 启动（单链）
+python run.py start bsc
+python run.py start sol
+python run.py start base
 
-# 后台运行（生产）
-nohup python main.py > bot.log 2>&1 &
+# 启动（全链，使用 PM2）
+python run.py all
 
-# 或使用 PM2
-pm2 start main.py --name trending-alert-bot --interpreter python3
-pm2 logs trending-alert-bot
+# 单链 Dry-run（仅扫描一轮，不发送 Telegram）
+python run.py start bsc --dry-run
+
+# 停止
+python run.py stop bsc
+python run.py stop all
+
+# 查看日志
+python run.py logs bsc
+python run.py logs all
 ```
 
-## 结构说明
+## PM2
 
-- `main.py`：入口与参数解析
-- `monitor.py`：主监控逻辑与通知调度
+```bash
+# 单实例
+pm2 start run.py --name trending-alert-bot-bsc --interpreter python3 -- start bsc
 
-## 数据目录
+# 多实例
+pm2 start ecosystem.bots.config.js
+```
 
-运行时数据存放于 `apps/trending-alert-bot/data/`：
+## Validate Config
 
-- `telegram_chats.json`：活跃聊天列表
-- `chat_settings.json`：群组通知模式配置
-- `contracts_data_{chain}_{chat_id}.json`：每个群组独立的合约跟踪数据
+```bash
+python check_config.py --common-config configs/common.json --bot-config configs/bots/bsc.json
+```
 
-## 许可
+## Telegram
+
+1. 用 BotFather 创建机器人，拿到 token
+2. 写入 `configs/bots/{chain}.json` 的 `telegram_bot_token`
+3. 拉机器人进群并执行 `/start`
+
+## Project Structure
+
+- `main.py`：CLI 入口
+- `bot_app.py`：配置加载与运行时注入
+- `monitor.py`：调度层（循环、定时、启动）
+- `monitor_flow.py`：业务层（筛选、通知、汇总）
+- `chat_storage.py`：群组状态存储
+- `storage.py`：合约追踪存储
+
+## Data Files
+
+每个 Bot 的 `data_dir` 下会生成：
+
+- `telegram_chats.json`
+- `contracts_data_{chat_id}.json`
+
+要求：不同链 Bot 使用不同 `data_dir`，避免数据互相污染。
+
+## License
 
 MIT

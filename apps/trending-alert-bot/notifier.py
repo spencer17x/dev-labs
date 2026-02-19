@@ -1,6 +1,5 @@
 from typing import Dict, List, Optional
 from urllib.parse import quote
-from datetime import datetime
 from timezone_utils import beijing_now, format_beijing_time
 
 
@@ -29,22 +28,6 @@ def _format_market_cap(value: float) -> str:
         return f"${value / 1_000:.2f}K"
     else:
         return f"${value:.2f}"
-
-
-def _format_kol_amount(amount: str) -> str:
-    """格式化KOL持仓数量"""
-    try:
-        value = float(amount)
-        if value >= 1_000_000_000:
-            return f"{value / 1_000_000_000:.2f}B"
-        elif value >= 1_000_000:
-            return f"{value / 1_000_000:.2f}M"
-        elif value >= 1_000:
-            return f"{value / 1_000:.2f}K"
-        else:
-            return f"{value:.2f}"
-    except:
-        return amount
 
 
 def _safe_float(value) -> float:
@@ -161,7 +144,6 @@ def format_multiplier_notification(
 ) -> str:
     symbol = contract.get("symbol", "N/A")
     current_market_cap = float(contract.get("marketCapUSD", 0))
-    current_time = format_beijing_time()
     token_address = contract.get("tokenAddress", "N/A")
     chain_prefix = f"[{chain.upper()}] " if chain else ""
 
@@ -176,45 +158,6 @@ def format_multiplier_notification(
 
 """
     msg += _format_kol_sections(kol_holders, kol_leavers)
-    return msg.strip()
-
-
-def format_narrative_notification(
-    token_address: str,
-    symbol: str,
-    narrative: Dict,
-    chain: str = ""
-) -> str:
-    """格式化叙事更新通知"""
-    chain_prefix = f"[{chain.upper()}] " if chain else ""
-
-    narrative_type = narrative.get("narrative_type", "")
-    rating = narrative.get("rating", {})
-    score = rating.get("score", "")
-    background = narrative.get("background", {})
-    origin_text = background.get("origin", {}).get("text", "")
-    distribution = narrative.get("distribution", {})
-    celebrity = distribution.get("celebrity_support", {}).get("text", "")
-    negative = distribution.get("negative_incidents", {}).get("text", "")
-
-    msg = f"""{chain_prefix}📖 叙事更新 📖
-
-💎 {symbol}
-📝 CA: <code>{token_address}</code>"""
-
-    if score:
-        msg += f"\n\n⭐ 评分: {score}/5"
-    if narrative_type:
-        msg += f"\n📌 类型: {narrative_type}"
-    if celebrity and celebrity != "None":
-        msg += f"\n👤 名人支持: {celebrity}"
-    if origin_text:
-        origin_short = origin_text[:200] + "..." if len(origin_text) > 200 else origin_text
-        msg += f"\n\n📜 背景:\n{origin_short}"
-    if negative:
-        negative_short = negative[:150] + "..." if len(negative) > 150 else negative
-        msg += f"\n\n⚠️ 风险提示:\n{negative_short}"
-
     return msg.strip()
 
 
@@ -298,131 +241,4 @@ def format_summary_report(
 
     msg += f"\n⏰ 下次汇总: {next_report_time}"
 
-    return msg.strip()
-
-
-def format_milestone_notification(
-    contract: Dict,
-    milestone: int,
-    initial_market_cap: float,
-    push_time: str,
-    first_seen_time: str,
-    initial_price: float = 0,
-    current_price_param: float = 0,
-    chain: str = ""
-) -> str:
-    symbol = contract.get("symbol", "N/A")
-    name = contract.get("name", "N/A")
-    current_market_cap = float(contract.get("marketCapUSD", 0))
-    current_price = current_price_param if current_price_param > 0 else float(contract.get("priceUSD", 0))
-    holders = contract.get("holders", 0)
-    current_time = format_beijing_time()
-
-    # 计算增长倍数
-    growth_multiplier = current_market_cap / initial_market_cap if initial_market_cap > 0 else 0
-
-    # 计算价格倍数
-    price_multiplier = current_price / initial_price if initial_price > 0 else 0
-
-    # 计算耗时
-    try:
-        first_time = datetime.fromisoformat(first_seen_time)
-        now = beijing_now().replace(tzinfo=None)
-        time_diff = now - first_time
-        hours = int(time_diff.total_seconds() // 3600)
-        minutes = int((time_diff.total_seconds() % 3600) // 60)
-        time_taken = f"{hours}小时{minutes}分钟" if hours > 0 else f"{minutes}分钟"
-    except:
-        time_taken = "N/A"
-
-    token_address = contract.get("tokenAddress", "N/A")
-    pair_address = contract.get("pairAddress", "")
-
-    chain_prefix = f"[{chain.upper()}] " if chain else ""
-    msg = f"""{chain_prefix}🎯 市值里程碑
-
-💰 {symbol} 突破 {_format_market_cap(milestone)} 市值！
-
-📋 合约地址:
-<code>{token_address}</code>
-
-🔄 交易对:
-<code>{pair_address}</code>
-
-📊 初始市值: {_format_market_cap(initial_market_cap)}
-💎 当前市值: {_format_market_cap(current_market_cap)}
-📈 市值增长: {growth_multiplier:.2f}X"""
-
-    if price_multiplier > 0:
-        msg += f"\n🚀 价格倍数: {price_multiplier:.2f}X"
-
-    msg += f"""
-
-💵 当前价格: ${current_price:.8f}
-👤 持有人: {holders:.2f}
-
-⏱ 推送时间: {push_time}
-📅 当前时间: {current_time}
-⏳ 耗时: {time_taken}
-"""
-    return msg.strip()
-
-
-def format_surge_notification(
-    contract: Dict,
-    window_seconds: int,
-    percentage: float,
-    old_price: float,
-    new_price: float,
-    old_market_cap: float,
-    initial_price: float = 0,
-    chain: str = ""
-) -> str:
-    symbol = contract.get("symbol", "N/A")
-    name = contract.get("name", "N/A")
-    current_market_cap = float(contract.get("marketCapUSD", 0))
-    current_time = format_beijing_time()
-
-    # 计算相对于初始价格的倍数
-    price_multiplier = new_price / initial_price if initial_price > 0 else 0
-
-    # 格式化时间窗口
-    if window_seconds < 60:
-        window_str = f"{window_seconds}秒"
-    elif window_seconds < 3600:
-        window_str = f"{window_seconds // 60}分钟"
-    else:
-        window_str = f"{window_seconds // 3600}小时"
-
-    price_change = ((new_price - old_price) / old_price * 100) if old_price > 0 else 0
-
-    token_address = contract.get("tokenAddress", "N/A")
-    pair_address = contract.get("pairAddress", "")
-
-    chain_prefix = f"[{chain.upper()}] " if chain else ""
-    msg = f"""{chain_prefix}⚡️ 短时暴涨 +{percentage:.0f}%
-
-🔥 {symbol} {window_str}内暴涨 {price_change:.1f}%！
-
-📋 合约地址:
-<code>{token_address}</code>
-
-🔄 交易对:
-<code>{pair_address}</code>
-
-💵 起始价格: ${old_price:.8f}
-💰 当前价格: ${new_price:.8f}
-📈 短时涨幅: +{price_change:.1f}%"""
-
-    if price_multiplier > 0:
-        msg += f"\n🚀 总价格倍数: {price_multiplier:.2f}X (从推送时起)"
-
-    msg += f"""
-
-📊 起始市值: {_format_market_cap(old_market_cap)}
-💎 当前市值: {_format_market_cap(current_market_cap)}
-
-📅 检测时间: {current_time}
-⏱ 时间窗口: {window_str}
-"""
     return msg.strip()
