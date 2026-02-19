@@ -21,26 +21,11 @@ If an app has no previous tag, first release defaults to `v0.1.0`.
 
 - Workflow file: `.github/workflows/release-by-directory.yml`
 - Trigger:
-  - push to `main` **with at least one release commit** in the push range
+  - push to `main` with changes under `apps/**`
   - `workflow_dispatch` (manual)
 - Inputs:
   - `dry_run=true/false`
   - `apps` (required, comma-separated app names)
-
-## Auto release commit format
-
-To trigger auto release on push, include at least one commit subject matching:
-
-```text
-release: ...
-release(scope): ...
-```
-
-Example:
-
-```text
-release(trending-alert-bot): ship v0.0.2
-```
 
 ## PR preview
 

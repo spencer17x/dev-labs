@@ -42,31 +42,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Detect release commits (push)
-        if: github.event_name == 'push'
-        id: releasegate
-        run: |
-          before="${{ github.event.before }}"
-          after="${{ github.sha }}"
-          if [ -z "$before" ] || [ "$before" = "0000000000000000000000000000000000000000" ]; then
-            messages=$(git log --format=%s -n 20 "$after" || true)
-          else
-            messages=$(git log --format=%s "$before..$after" || true)
-          fi
-
-          should_release=false
-          if echo "$messages" | grep -E -q '^release(\([a-z0-9._/-]+\))?: .+'; then
-            should_release=true
-          fi
-          echo "should_release=$should_release" >> "$GITHUB_OUTPUT"
-          echo "Release commit detected: $should_release"
-
-      - name: Skip push release (no release commit)
-        if: github.event_name == 'push' && steps.releasegate.outputs.should_release != 'true'
-        run: echo "No release commit found in this push. Skip release."
-
       - name: Detect changed apps (push)
-        if: github.event_name == 'push' && steps.releasegate.outputs.should_release == 'true'
+        if: github.event_name == 'push'
         id: changed
         run: |
           before="${{ github.event.before }}"
@@ -82,11 +59,11 @@ jobs:
           echo "Changed apps: $apps"
 
       - name: No app changes detected
-        if: github.event_name == 'push' && steps.releasegate.outputs.should_release == 'true' && steps.changed.outputs.apps == ''
+        if: github.event_name == 'push' && steps.changed.outputs.apps == ''
         run: echo "No app directory changed in this push. Skip release."
 
       - name: Generate tags and releases by directory
-        if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && steps.releasegate.outputs.should_release == 'true' && steps.changed.outputs.apps != '')
+        if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && steps.changed.outputs.apps != '')
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
