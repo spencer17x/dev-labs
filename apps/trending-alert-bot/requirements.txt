@@ -1,2 +1,2 @@
 curl-cffi
-python-telegram-bot
+python-telegram-bot>=20,<21
