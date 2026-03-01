@@ -10,6 +10,7 @@ from config import (
     CHECK_INTERVAL,
     DRY_RUN,
     ENABLE_TELEGRAM,
+    NOTIFICATION_TYPES,
     SILENT_INIT,
     STORAGE_DIR,
     SUMMARY_REPORT_HOURS,
@@ -55,12 +56,12 @@ def normalize_clear_targets(raw_value: Optional[str]) -> List[str]:
 def _bootstrap_storages(chain: str, clear_targets: set, storages: dict, active_chats: List[dict]):
     for chat in active_chats:
         chat_id = chat["chat_id"]
-        file_path = storage_file_path(chat_id)
+        file_path = storage_file_path(chat_id, chain)
         if chain in clear_targets and os.path.exists(file_path):
             os.remove(file_path)
             print(f"🗑️ 已清理 {chain.upper()} 本地缓存: {file_path}")
 
-        storage_key = make_storage_key(chat_id)
+        storage_key = make_storage_key(chat_id, chain)
         storages[storage_key] = ensure_chat_storage(storages, chat_id, chain)
         if SILENT_INIT:
             initialize_storage(storages[storage_key], chain)
@@ -69,9 +70,15 @@ def _bootstrap_storages(chain: str, clear_targets: set, storages: dict, active_c
 def _startup_telegram(chat_storage: ChatStorage):
     if ENABLE_TELEGRAM and not DRY_RUN:
         notifier.start_bot()
+        notify_labels = []
+        if "trending" in NOTIFICATION_TYPES:
+            notify_labels.append("趋势")
+        if "anomaly" in NOTIFICATION_TYPES:
+            notify_labels.append("异动")
+        notification_desc = "/".join(notify_labels) if notify_labels else "通知"
         for chat in chat_storage.get_active_chats():
             chat_id = chat["chat_id"]
-            startup_message = "✅ Bot 已启动，当前群组将接收趋势与异动通知"
+            startup_message = f"✅ Bot 已启动，当前群组将接收{notification_desc}通知"
             notifier.send_sync(startup_message, chat_id=chat_id)
 
 
@@ -87,9 +94,6 @@ def _initial_report_marker() -> int:
 def monitor_trending(clear_storage: Optional[List[str]] = None):
     chains = CHAINS
     os.makedirs(STORAGE_DIR, exist_ok=True)
-    if len(chains) != 1:
-        raise RuntimeError(f"single-chain bot required, got chains={chains}")
-    chain = chains[0]
 
     clear_targets = set(clear_storage or [])
     if "all" in clear_targets:
@@ -100,7 +104,7 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
 
     print(f"🤖 Bot 启动 | 链: {', '.join([c.upper() for c in chains])} | 间隔: {CHECK_INTERVAL}s")
     print(f"🧩 Runtime | data_dir: {STORAGE_DIR}")
-    print("📊 策略: 趋势通知(榜一) + 整数倍通知(所有符合条件)")
+    print(f"📊 策略: {', '.join(NOTIFICATION_TYPES)} + 整数倍通知(所有符合条件)")
     print(f"📱 Telegram: {'✓' if ENABLE_TELEGRAM else '✗'}")
     if DRY_RUN:
         print("🧪 Dry-run: 启用（仅扫描一轮，不发送消息）")
@@ -109,7 +113,8 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
     print()
 
     active_chats = chat_storage.get_active_chats()
-    _bootstrap_storages(chain, clear_targets, storages, active_chats)
+    for chain in chains:
+        _bootstrap_storages(chain, clear_targets, storages, active_chats)
 
     if SILENT_INIT:
         print(f"\n⏳ 等待 {CHECK_INTERVAL} 秒后开始监控...\n")
@@ -134,9 +139,10 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
             if current_time.day != last_cleanup_day and current_time.hour == 0 and current_time.minute >= 5:
                 print("\n🧹 开始清理旧数据...")
                 total_deleted = 0
-                for storage in storages.values():
+                for storage_key, storage in storages.items():
                     deleted = storage.cleanup_old_data(days_to_keep=7)
                     if deleted > 0:
+                        chain = storage_key.split(":", 1)[0] if ":" in storage_key else (chains[0] if chains else "unknown")
                         print(f"  • {chain.upper()}: 清理 {deleted} 个合约")
                         total_deleted += deleted
                 if total_deleted > 0:
@@ -158,7 +164,10 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
                     send_summary_report(storages)
                     last_summary_hour = report_time_hour
 
-            found_any_anomaly = scan_once(chain, active_chats, storages)
+            found_any_anomaly = False
+            for chain in chains:
+                print(f"🔎 扫描链: {chain.upper()}")
+                found_any_anomaly = scan_once(chain, active_chats, storages) or found_any_anomaly
 
             print(f"⏳ 等待 {CHECK_INTERVAL}s...")
             if DRY_RUN:

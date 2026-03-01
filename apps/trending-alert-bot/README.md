@@ -1,13 +1,13 @@
 # Trending Alert Bot
 
-单链、单 Bot 的合约通知系统。每个 Bot 只服务一条链，并独立维护自己的群组与通知数据。
+支持单链/多链配置的合约通知系统。每个 Bot 可服务一条或多条链，并独立维护自己的群组与通知数据。
 
 ## Core Design
 
-- 单 Bot 单链：一个进程只监控一个 `chain`
+- 单 Bot 单链/多链：一个进程可监控 `chain` 或 `chains`
 - 配置驱动：仅使用 `configs/common.json` + `configs/bots/*.json`
 - 数据隔离：每个 Bot 使用独立 `data_dir`
-- 群组隔离：每个群组独立 `contracts_data_{chat_id}.json`
+- 群组隔离：每个群组每条链独立 `contracts_data_{chain}_{chat_id}.json`
 
 ## Features
 
@@ -52,41 +52,84 @@ pip install -r requirements.txt
 }
 ```
 
+`configs/bots/multi.example.json`（多链示例）
+
+```json
+{
+  "chains": ["bsc", "sol", "base"],
+  "notification_types": ["trending", "anomaly"],
+  "telegram_bot_token": "REPLACE_WITH_MULTI_BOT_TOKEN",
+  "data_dir": "data/multi-bot",
+  "chain_allowlists": {
+    "bsc": {},
+    "sol": {},
+    "base": {}
+  }
+}
+```
+
 ## Run
 
 ```bash
-# 启动（单链）
+# 注意：`run` 必须带 target（如 bsc/sol/base/multi），不能直接 `python run.py run`
+
+# 本地前台运行（单配置）
+python run.py run bsc
+python run.py run multi
+
+# PM2 启动（单配置）
 python run.py start bsc
 python run.py start sol
 python run.py start base
+python run.py start multi
 
-# 启动（全链，使用 PM2）
+# PM2 一键启动所有（单链 + 多链）
+python run.py start all
 python run.py all
 
-# 单链 Dry-run（仅扫描一轮，不发送 Telegram）
+# 单配置 Dry-run（run/start 均支持）
+python run.py run bsc --dry-run
 python run.py start bsc --dry-run
 
 # 停止
 python run.py stop bsc
+python run.py stop multi
 python run.py stop all
 
 # 重启
 python run.py restart bsc
+python run.py restart multi
 python run.py restart all
 
 # 查看日志
 python run.py logs bsc
+python run.py logs multi
 python run.py logs all
 ```
 
 ## PM2
 
 ```bash
-# 单实例
-pm2 start run.py --name trending-alert-bot-bsc --interpreter python3 -- start bsc
+# 单实例（单链）
+pm2 start run.py --name trending-alert-bot-bsc --interpreter python3 -- run bsc
 
-# 多实例
+# 单实例（多链，使用 configs/bots/multi.json）
+pm2 start run.py --name trending-alert-multi --interpreter python3 -- run multi
+
+# 多实例（单链 bots）
 pm2 start ecosystem.bots.config.js
+
+# 多链单实例
+pm2 start ecosystem.multi.config.js
+
+# 全量（一键：单链 + 多链）
+pm2 start ecosystem.all.config.js
+
+# 首次配置开机自启（仅需一次）
+pm2 startup
+
+# 启动后持久化当前进程列表（每次变更后建议执行）
+pm2 save
 ```
 
 ## Validate Config
@@ -99,7 +142,8 @@ python check_config.py --common-config configs/common.json --bot-config configs/
 
 1. 用 BotFather 创建机器人，拿到 token
 2. 写入 `configs/bots/{chain}.json` 的 `telegram_bot_token`
-3. 拉机器人进群并执行 `/start`
+3. 多链模式请额外创建 `configs/bots/multi.json`（参考 `configs/bots/multi.example.json`）
+4. 拉机器人进群并执行 `/start`
 
 ## Project Structure
 
@@ -115,7 +159,7 @@ python check_config.py --common-config configs/common.json --bot-config configs/
 每个 Bot 的 `data_dir` 下会生成：
 
 - `telegram_chats.json`
-- `contracts_data_{chat_id}.json`
+- `contracts_data_{chain}_{chat_id}.json`
 
 要求：不同链 Bot 使用不同 `data_dir`，避免数据互相污染。
 

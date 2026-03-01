@@ -1,0 +1,11 @@
+{
+  "chains": ["bsc", "sol", "base"],
+  "notification_types": ["trending", "anomaly"],
+  "telegram_bot_token": "REPLACE_WITH_MULTI_BOT_TOKEN",
+  "data_dir": "data/multi-bot",
+  "chain_allowlists": {
+    "bsc": {},
+    "sol": {},
+    "base": {}
+  }
+}

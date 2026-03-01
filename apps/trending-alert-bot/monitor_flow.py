@@ -11,6 +11,7 @@ from config import (
     DRY_RUN,
     ENABLE_TELEGRAM,
     MULTIPLIER_CONFIRMATIONS,
+    NOTIFICATION_TYPES,
     NOTIFY_COOLDOWN_HOURS,
     STORAGE_DIR,
     SUMMARY_REPORT_HOURS,
@@ -26,11 +27,15 @@ from telegram_bot import notifier
 from timezone_utils import beijing_now, beijing_today_start, parse_time_to_beijing
 
 
-def make_storage_key(chat_id: int) -> str:
+def make_storage_key(chat_id: int, chain: str = "") -> str:
+    if chain:
+        return f"{chain}:{chat_id}"
     return str(chat_id)
 
 
-def storage_file_path(chat_id: int) -> str:
+def storage_file_path(chat_id: int, chain: str = "") -> str:
+    if chain:
+        return os.path.join(STORAGE_DIR, f"contracts_data_{chain}_{chat_id}.json")
     return os.path.join(STORAGE_DIR, f"contracts_data_{chat_id}.json")
 
 
@@ -270,6 +275,8 @@ def _pick_trend_and_anomaly_contract(
     contracts: List[dict],
     chain: str,
 ) -> Tuple[Optional[Tuple[dict, List[dict], List[dict]]], Optional[Tuple[dict, List[dict], List[dict]]]]:
+    enable_trending = "trending" in NOTIFICATION_TYPES
+    enable_anomaly = "anomaly" in NOTIFICATION_TYPES
     trend_contract = None
     anomaly_contract = None
 
@@ -282,9 +289,14 @@ def _pick_trend_and_anomaly_contract(
             continue
 
         is_anomaly = is_anomaly_contract(contract)
-        if is_anomaly and anomaly_contract is not None:
-            continue
-        if not is_anomaly and trend_contract is not None:
+        if is_anomaly:
+            if not enable_anomaly or anomaly_contract is not None:
+                continue
+        else:
+            if not enable_trending or trend_contract is not None:
+                continue
+
+        if trend_contract is not None and anomaly_contract is not None:
             continue
 
         kol_list = fetch_kol_list(contract, chain, context="筛选KOL")
@@ -308,9 +320,9 @@ def ensure_chat_storage(
     chat_id: int,
     chain: str,
 ) -> ContractStorage:
-    storage_key = make_storage_key(chat_id)
+    storage_key = make_storage_key(chat_id, chain)
     if storage_key not in storages:
-        storages[storage_key] = ContractStorage(storage_file_path(chat_id))
+        storages[storage_key] = ContractStorage(storage_file_path(chat_id, chain))
     return storages[storage_key]
 
 
@@ -559,13 +571,25 @@ def send_summary_report(storages: dict):
 
     now = beijing_now()
     next_report_time_str = _next_report_time_str(now)
-    chain = CHAINS[0] if CHAINS else "unknown"
-    latest_contract_map = _load_latest_contract_map(chain)
+    chain_latest_map: Dict[str, Dict[str, dict]] = {}
+    chat_chain_stats: Dict[int, Dict[str, dict]] = {}
 
     for storage_key, storage in storages.items():
-        chat_id = int(storage_key)
-        chain_stats = _build_chain_stats(storage, chain, latest_contract_map)
+        if ":" in storage_key:
+            chain, chat_id_raw = storage_key.split(":", 1)
+            chat_id = int(chat_id_raw)
+        else:
+            chain = CHAINS[0] if CHAINS else "unknown"
+            chat_id = int(storage_key)
 
+        if chain not in chain_latest_map:
+            chain_latest_map[chain] = _load_latest_contract_map(chain)
+        chain_stats = _build_chain_stats(storage, chain, chain_latest_map[chain])
+        if chat_id not in chat_chain_stats:
+            chat_chain_stats[chat_id] = {}
+        chat_chain_stats[chat_id].update(chain_stats)
+
+    for chat_id, chain_stats in chat_chain_stats.items():
         msg = format_summary_report(chain_stats, next_report_time_str)
         print("\n" + "=" * 60)
         print(msg)

@@ -1,4 +1,4 @@
-"""Convenient launcher for single-chain or all-chain bot startup."""
+"""Convenient launcher for local run and PM2-managed bot control."""
 
 import argparse
 import shutil
@@ -8,7 +8,8 @@ from pathlib import Path
 
 
 CHAINS = {"bsc", "sol", "base"}
-ACTIONS = {"start", "stop", "logs", "restart"}
+CONFIG_TARGETS = CHAINS | {"multi"}
+ACTIONS = {"run", "start", "stop", "logs", "restart"}
 
 
 def _pm2_name(chain: str) -> str:
@@ -35,10 +36,32 @@ def _run_single(target: str, common_config: str, dry_run: bool):
     subprocess.run(cmd, check=True, cwd=root)
 
 
+def _start_target(target: str, common_config: str, dry_run: bool):
+    root = Path(__file__).resolve().parent
+    _ensure_pm2()
+    cmd = [
+        "pm2",
+        "start",
+        "run.py",
+        "--name",
+        _pm2_name(target),
+        "--interpreter",
+        "python3",
+        "--",
+        "run",
+        target,
+        "--common-config",
+        common_config,
+    ]
+    if dry_run:
+        cmd.append("--dry-run")
+    subprocess.run(cmd, check=True, cwd=root)
+
+
 def _run_all():
     root = Path(__file__).resolve().parent
     _ensure_pm2()
-    subprocess.run(["pm2", "start", "ecosystem.bots.config.js"], check=True, cwd=root)
+    subprocess.run(["pm2", "start", "ecosystem.all.config.js"], check=True, cwd=root)
 
 
 def _stop_target(target: str):
@@ -46,7 +69,7 @@ def _stop_target(target: str):
     _ensure_pm2()
 
     if target == "all":
-        subprocess.run(["pm2", "stop", "ecosystem.bots.config.js"], check=True, cwd=root)
+        subprocess.run(["pm2", "stop", "ecosystem.all.config.js"], check=True, cwd=root)
         return
 
     subprocess.run(["pm2", "stop", _pm2_name(target)], check=True, cwd=root)
@@ -63,28 +86,39 @@ def _logs_target(target: str):
     subprocess.run(["pm2", "logs", _pm2_name(target)], check=True, cwd=root)
 
 
+def _restart_target(target: str):
+    root = Path(__file__).resolve().parent
+    _ensure_pm2()
+
+    if target == "all":
+        subprocess.run(["pm2", "restart", "ecosystem.all.config.js"], check=True, cwd=root)
+        return
+
+    subprocess.run(["pm2", "restart", _pm2_name(target)], check=True, cwd=root)
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Trending alert bot launcher")
     parser.add_argument(
         "action_or_target",
-        choices=["start", "stop", "logs", "restart", "bsc", "sol", "base", "all"],
-        help="Action or target chain",
+        choices=["run", "start", "stop", "logs", "restart", "bsc", "sol", "base", "multi", "all"],
+        help="Action or target config",
     )
     parser.add_argument(
         "target",
         nargs="?",
-        choices=["bsc", "sol", "base", "all"],
-        help="Target chain for action",
+        choices=["bsc", "sol", "base", "multi", "all"],
+        help="Target config for action",
     )
     parser.add_argument(
         "--common-config",
         default="configs/common.json",
-        help="Common config path for single-chain startup",
+        help="Common config path for single-config startup",
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Run one scan without sending messages (single-chain start only)",
+        help="Run one scan without sending messages (run/start single-config only)",
     )
     return parser.parse_args()
 
@@ -95,25 +129,35 @@ def _resolve_action(args) -> tuple[str, str]:
         target = (args.target or "all").lower()
         return action, target
 
+    if args.action_or_target == "all":
+        # Backward-compatible shortcut: `python run.py all`
+        return "start", "all"
+
     # Backward-compatible shortcut: `python run.py bsc`
-    return "start", args.action_or_target.lower()
+    return "run", args.action_or_target.lower()
 
 
 def main():
     args = parse_args()
     action, target = _resolve_action(args)
 
-    if action == "start":
-        if target in CHAINS:
+    if action == "run":
+        if target in CONFIG_TARGETS:
             _run_single(target, args.common_config, args.dry_run)
             return
+        raise RuntimeError(f"unsupported run target: {target}")
+
+    if action == "start":
+        if target in CONFIG_TARGETS:
+            _start_target(target, args.common_config, args.dry_run)
+            return
         if args.dry_run:
-            raise RuntimeError("--dry-run is only supported for single-chain start")
+            raise RuntimeError("--dry-run is only supported for run/start single-config")
         _run_all()
         return
 
     if args.dry_run:
-        raise RuntimeError("--dry-run is only supported for start action")
+        raise RuntimeError("--dry-run is only supported for run/start action")
 
     if action == "stop":
         _stop_target(target)
@@ -124,11 +168,7 @@ def main():
         return
 
     if action == "restart":
-        _stop_target(target)
-        if target in CHAINS:
-            _run_single(target, args.common_config, False)
-        else:
-            _run_all()
+        _restart_target(target)
         return
 
     raise RuntimeError(f"unsupported action: {action}")
