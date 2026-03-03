@@ -15,7 +15,8 @@
 - 异动通知：符合条件的非当日合约（榜一）
 - 倍数通知：整数倍确认后推送
 - 汇总报告：按群组独立统计
-- Telegram 指令：`/start`、`/status`、`/help`
+- 通知模式：每个群组可独立设置通知模式（趋势/异动/全部）
+- Telegram 指令：`/start`、`/status`、`/mode`、`/setmode`、`/help`
 
 ## Install
 
@@ -144,6 +145,28 @@ python check_config.py --common-config configs/common.json --bot-config configs/
 2. 写入 `configs/bots/{chain}.json` 的 `telegram_bot_token`
 3. 多链模式请额外创建 `configs/bots/multi.json`（参考 `configs/bots/multi.example.json`）
 4. 拉机器人进群并执行 `/start`
+
+### 通知模式
+
+每个群组可独立设置通知模式，默认接收全部通知：
+
+| 模式 | 说明 |
+|------|------|
+| `all` | 接收趋势 + 异动通知（默认） |
+| `trending` | 仅接收趋势通知 |
+| `anomaly` | 仅接收异动通知 |
+
+**Bot 命令：**
+
+| 命令 | 权限 | 说明 |
+|------|------|------|
+| `/mode` | 所有人 | 查看当前通知模式 |
+| `/setmode <mode>` | 管理员 | 切换通知模式（all / trending / anomaly） |
+| `/start` | 所有人 | 订阅并初始化 |
+| `/status` | 所有人 | 查看运行状态及通知模式 |
+| `/help` | 所有人 | 查看命令说明 |
+
+通知模式配置存储在 `data_dir/telegram_chats.json` 中每个群组的 `notification_mode` 字段。
 
 ## Project Structure
 

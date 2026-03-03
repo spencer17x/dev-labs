@@ -6,6 +6,10 @@ from config import CHATS_FILE
 from timezone_utils import format_beijing_time
 
 
+VALID_NOTIFICATION_MODES = {"all", "trending", "anomaly"}
+DEFAULT_NOTIFICATION_MODE = "all"
+
+
 class ChatStorage:
     _FILE_LOCK = threading.RLock()
 
@@ -89,6 +93,27 @@ class ChatStorage:
             if chat_id_str in self.data:
                 self.data[chat_id_str]["message_count"] = self.data[chat_id_str].get("message_count", 0) + 1
                 self._save_unlocked()
+
+    def get_notification_mode(self, chat_id: int) -> str:
+        with self._FILE_LOCK:
+            self.data = self._load_unlocked()
+            chat = self.data.get(str(chat_id))
+            if chat:
+                return chat.get("notification_mode", DEFAULT_NOTIFICATION_MODE)
+            return DEFAULT_NOTIFICATION_MODE
+
+    def set_notification_mode(self, chat_id: int, mode: str) -> bool:
+        if mode not in VALID_NOTIFICATION_MODES:
+            return False
+        with self._FILE_LOCK:
+            self.data = self._load_unlocked()
+            chat_id_str = str(chat_id)
+            if chat_id_str in self.data:
+                self.data[chat_id_str]["notification_mode"] = mode
+                self.data[chat_id_str]["updated_at"] = format_beijing_time()
+                self._save_unlocked()
+                return True
+            return False
 
     def _format_chat_name(self, chat_data: Dict) -> str:
         chat_type = chat_data.get("type", "unknown")

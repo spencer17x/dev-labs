@@ -4,8 +4,8 @@ from typing import Optional, List, Dict
 from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ChatMemberHandler, ContextTypes, MessageHandler, filters
 from telegram.error import TelegramError
-from config import TELEGRAM_BOT_TOKEN, ENABLE_TELEGRAM, MESSAGE_BUTTONS
-from chat_storage import ChatStorage
+from config import TELEGRAM_BOT_TOKEN, ENABLE_TELEGRAM, MESSAGE_BUTTONS, NOTIFICATION_TYPES
+from chat_storage import ChatStorage, VALID_NOTIFICATION_MODES
 
 
 class TelegramNotifier:
@@ -20,6 +20,8 @@ class TelegramNotifier:
         self.app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
         self.app.add_handler(CommandHandler("start", self._cmd_start))
         self.app.add_handler(CommandHandler("status", self._cmd_status))
+        self.app.add_handler(CommandHandler("mode", self._cmd_mode))
+        self.app.add_handler(CommandHandler("setmode", self._cmd_setmode))
         self.app.add_handler(CommandHandler("help", self._cmd_help))
         self.app.add_handler(MessageHandler(filters.ALL, self._handle_any_message))
 
@@ -38,13 +40,89 @@ class TelegramNotifier:
             "last_name": chat.last_name,
         }
         self.chat_storage.add_chat(chat.id, chat_info)
+        mode = self.chat_storage.get_notification_mode(chat.id)
+        mode_desc = self._format_mode(mode)
 
         welcome_msg = f"""🤖 Bot 已启动
 
 ✅ {self._get_chat_type_name(chat.type)}已添加到通知列表
-命令: /status /help"""
+🔔 当前通知模式: {mode_desc}
+命令: /mode /setmode /status /help"""
 
         await update.message.reply_text(welcome_msg)
+
+    async def _is_admin(self, update: Update) -> bool:
+        chat = update.effective_chat
+        user = update.effective_user
+        if not chat or not user:
+            return False
+        if chat.type == "private":
+            return True
+        try:
+            member = await update.effective_chat.get_member(user.id)
+            return member.status in ("administrator", "creator")
+        except TelegramError:
+            return False
+
+    def _format_mode(self, mode: str) -> str:
+        mode_map = {"all": "📈 趋势 + ⚡️ 异动", "trending": "📈 仅趋势", "anomaly": "⚡️ 仅异动"}
+        return mode_map.get(mode, mode)
+
+    async def _cmd_mode(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        chat = update.effective_chat
+        if not chat:
+            return
+        mode = self.chat_storage.get_notification_mode(chat.id)
+        mode_desc = self._format_mode(mode)
+        available = [m for m in VALID_NOTIFICATION_MODES if m == "all" or m in NOTIFICATION_TYPES]
+        available_desc = " | ".join(available)
+        msg = f"""🔔 当前通知模式: {mode_desc}
+
+可选模式: {available_desc}
+管理员可使用 /setmode <模式> 切换"""
+        await update.message.reply_text(msg)
+
+    async def _cmd_setmode(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        chat = update.effective_chat
+        if not chat:
+            return
+
+        if not await self._is_admin(update):
+            await update.message.reply_text("⛔️ 仅管理员可切换通知模式")
+            return
+
+        args = context.args
+        if not args:
+            available = [m for m in VALID_NOTIFICATION_MODES if m == "all" or m in NOTIFICATION_TYPES]
+            available_desc = " | ".join(available)
+            await update.message.reply_text(f"用法: /setmode <{available_desc}>")
+            return
+
+        new_mode = args[0].strip().lower()
+        if new_mode not in VALID_NOTIFICATION_MODES:
+            await update.message.reply_text(f"❌ 无效模式: {new_mode}\n可选: all | trending | anomaly")
+            return
+
+        if new_mode != "all" and new_mode not in NOTIFICATION_TYPES:
+            await update.message.reply_text(f"❌ 当前 Bot 实例未启用 {new_mode} 通知类型")
+            return
+
+        if not self.chat_storage.get_chat(chat.id):
+            chat_info = {
+                "type": chat.type,
+                "title": chat.title,
+                "username": chat.username,
+                "first_name": chat.first_name,
+                "last_name": chat.last_name,
+            }
+            self.chat_storage.add_chat(chat.id, chat_info)
+
+        ok = self.chat_storage.set_notification_mode(chat.id, new_mode)
+        if ok:
+            mode_desc = self._format_mode(new_mode)
+            await update.message.reply_text(f"✅ 通知模式已切换为: {mode_desc}")
+        else:
+            await update.message.reply_text("❌ 切换失败，请先 /start 初始化")
 
     async def _cmd_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat = update.effective_chat
@@ -59,10 +137,12 @@ class TelegramNotifier:
             self.chat_storage.add_chat(chat.id, chat_info)
 
         active_count = len(self.chat_storage.get_active_chats())
+        mode = self.chat_storage.get_notification_mode(chat.id) if chat else "all"
+        mode_desc = self._format_mode(mode)
 
         msg = f"""📊 状态: 正常
 📱 活跃聊天: {active_count}
-🔔 通知: 已启用"""
+🔔 通知模式: {mode_desc}"""
 
         await update.message.reply_text(msg)
 
@@ -70,6 +150,8 @@ class TelegramNotifier:
         msg = """🤖 可用命令:
 /start - 订阅并初始化
 /status - 查看运行状态
+/mode - 查看当前通知模式
+/setmode <all|trending|anomaly> - 切换通知模式 (管理员)
 /help - 查看命令说明"""
         await update.message.reply_text(msg)
 

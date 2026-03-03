@@ -70,15 +70,12 @@ def _bootstrap_storages(chain: str, clear_targets: set, storages: dict, active_c
 def _startup_telegram(chat_storage: ChatStorage):
     if ENABLE_TELEGRAM and not DRY_RUN:
         notifier.start_bot()
-        notify_labels = []
-        if "trending" in NOTIFICATION_TYPES:
-            notify_labels.append("趋势")
-        if "anomaly" in NOTIFICATION_TYPES:
-            notify_labels.append("异动")
-        notification_desc = "/".join(notify_labels) if notify_labels else "通知"
         for chat in chat_storage.get_active_chats():
             chat_id = chat["chat_id"]
-            startup_message = f"✅ Bot 已启动，当前群组将接收{notification_desc}通知"
+            mode = chat_storage.get_notification_mode(chat_id)
+            mode_map = {"all": "趋势/异动", "trending": "趋势", "anomaly": "异动"}
+            mode_desc = mode_map.get(mode, "通知")
+            startup_message = f"✅ Bot 已启动，当前群组将接收{mode_desc}通知\n🔔 通知模式: {mode} | 管理员可用 /setmode 切换"
             notifier.send_sync(startup_message, chat_id=chat_id)
 
 
@@ -167,7 +164,7 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
             found_any_anomaly = False
             for chain in chains:
                 print(f"🔎 扫描链: {chain.upper()}")
-                found_any_anomaly = scan_once(chain, active_chats, storages) or found_any_anomaly
+                found_any_anomaly = scan_once(chain, active_chats, storages, chat_storage) or found_any_anomaly
 
             print(f"⏳ 等待 {CHECK_INTERVAL}s...")
             if DRY_RUN:

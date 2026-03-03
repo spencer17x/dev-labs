@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
 from api import fetch_trending, fetch_kol_holders
+from chat_storage import ChatStorage
 from config import (
     CHAINS,
     CHAIN_ALLOWLISTS,
@@ -413,11 +414,15 @@ def _process_chat_contracts(
     contracts: List[dict],
     trend_contract: Optional[Tuple[dict, List[dict], List[dict]]],
     anomaly_contract: Optional[Tuple[dict, List[dict], List[dict]]],
+    notification_mode: str = "all",
 ):
     new_contracts_count = 0
     tracked_contracts_count = 0
 
-    if trend_contract:
+    send_trending = notification_mode in ("all", "trending")
+    send_anomaly = notification_mode in ("all", "anomaly")
+
+    if trend_contract and send_trending:
         contract, kol_with_positions, kol_without_positions = trend_contract
         new_contracts_count += _send_candidate_notification(
             storage,
@@ -428,7 +433,7 @@ def _process_chat_contracts(
             kol_without_positions,
             False,
         )
-    if anomaly_contract:
+    if anomaly_contract and send_anomaly:
         contract, kol_with_positions, kol_without_positions = anomaly_contract
         new_contracts_count += _send_candidate_notification(
             storage,
@@ -544,7 +549,7 @@ def _build_chain_stats(
     return {chain: stats}
 
 
-def scan_once(chain: str, active_chats: List[dict], storages: Dict[str, ContractStorage]) -> bool:
+def scan_once(chain: str, active_chats: List[dict], storages: Dict[str, ContractStorage], chat_storage: ChatStorage = None) -> bool:
     response = fetch_trending(chain=chain)
     contracts = response.get("data", [])
     filtered_contracts = [contract for contract in contracts if _passes_base_filters(contract)]
@@ -553,6 +558,9 @@ def scan_once(chain: str, active_chats: List[dict], storages: Dict[str, Contract
     for chat in active_chats:
         chat_id = chat["chat_id"]
         storage = ensure_chat_storage(storages, chat_id, chain)
+        notification_mode = "all"
+        if chat_storage:
+            notification_mode = chat_storage.get_notification_mode(chat_id)
         _process_chat_contracts(
             storage,
             chat_id,
@@ -560,6 +568,7 @@ def scan_once(chain: str, active_chats: List[dict], storages: Dict[str, Contract
             contracts,
             trend_contract,
             anomaly_contract,
+            notification_mode,
         )
 
     return anomaly_contract is not None
