@@ -1,0 +1,15 @@
+{
+  "webhookUrl": "",
+  "dexscreener": {
+    "pollIntervalSec": 15,
+    "requestTimeoutSec": 15,
+    "wsHeartbeatSec": 30,
+    "reconnectDelaySec": 3
+  },
+  "twitter": {
+    "pollIntervalSec": 30,
+    "requestTimeoutSec": 20,
+    "defaultTweetCount": 20,
+    "defaultRelationCount": 50
+  }
+}

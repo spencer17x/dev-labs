@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "globals": {
+    "default_chains": ["sol"],
+    "notify_channels": ["stdout"]
+  },
+  "strategies": [
+    {
+      "id": "paid-sol-early",
+      "enabled": true,
+      "chains": ["sol"],
+      "source": "dexscreener.token_profiles_latest",
+      "entry_rule": {
+        "logic": "all",
+        "conditions": [
+          {
+            "field": "dexscreener.paid",
+            "op": "==",
+            "value": true
+          },
+          {
+            "logic": "any",
+            "conditions": [
+              {
+                "field": "xxyy.follow_addresses",
+                "op": "contains_any",
+                "value": [
+                  "AVAZvHLR2PcWpDf8BXY4rVxNHYRBytycHkcB5z5QNXYm"
+                ]
+              },
+              {
+                "field": "xxyy.kol_names",
+                "op": "contains_any",
+                "value": [
+                  "ansem",
+                  "k4ye"
+                ]
+              }
+            ]
+          },
+          {
+            "field": "xxyy.holder_count",
+            "op": ">=",
+            "value": 100
+          }
+        ]
+      },
+      "reject_logic": "any",
+      "reject_conditions": [
+        {
+          "field": "xxyy.market_cap",
+          "op": ">",
+          "value": 3000000
+        },
+        {
+          "field": "xxyy.holder_count",
+          "op": ">",
+          "value": 5000
+        }
+      ],
+      "action": {
+        "type": "notify",
+        "channels": ["stdout"]
+      }
+    }
+  ]
+}
