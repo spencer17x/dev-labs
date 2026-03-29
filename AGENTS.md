@@ -1,10 +1,10 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-`apps/` contains every bot. TypeScript agents (twitter-bot, token-launcher, trending-alert-bot) share the `src/` → `dist/` path plus `rolldown.config.ts`, and they store env/database samples beside the code for zero-dependency bundles. Python services (telegram-forwarder, telegram-watcher) keep orchestration in `core/`, adapters in `services/`, and routing data in `forward_rules.example.json`; create per-app venvs. Root configs (`package.json`, `pnpm-workspace.yaml`, `tsconfig.json`) define shared tooling, while `scripts/create-project.ts` (`pnpm new`) scaffolds new work.
+`apps/` contains every bot. TypeScript apps share the `src/` → `dist/` path plus `rolldown.config.ts`, and they store env/database samples beside the code for zero-dependency bundles. Python apps use repo-root `/.python-version` with `uv`, and each app keeps its own `.venv` plus local config samples beside the code. Root configs (`package.json`, `pnpm-workspace.yaml`, `tsconfig.json`) define shared tooling, while `scripts/create-project.ts` (`pnpm new`) scaffolds new work.
 
 ## Build, Test & Development Commands
-Install shared dependencies with `pnpm install`. For TypeScript work, run `pnpm --filter <app> dev` for vite-node hot reload, `pnpm --filter <app> build` for rolldown bundles, and `pnpm --filter <app> start:prod` to execute the emitted `dist/index.cjs`. Python bots should create a local env (`python -m venv venv && source venv/bin/activate`), install `pip install -r requirements.txt`, and start with `python main.py`.
+Install shared dependencies with `pnpm install`. For TypeScript work, run `pnpm --filter <app> dev` for vite-node hot reload, `pnpm --filter <app> build` for rolldown bundles, and `pnpm --filter <app> start:prod` to execute the emitted `dist/index.cjs`. Python bots should run `uv python install`, `uv venv`, `uv pip install -r requirements.txt`, then start with `uv run python <entrypoint>.py` from the app directory.
 
 ## Detailed Rules
 

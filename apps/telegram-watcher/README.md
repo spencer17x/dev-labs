@@ -2,7 +2,7 @@
 
 > Dev Lab Telegram 消息监听服务 · 双模式支持 · 高并发处理 · 智能消息分析
 
-[![Python](https://img.shields.io/badge/Python-3.7+-3776ab?logo=python&logoColor=white)](https://python.org)
+[![Python](https://img.shields.io/badge/Python-3.11-3776ab?logo=python&logoColor=white)](https://python.org)
 [![Telethon](https://img.shields.io/badge/Telethon-Latest-0088cc?logo=telegram&logoColor=white)](https://docs.telethon.dev)
 
 ## 🎯 项目概览
@@ -37,7 +37,7 @@ telegram-watcher/
 
 ### 📋 环境要求
 
-- Python ≥ 3.7.0
+- Python 3.11.15（由仓库根 `.python-version` + `uv` 管理）
 - Telegram API 凭证 (API ID + API Hash)
 - Bot Token (可选，机器人模式)
 
@@ -65,7 +65,9 @@ telegram-watcher/
 
 ```bash
 # 1. 安装依赖
-pip install -r requirements.txt
+uv python install
+uv venv
+uv pip install -r requirements.txt
 
 # 2. 配置 API 凭证
 cp .env.example .env
@@ -76,7 +78,7 @@ cp config.example.json config.json
 # 编辑 config.json，配置监听目标和其他选项
 
 # 4. 启动服务
-python main.py
+uv run python main.py
 ```
 
 ## ⚙️ 配置详解
@@ -236,7 +238,7 @@ TELEGRAM_BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrsTUVwxyz
 
 ```bash
 # 直接启动服务
-python main.py
+uv run python main.py
 
 # 首次运行（用户模式）会要求验证码登录
 ````
@@ -253,7 +255,7 @@ brew install tmux      # macOS
 # 创建后台会话
 tmux new -s telegram-watcher
 cd /path/to/telegram-watcher
-python main.py
+uv run python main.py
 
 # 分离会话（Ctrl+B, 然后按 D）
 # 重新连接：tmux attach -t telegram-watcher
@@ -275,7 +277,7 @@ After=network.target
 Type=simple
 User=your_username
 WorkingDirectory=/path/to/telegram-watcher
-ExecStart=/usr/bin/python3 main.py
+ExecStart=/path/to/telegram-watcher/.venv/bin/python main.py
 Restart=on-failure
 RestartSec=10
 
@@ -297,7 +299,7 @@ sudo systemctl status telegram-watcher
 npm install -g pm2
 
 # 启动应用
-pm2 start main.py --name telegram-watcher --interpreter python3
+pm2 start main.py --name telegram-watcher --interpreter ./.venv/bin/python
 
 # 管理命令
 pm2 list                   # 查看进程
@@ -422,10 +424,12 @@ tail -f logs/telegram_listener.log
 
 ```bash
 # 安装依赖
-pip install -r requirements.txt
+uv python install
+uv venv
+uv pip install -r requirements.txt
 
 # 开发模式运行
-python main.py
+uv run python main.py
 ```
 
 ### 添加新功能

@@ -1,6 +1,7 @@
 """Convenient launcher for local run and PM2-managed bot control."""
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
@@ -21,6 +22,18 @@ def _ensure_pm2():
         raise RuntimeError("pm2 not found, install pm2 first")
 
 
+def _resolve_python_interpreter(root: Path) -> str:
+    override = os.environ.get("PYTHON")
+    if override:
+        return override
+
+    venv_python = root / ".venv" / "bin" / "python"
+    if venv_python.exists():
+        return str(venv_python)
+
+    return sys.executable
+
+
 def _run_single(target: str, common_config: str, dry_run: bool):
     root = Path(__file__).resolve().parent
     cmd = [
@@ -39,6 +52,7 @@ def _run_single(target: str, common_config: str, dry_run: bool):
 def _start_target(target: str, common_config: str, dry_run: bool):
     root = Path(__file__).resolve().parent
     _ensure_pm2()
+    interpreter = _resolve_python_interpreter(root)
     cmd = [
         "pm2",
         "start",
@@ -46,7 +60,7 @@ def _start_target(target: str, common_config: str, dry_run: bool):
         "--name",
         _pm2_name(target),
         "--interpreter",
-        "python3",
+        interpreter,
         "--",
         "run",
         target,

@@ -3,7 +3,7 @@
 > 现代化开发实验室：智能代理 · 消息处理 · 零依赖部署 · 超快构建
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Python](https://img.shields.io/badge/Python-3.7+-3776ab?logo=python&logoColor=white)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/Python-3.11-3776ab?logo=python&logoColor=white)](https://www.python.org/)
 [![rolldown](https://img.shields.io/badge/rolldown-1.0.0--beta-ff6b35?logo=rollup&logoColor=white)](https://rolldown.rs/)
 [![pnpm](https://img.shields.io/badge/pnpm-workspace-f69220?logo=pnpm&logoColor=white)](https://pnpm.io/)
 [![License](https://img.shields.io/badge/License-MIT-green?logo=opensourceinitiative&logoColor=white)](./LICENSE)
@@ -26,8 +26,8 @@ Dev Lab 是一个现代化的开发实验室，专注于智能代理、消息处
 | ---------------------------------------------------- | ----------- | --------- | ---------------------------- |
 | **[notifier-bot](./apps/notifier-bot/)**             | TypeScript  | **1.0MB** | Webhook 消息聚合与多渠道推送 |
 | **[twitter-bot](./apps/twitter-bot/)**               | TypeScript  | **2.4MB** | Twitter 到 Telegram 消息转发 |
-| **[telegram-forwarder](./apps/telegram-forwarder/)** | Python 3.7+ | 虚拟环境  | Telegram 智能转发机器人      |
-| **[telegram-watcher](./apps/telegram-watcher/)**     | Python 3.7+ | 虚拟环境  | Telegram 消息监听处理        |
+| **[telegram-forwarder](./apps/telegram-forwarder/)** | Python 3.11 | uv + .venv | Telegram 智能转发机器人      |
+| **[telegram-watcher](./apps/telegram-watcher/)**     | Python 3.11 | uv + .venv | Telegram 消息监听处理        |
 
 ## 📁 项目结构
 
@@ -53,7 +53,8 @@ dev-lab/
 ```bash
 # 基础环境
 Node.js ≥ 18.0.0    # TypeScript 项目
-Python ≥ 3.7.0      # Python 项目
+uv ≥ 0.5.0          # Python 版本与虚拟环境管理
+Python 3.11.15      # 由仓库根 .python-version 固定
 pnpm ≥ 8.0.0        # 推荐包管理器
 ```
 
@@ -85,14 +86,13 @@ pnpm --filter <project> start:prod
 # 进入项目目录
 cd apps/telegram-forwarder  # 或其他 Python 项目
 
-# 创建虚拟环境
-python3 -m venv venv
-source venv/bin/activate  # macOS/Linux
-# venv\Scripts\activate   # Windows
+# 使用仓库固定的 Python 版本创建当前 app 的 .venv
+uv python install
+uv venv
 
 # 安装依赖并运行
-pip install -r requirements.txt
-python main.py
+uv pip install -r requirements.txt
+uv run python main.py
 ```
 
 ### 🎯 实验场景示例
@@ -132,9 +132,10 @@ pnpm build
 scp dist/index.cjs server:/app/
 node /app/index.cjs  # 无需 npm install，秒级启动
 
-# Python 项目：虚拟环境部署
-pip install -r requirements.txt
-python main.py
+# Python 项目：uv + .venv 部署
+uv venv
+uv pip install -r requirements.txt
+uv run python main.py
 ```
 
 ## 🛠️ 创建新项目
@@ -200,9 +201,9 @@ pnpm type-check  # 类型检查
 pnpm lint        # 代码检查
 
 # Python 项目
-python -m pytest tests/     # 单元测试
-python -m mypy src/         # 类型检查
-python -m flake8 src/       # 代码检查
+uv run python -m pytest tests/     # 单元测试
+uv run python -m mypy src/         # 类型检查
+uv run python -m flake8 src/       # 代码检查
 ```
 
 ## 📄 许可证与声明
@@ -225,8 +226,8 @@ python -m flake8 src/       # 代码检查
 | ------------------ | ----------- | --------- | --------------------------------------------- | ------------------------ |
 | **消息聚合服务**   | TypeScript  | **1.0MB** | [README](./apps/notifier-bot/README.md)       | Webhook 聚合与推送       |
 | **Twitter 机器人** | TypeScript  | **2.4MB** | [README](./apps/twitter-bot/README.md)        | Twitter 到 Telegram 转发 |
-| **Telegram 转发**  | Python 3.7+ | 虚拟环境  | [README](./apps/telegram-forwarder/README.md) | 智能消息转发与过滤       |
-| **Telegram 监听**  | Python 3.7+ | 虚拟环境  | [README](./apps/telegram-watcher/README.md)   | 消息监听与处理服务       |
+| **Telegram 转发**  | Python 3.11 | uv + .venv | [README](./apps/telegram-forwarder/README.md) | 智能消息转发与过滤       |
+| **Telegram 监听**  | Python 3.11 | uv + .venv | [README](./apps/telegram-watcher/README.md)   | 消息监听与处理服务       |
 
 ---
 

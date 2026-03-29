@@ -168,9 +168,9 @@ flowchart LR
 
 ```bash
 cd apps/signal-trade
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+uv python install
+uv venv
+uv pip install -r requirements.txt
 cp .env.example .env
 ```
 
@@ -213,36 +213,36 @@ cp config.example.json config.json
 
 ## 启动方式
 
-以下命令默认都在 `apps/signal-trade` 目录下执行。
+以下命令默认都在 `apps/signal-trade` 目录下执行，并且已完成 `uv venv` 和 `uv pip install -r requirements.txt`。
 
 查看 CLI：
 
 ```bash
-python main.py --help
+uv run python main.py --help
 ```
 
 一次性拉取 Dex paid：
 
 ```bash
-python main.py --rules rules.example.json dex-rest --subscriptions token_profiles_latest --limit 5
+uv run python main.py --rules rules.example.json dex-rest --subscriptions token_profiles_latest --limit 5
 ```
 
 实时监听 Dex paid：
 
 ```bash
-python main.py --rules rules.example.json dex-ws --subscriptions token_profiles_latest --limit 5
+uv run python main.py --rules rules.example.json dex-ws --subscriptions token_profiles_latest --limit 5
 ```
 
 单独验证 Twitter polling collector：
 
 ```bash
-python main.py twitter elonmusk
+uv run python main.py twitter elonmusk
 ```
 
 如果只想验证当前项目实际使用的 `twitter.community_count` 链路，推荐直接调用 `TwitterCommunityClient`：
 
 ```bash
-python3 -c 'import asyncio; from services.twitter_community_client import TwitterCommunityClient; print(asyncio.run(TwitterCommunityClient().fetch_profile_metrics("elonmusk")))'
+uv run python -c 'import asyncio; from services.twitter_community_client import TwitterCommunityClient; print(asyncio.run(TwitterCommunityClient().fetch_profile_metrics("elonmusk")))'
 ```
 
 如果需要 webhook，先复制并编辑运行时配置，例如：
@@ -254,7 +254,7 @@ cp config.example.json config.json
 或者显式传入你自己的配置文件，再这样启动：
 
 ```bash
-python main.py --rules rules.example.json --config config.json dex-ws --subscriptions token_profiles_latest --limit 5
+uv run python main.py --rules rules.example.json --config config.json dex-ws --subscriptions token_profiles_latest --limit 5
 ```
 
 注意：
@@ -267,17 +267,17 @@ python main.py --rules rules.example.json --config config.json dex-ws --subscrip
 当前三个外部模块都可以单独验证：
 
 - DexScreener
-  - `python smoke/dexscreener.py --mode rest --limit 5`
-  - `python smoke/dexscreener.py --mode ws --subscriptions token_profiles_latest --limit 5`
+  - `uv run python smoke/dexscreener.py --mode rest --limit 5`
+  - `uv run python smoke/dexscreener.py --mode ws --subscriptions token_profiles_latest --limit 5`
 - XXYY
-  - `python smoke/xxyy.py --mint <MINT> --mode pair-info`
-  - `python smoke/xxyy.py --mint <MINT> --mode stat-info`
-  - `python smoke/xxyy.py --mint <MINT> --mode kol`
-  - `python smoke/xxyy.py --mint <MINT> --mode follow`
-  - `python smoke/xxyy.py --mint <MINT> --mode context`
+  - `uv run python smoke/xxyy.py --mint <MINT> --mode pair-info`
+  - `uv run python smoke/xxyy.py --mint <MINT> --mode stat-info`
+  - `uv run python smoke/xxyy.py --mint <MINT> --mode kol`
+  - `uv run python smoke/xxyy.py --mint <MINT> --mode follow`
+  - `uv run python smoke/xxyy.py --mint <MINT> --mode context`
 - Twitter / X
-  - `python cli/twitter_collector_smoke.py`
-  - `python cli/twitter_x_poll.py <username>`
+  - `uv run python cli/twitter_collector_smoke.py`
+  - `uv run python cli/twitter_x_poll.py <username>`
 
 ## 策略规则
 

@@ -1,9 +1,14 @@
+const path = require('path');
+
+const python = process.env.PYTHON || path.join(__dirname, '.venv', 'bin', 'python');
+
 module.exports = {
   apps: [
     {
       name: 'telegram-forwarder',
+      cwd: __dirname,
       script: 'main.py',
-      interpreter: 'python',
+      interpreter: python,
       instances: 1,
       autorestart: true,
       watch: false,

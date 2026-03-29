@@ -15,11 +15,15 @@
 
 ```bash
 # 克隆项目
-git clone <repo-url>
-cd telegram-forwarder
+git clone <repo-url> dev-lab
+cd dev-lab/apps/telegram-forwarder
+
+# 使用仓库根 .python-version 固定的 Python 版本
+uv python install
+uv venv
 
 # 安装依赖
-pip install -r requirements.txt
+uv pip install -r requirements.txt
 ```
 
 ### 配置
@@ -51,7 +55,7 @@ cp forward_rules.example.json forward_rules.json
 **直接运行：**
 
 ```bash
-python main.py
+uv run python main.py
 ```
 
 **使用 PM2 运行（推荐生产环境）：**
@@ -82,6 +86,8 @@ pm2 delete telegram-forwarder
 pm2 startup
 pm2 save
 ```
+
+`ecosystem.config.js` 会默认优先使用当前目录 `.venv/bin/python`，也可以通过 `PYTHON=/custom/python pm2 start ecosystem.config.js` 覆盖解释器。
 
 首次运行需要登录 Telegram 账号（输入手机号和验证码）。
 
@@ -221,7 +227,7 @@ pm2 save
 **方法 1：使用脚本**
 
 ```bash
-python cli/list_my_groups.py
+uv run python cli/list_my_groups.py
 ```
 
 可选择显示列表或导出 JSON（默认导出文件 `my_groups.json`）。
@@ -229,7 +235,7 @@ python cli/list_my_groups.py
 **查询用户 ID**
 
 ```bash
-python cli/query_user_id.py
+uv run python cli/query_user_id.py
 ```
 
 **方法 2：使用 Bot**
@@ -320,10 +326,10 @@ python cli/query_user_id.py
 
 ```bash
 # 实例 1
-TELEGRAM_SESSION_PATH=session1 python main.py
+TELEGRAM_SESSION_PATH=session1 uv run python main.py
 
 # 实例 2
-TELEGRAM_SESSION_PATH=session2 python main.py
+TELEGRAM_SESSION_PATH=session2 uv run python main.py
 ```
 
 </details>
@@ -369,7 +375,7 @@ telegram-forwarder/
 
 ## 🛠️ 技术栈
 
-- Python 3.7+
+- Python 3.11（由仓库根 `.python-version` + `uv` 管理）
 - [Telethon](https://docs.telethon.dev/) - Telegram MTProto API 客户端
 - [python-dotenv](https://github.com/theskumar/python-dotenv) - 环境变量管理
 
