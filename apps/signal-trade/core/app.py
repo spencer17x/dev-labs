@@ -14,6 +14,7 @@ from models.strategy import Strategy, StrategyCondition, StrategyConditionGroup
 from notifications.stdout_notifier import StdoutNotifier
 from notifications.webhook_notifier import WebhookNotifier
 from core.strategy_engine import StrategyEngine
+from services.notification_store import NotificationStore
 
 logger = logging.getLogger(__name__)
 
@@ -26,11 +27,13 @@ class SignalTradeApp:
         strategies: Iterable[Strategy],
         webhook_url: str = '',
         enricher: SignalContextEnricher | None = None,
+        notification_store: NotificationStore | None = None,
     ) -> None:
         self._engine = StrategyEngine(strategies)
         self._enricher = enricher or SignalContextEnricher()
         self._stdout_notifier = StdoutNotifier()
         self._webhook_notifier = WebhookNotifier(webhook_url=webhook_url)
+        self._notification_store = notification_store or NotificationStore()
 
     async def process_event(self, event: SignalEvent) -> None:
         try:
@@ -54,6 +57,10 @@ class SignalTradeApp:
             }
         payloads = self._engine.evaluate(event, context)
         for payload in payloads:
+            try:
+                self._notification_store.append(payload)
+            except Exception as exc:
+                logger.warning('failed to persist notification %s: %s', payload.event.id, exc)
             await self._dispatch(payload)
 
     async def _dispatch(self, payload: NotificationPayload) -> None:

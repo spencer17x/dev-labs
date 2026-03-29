@@ -144,6 +144,8 @@ __pycache__/
 # Config files with sensitive data
 config.json
 db.json
+apps/signal-trade/data/notifications.json
+apps/signal-trade/data/dashboard-filters.json
 
 # Session directories
 sessions/

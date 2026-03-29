@@ -1,0 +1,60 @@
+@import 'tailwindcss';
+
+:root {
+  --background: oklch(0.985 0.01 77);
+  --foreground: oklch(0.27 0.018 38);
+  --muted-foreground: oklch(0.53 0.024 40);
+  --border: oklch(0.9 0.015 72);
+  --ring: oklch(0.67 0.14 44);
+  --panel: rgba(255, 253, 250, 0.78);
+  --panel-soft: rgba(249, 244, 237, 0.9);
+  --panel-muted: rgba(238, 227, 216, 0.85);
+  --panel-strong: rgba(232, 216, 199, 0.94);
+  --accent: oklch(0.67 0.15 44);
+  --accent-strong: oklch(0.61 0.16 41);
+  --accent-foreground: oklch(0.98 0.01 95);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-ring: var(--ring);
+  --color-panel: var(--panel);
+  --color-panel-soft: var(--panel-soft);
+  --color-panel-muted: var(--panel-muted);
+  --color-panel-strong: var(--panel-strong);
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-foreground: var(--accent-foreground);
+  --font-sans: var(--font-display);
+  --font-mono: var(--font-mono);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    @apply scroll-smooth;
+  }
+
+  body {
+    @apply bg-background font-sans text-foreground antialiased;
+    background-image:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(250, 244, 237, 0.94)),
+      radial-gradient(circle at top left, rgba(0, 162, 142, 0.14), transparent 28%),
+      radial-gradient(circle at 90% 10%, rgba(220, 88, 42, 0.22), transparent 32%);
+    min-height: 100vh;
+  }
+
+  a {
+    @apply transition-colors;
+  }
+
+  ::selection {
+    background: rgba(220, 88, 42, 0.18);
+  }
+}

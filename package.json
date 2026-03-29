@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "engines": {
     "node": "22.11.0",
-    "pnpm": "10.16.1"
+    "pnpm": "10.33.0"
   },
   "scripts": {
     "new": "vite-node scripts/create-project.ts",

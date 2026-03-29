@@ -26,6 +26,7 @@ Dev Lab 是一个现代化的开发实验室，专注于智能代理、消息处
 | ---------------------------------------------------- | ----------- | --------- | ---------------------------- |
 | **[notifier-bot](./apps/notifier-bot/)**             | TypeScript  | **1.0MB** | Webhook 消息聚合与多渠道推送 |
 | **[twitter-bot](./apps/twitter-bot/)**               | TypeScript  | **2.4MB** | Twitter 到 Telegram 消息转发 |
+| **[signal-trade](./apps/signal-trade/)**             | Next.js + Python | 全栈仪表盘 | 通知代币展示与前端筛选面板   |
 | **[telegram-forwarder](./apps/telegram-forwarder/)** | Python 3.11 | uv + .venv | Telegram 智能转发机器人      |
 | **[telegram-watcher](./apps/telegram-watcher/)**     | Python 3.11 | uv + .venv | Telegram 消息监听处理        |
 
@@ -35,6 +36,7 @@ Dev Lab 是一个现代化的开发实验室，专注于智能代理、消息处
 dev-lab/
 ├─ apps/                          # 实验应用
 │  ├─ notifier-bot/              # 消息聚合通知服务
+│  ├─ signal-trade/              # Signal Trade 全栈仪表盘
 │  ├─ twitter-bot/               # Twitter 转发机器人
 │  ├─ telegram-forwarder/        # Telegram 转发机器人
 │  └─ telegram-watcher/          # Telegram 消息监听
@@ -226,6 +228,7 @@ uv run python -m flake8 src/       # 代码检查
 | ------------------ | ----------- | --------- | --------------------------------------------- | ------------------------ |
 | **消息聚合服务**   | TypeScript  | **1.0MB** | [README](./apps/notifier-bot/README.md)       | Webhook 聚合与推送       |
 | **Twitter 机器人** | TypeScript  | **2.4MB** | [README](./apps/twitter-bot/README.md)        | Twitter 到 Telegram 转发 |
+| **Signal Trade**   | Next.js + Python | 全栈仪表盘 | [README](./apps/signal-trade/README.md)       | 通知代币展示与前端筛选   |
 | **Telegram 转发**  | Python 3.11 | uv + .venv | [README](./apps/telegram-forwarder/README.md) | 智能消息转发与过滤       |
 | **Telegram 监听**  | Python 3.11 | uv + .venv | [README](./apps/telegram-watcher/README.md)   | 消息监听与处理服务       |
 
