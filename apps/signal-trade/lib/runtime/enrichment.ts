@@ -1,16 +1,24 @@
+import type {
+  SignalContext,
+  SignalContextDexscreener,
+  SignalEvent,
+} from '@/lib/types';
 import {
-  fetchDexTokenDetailsByChain,
-  type DexTokenPairDetails,
-} from '@/lib/dexscreener-token-details';
-import type { SignalContext, SignalEvent } from '@/lib/types';
-import {
-  fetchTwitterProfileMetrics,
   extractTwitterUsername,
   findSocialLink,
 } from '@/lib/runtime/twitter';
-import { buildXXYYContext } from '@/lib/runtime/xxyy';
 
 export async function enrichSignalEvent(event: SignalEvent): Promise<SignalContext> {
+  const raw = isObject(event.raw) ? event.raw : {};
+  const links = normalizeLinks(
+    Array.isArray(deepGet(event.metadata, 'dexscreener', 'links'))
+      ? (deepGet(event.metadata, 'dexscreener', 'links') as Array<Record<string, unknown>>)
+      : [],
+  );
+  const twitterUrl = findSocialLink(links, ['twitter', 'x']);
+  const telegramUrl = findSocialLink(links, ['telegram']);
+  const twitterUsername = extractTwitterUsername(twitterUrl);
+
   const context: SignalContext = {
     token: {
       chain: event.chain,
@@ -22,92 +30,64 @@ export async function enrichSignalEvent(event: SignalEvent): Promise<SignalConte
       source: event.subtype,
       paid: event.subtype === 'token_profiles_latest',
       timestamp: event.timestamp,
-      url: asString(deepGet(event.metadata, 'dexscreener', 'url')),
-      icon: asString(deepGet(event.metadata, 'dexscreener', 'icon')),
-      imageUrl: null,
-      header: asString(deepGet(event.metadata, 'dexscreener', 'header')),
-      description: asString(deepGet(event.metadata, 'dexscreener', 'description')),
-      priceUsd: null,
-      liquidityUsd: null,
-      marketCap: null,
-      fdv: null,
-      websites: [],
-      socials: [],
-      links:
-        (Array.isArray(deepGet(event.metadata, 'dexscreener', 'links'))
-          ? (deepGet(event.metadata, 'dexscreener', 'links') as Array<Record<string, unknown>>)
-          : []) || [],
+      url: asString(deepGet(event.metadata, 'dexscreener', 'url')) ?? asString(raw.url),
+      icon: asString(deepGet(event.metadata, 'dexscreener', 'icon')) ?? asString(raw.icon),
+      imageUrl:
+        asString(raw.imageUrl) ??
+        asString(raw.image) ??
+        asString(deepGet(raw, 'token', 'imageUrl')) ??
+        asString(deepGet(event.metadata, 'dexscreener', 'icon')),
+      header:
+        asString(deepGet(event.metadata, 'dexscreener', 'header')) ??
+        asString(raw.header) ??
+        asString(raw.title),
+      description:
+        asString(deepGet(event.metadata, 'dexscreener', 'description')) ??
+        asString(raw.description) ??
+        asString(event.text),
+      priceUsd: readNumber(raw.priceUsd, raw.price_usd, deepGet(raw, 'price', 'usd')),
+      liquidityUsd: readNumber(
+        raw.liquidityUsd,
+        raw.liquidity_usd,
+        deepGet(raw, 'liquidity', 'usd'),
+      ),
+      marketCap: readNumber(raw.marketCap, raw.market_cap),
+      fdv: readNumber(raw.fdv, raw.fdv_usd),
+      websites: extractWebsites(links),
+      socials: extractSocials(links),
+      links,
     },
     xxyy: {},
-    twitter: {},
+    twitter: {
+      profile_url: twitterUrl,
+      username: twitterUsername,
+      community_count: null,
+      followers_count: null,
+      friends_count: null,
+      statuses_count: null,
+    },
   };
 
-  if (event.source === 'dexscreener' && event.token.address) {
-    try {
-      const details = await fetchDexTokenDetails(
-        event.chain ?? null,
-        event.token.address,
-      );
-      if (details) {
-        context.token = {
-          chain: context.token?.chain ?? details.chainId ?? event.chain,
-          address:
-            context.token?.address ?? details.token.address ?? event.token.address,
-          symbol: context.token?.symbol ?? details.token.symbol ?? event.token.symbol,
-          name: context.token?.name ?? details.token.name ?? event.token.name,
-        };
-        context.dexscreener = {
-          ...context.dexscreener,
-          url: context.dexscreener?.url || details.url || null,
-          icon: context.dexscreener?.icon || details.imageUrl || null,
-          imageUrl: details.imageUrl,
-          priceUsd: details.priceUsd,
-          liquidityUsd: details.liquidityUsd,
-          marketCap: details.marketCap,
-          fdv: details.fdv,
-          websites: [...details.websites],
-          socials: details.socials.map(item => ({ ...item })),
-        };
-      }
-    } catch {
-      // Keep degraded context when token detail lookup fails.
-    }
-
-    try {
-      context.xxyy = await buildXXYYContext(event.token.address, event.chain || 'sol');
-    } catch {
-      context.xxyy = {};
-    }
+  if (!context.token?.symbol) {
+    context.token = {
+      ...context.token,
+      symbol: asString(raw.symbol) ?? asString(deepGet(raw, 'token', 'symbol')),
+    };
   }
 
-  const links = context.dexscreener?.links ?? [];
-  const twitterUrl =
-    findSocialLink(links, ['twitter', 'x']) ||
-    asString(context.xxyy?.project_twitter_url) ||
-    null;
-  const telegramUrl = findSocialLink(links, ['telegram']);
+  if (!context.token?.name) {
+    context.token = {
+      ...context.token,
+      name:
+        asString(raw.tokenName) ??
+        asString(raw.name) ??
+        asString(deepGet(raw, 'token', 'name')),
+    };
+  }
 
   if (telegramUrl && context.xxyy && !context.xxyy.project_telegram_url) {
     context.xxyy.project_telegram_url = telegramUrl;
   }
-
-  const username = extractTwitterUsername(twitterUrl);
-  const profileMetrics = username
-    ? await fetchTwitterProfileMetrics(username)
-    : {
-        username: null,
-        profile_url: null,
-        community_count: null,
-        followers_count: null,
-        friends_count: null,
-        statuses_count: null,
-      };
-
-  context.twitter = {
-    ...profileMetrics,
-    profile_url: twitterUrl || profileMetrics.profile_url || null,
-    username: username || profileMetrics.username || null,
-  };
 
   return context;
 }
@@ -127,54 +107,70 @@ function asString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
-async function fetchDexTokenDetails(
-  chainId: string | null,
-  tokenAddress: string,
-): Promise<DexTokenPairDetails | null> {
-  const normalizedTokenAddress = tokenAddress.trim().toLowerCase();
-  if (!normalizedTokenAddress) {
-    return null;
-  }
-
-  for (const candidate of getDexDetailChainCandidates(chainId)) {
-    const detailsByAddress = await fetchDexTokenDetailsByChain(candidate, [
-      normalizedTokenAddress,
-    ]);
-    const details = detailsByAddress[normalizedTokenAddress];
-    if (details) {
-      return details;
+function readNumber(...values: unknown[]): number | null {
+  for (const value of values) {
+    const parsed = asNumber(value);
+    if (parsed !== null) {
+      return parsed;
     }
   }
-
   return null;
 }
 
-function getDexDetailChainCandidates(chainId: string | null): string[] {
-  if (!chainId) {
-    return [];
+function asNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizeLinks(
+  value: Array<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+  return value.filter(isObject);
+}
+
+function extractWebsites(
+  links: Array<Record<string, unknown>>,
+): string[] {
+  return links
+    .filter(link => {
+      const type = asString(link.type)?.toLowerCase() ?? '';
+      return type === 'website' || type === 'site';
+    })
+    .map(link => asString(link.url))
+    .filter((value): value is string => Boolean(value));
+}
+
+function extractSocials(
+  links: Array<Record<string, unknown>>,
+): SignalContextDexscreener['socials'] {
+  const socials: SignalContextDexscreener['socials'] = [];
+
+  for (const link of links) {
+    const platform = asString(link.type)?.toLowerCase() ?? null;
+    const url = asString(link.url);
+    if (!platform || !url) {
+      continue;
+    }
+
+    socials.push({
+      handle:
+        platform === 'twitter' || platform === 'x'
+          ? extractTwitterUsername(url)
+          : null,
+      platform,
+      url,
+    });
   }
 
-  const normalized = chainId.trim().toLowerCase();
-  if (!normalized) {
-    return [];
-  }
-
-  const aliasMap: Record<string, string[]> = {
-    arb: ['arbitrum'],
-    arbitrum: ['arb'],
-    avax: ['avalanche'],
-    avalanche: ['avax'],
-    bnb: ['bsc'],
-    bsc: ['bnb'],
-    eth: ['ethereum'],
-    ethereum: ['eth'],
-    matic: ['polygon'],
-    op: ['optimism'],
-    optimism: ['op'],
-    polygon: ['matic'],
-    sol: ['solana'],
-    solana: ['sol'],
-  };
-
-  return Array.from(new Set([normalized, ...(aliasMap[normalized] ?? [])]));
+  return socials;
 }

@@ -146,16 +146,20 @@ export function SignalTradeDashboard({
     const maxHolders = parseNumericFilter(filters.maxHolders);
     const maxMarketCap = parseNumericFilter(filters.maxMarketCap);
     const minCommunityCount = parseNumericFilter(filters.minCommunityCount);
-    const kolNames = parseListFilter(filters.kolNames);
-    const followAddresses = parseListFilter(filters.followAddresses);
     return notifications
       .filter(record => {
         const sourceKey = `${record.event.source}.${record.event.subtype}`;
         const searchHaystack = [
+          record.context.token?.symbol,
+          record.context.token?.name,
+          record.context.token?.address,
           record.event.token.symbol,
           record.event.token.name,
           record.event.token.address,
+          record.event.author?.display_name,
           record.message,
+          record.context.dexscreener?.header,
+          record.context.dexscreener?.description,
           record.summary.twitterUsername,
         ]
           .filter(Boolean)
@@ -204,18 +208,6 @@ export function SignalTradeDashboard({
         ) {
           return false;
         }
-        if (
-          kolNames.length > 0 &&
-          !matchesAnyValue(record.context.xxyy?.kol_names, kolNames)
-        ) {
-          return false;
-        }
-        if (
-          followAddresses.length > 0 &&
-          !matchesAnyValue(record.context.xxyy?.follow_addresses, followAddresses)
-        ) {
-          return false;
-        }
         return true;
       })
       .sort(
@@ -226,8 +218,6 @@ export function SignalTradeDashboard({
     deferredSearch,
     deferredWatchTerms,
     filters.chain,
-    filters.followAddresses,
-    filters.kolNames,
     filters.maxMarketCap,
     filters.minCommunityCount,
     filters.maxHolders,
@@ -1033,7 +1023,7 @@ export function SignalTradeDashboard({
 
                 <FieldGroup label="KOL 名单">
                   <Textarea
-                    placeholder="支持逗号或换行，例如：ansem, k4ye"
+                    placeholder="当前停用 XXYY，KOL 筛选暂不可用"
                     value={filters.kolNames}
                     onChange={event => updateFilter('kolNames', event.target.value)}
                   />
@@ -1041,7 +1031,7 @@ export function SignalTradeDashboard({
 
                 <FieldGroup label="关注地址">
                   <Textarea
-                    placeholder="支持逗号或换行，匹配 xxyy.follow_addresses"
+                    placeholder="当前停用 XXYY，关注地址筛选暂不可用"
                     value={filters.followAddresses}
                     onChange={event =>
                       updateFilter('followAddresses', event.target.value)
@@ -1169,6 +1159,12 @@ export function SignalTradeDashboard({
                 <p className="text-xs leading-6 text-muted-foreground">
                   当前页面直接控制 `auto / ws / http`。`ws` 由浏览器直连，`http`
                   由浏览器定时请求刷新接口；通知只保留在当前页面内存，不写浏览器缓存，也不写 Node 存储。
+                </p>
+                <p className="text-xs leading-6 text-muted-foreground">
+                  当前已停用 XXYY 富化，通知卡片优先直接展示 DexScreener feed 自带字段。
+                </p>
+                <p className="text-xs leading-6 text-muted-foreground">
+                  `KOL 名单` 与 `关注地址` 仍保留在表单里，但当前不会参与过滤。
                 </p>
                 <WatchStatusPanel watchRuntime={watchRuntime} />
                 <DiagnosticsPanel
@@ -1390,6 +1386,15 @@ function NotificationListItem({
     record.context.token?.address ||
     record.event.token.address ||
     'unnamed token';
+  const displayText =
+    record.context.dexscreener?.description ||
+    record.context.dexscreener?.header ||
+    record.event.text ||
+    record.message;
+  const rawAmount = asOptionalNumber(record.event.metrics?.amount);
+  const rawTotalAmount = asOptionalNumber(record.event.metrics?.totalAmount);
+  const rawActiveBoosts = asOptionalNumber(record.event.metrics?.activeBoosts);
+  const twitterProfileUrl = record.context.twitter?.profile_url ?? null;
 
   return (
     <li className="px-5 py-4 transition-colors hover:bg-white/50 sm:px-6">
@@ -1432,19 +1437,21 @@ function NotificationListItem({
 
         <div className="flex flex-wrap gap-2">
           <InfoPill icon={Activity} label={sourceKey} />
+          {record.event.author?.display_name ? (
+            <InfoPill icon={Target} label={record.event.author.display_name} />
+          ) : null}
+          {rawActiveBoosts !== null ? (
+            <InfoPill icon={Layers} label={`active boosts ${formatPlainMetric(rawActiveBoosts)}`} />
+          ) : null}
           {record.channels.length > 0 ? (
             <InfoPill icon={BellRing} label={record.channels.join(', ')} />
           ) : null}
         </div>
 
         <div className="grid gap-2 text-sm sm:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
-          <p className="min-w-0 truncate text-muted-foreground">{record.message}</p>
+          <p className="min-w-0 truncate text-muted-foreground">{displayText}</p>
           <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-right sm:grid-cols-3">
             <MetricPair label="市值" value={formatUsd(record.summary.marketCap)} />
-            <MetricPair
-              label="持币人数"
-              value={formatOptionalNumber(record.summary.holderCount)}
-            />
             <MetricPair
               label="流动性"
               value={formatUsd(record.summary.liquidityUsd)}
@@ -1454,25 +1461,29 @@ function NotificationListItem({
               value={formatPriceUsd(record.summary.priceUsd)}
             />
             <MetricPair
-              label="社区人数"
-              value={formatOptionalNumber(record.summary.communityCount)}
+              label="FDV"
+              value={formatUsd(record.context.dexscreener?.fdv ?? null)}
             />
             <MetricPair
-              label="关注者"
-              value={formatOptionalNumber(record.summary.followersCount)}
+              label="单次金额"
+              value={formatLooseNumber(rawAmount)}
+            />
+            <MetricPair
+              label="累计金额"
+              value={formatLooseNumber(rawTotalAmount)}
             />
           </dl>
         </div>
 
         <p className="text-[11px] text-muted-foreground">
-          市值优先取 XXYY，缺失时回退 DexScreener；持币人数当前来自 XXYY。
+          当前卡片直接展示 DexScreener feed 字段；不再请求 XXYY 富化。
         </p>
 
         <div className="flex flex-wrap gap-2">
-          {record.summary.twitterUsername ? (
+          {record.summary.twitterUsername && twitterProfileUrl ? (
             <a
               className="inline-flex items-center gap-1 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-[color:var(--color-panel-soft)]"
-              href={`https://x.com/${record.summary.twitterUsername}`}
+              href={twitterProfileUrl}
               rel="noreferrer"
               target="_blank"
             >
@@ -1749,19 +1760,6 @@ function clearBrowserTimerMap(
   timers.clear();
 }
 
-function matchesAnyValue(value: unknown, expected: string[]): boolean {
-  if (!Array.isArray(value) || expected.length === 0) {
-    return false;
-  }
-
-  const actual = new Set(
-    value
-      .map(item => (typeof item === 'string' ? item.trim().toLowerCase() : ''))
-      .filter(Boolean),
-  );
-  return expected.some(item => actual.has(item));
-}
-
 function parseNumericFilter(value: string): number | null {
   if (!value.trim()) {
     return null;
@@ -1784,6 +1782,13 @@ function formatOptionalNumber(value: number | null): string {
   return formatCompactNumber(value);
 }
 
+function formatLooseNumber(value: number | null): string {
+  if (value === null) {
+    return 'N/A';
+  }
+  return formatPlainMetric(value);
+}
+
 function formatPriceUsd(value: number | null): string {
   if (value === null) {
     return 'N/A';
@@ -1794,6 +1799,14 @@ function formatPriceUsd(value: number | null): string {
   }
 
   return `$${trimTrailingZeros(value.toFixed(8))}`;
+}
+
+function formatPlainMetric(value: number): string {
+  if (Number.isInteger(value)) {
+    return formatPlainNumber(value);
+  }
+
+  return trimTrailingZeros(value.toFixed(Math.abs(value) >= 1 ? 4 : 8));
 }
 
 function formatRelativeTime(value: string, currentTimeMs: number): string {
@@ -2035,4 +2048,17 @@ function truncateMiddle(
   }
 
   return `${value.slice(0, start)}...${value.slice(-end)}`;
+}
+
+function asOptionalNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
 }

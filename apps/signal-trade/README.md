@@ -1,41 +1,31 @@
 # Signal Trade
 
-`apps/signal-trade` 现在是一个前后端并存的全栈项目：
+`apps/signal-trade` 现在是纯 `Next.js + TypeScript` 的全栈项目：
 
-- 前端 / BFF：Next.js App Router
+- 页面 / BFF：Next.js App Router
 - 样式：Tailwind CSS
-- 组件：shadcn 风格本地组件
-- 采集 / 规则引擎：现有 Python 采集器与策略匹配逻辑
+- 组件：本地 shadcn 风格 UI
+- 运行时：TypeScript collectors 与富化逻辑
 
-前端负责展示通知代币、保存筛选条件、汇总当前策略；Python 继续负责 DexScreener / X / XXYY 的采集、富化和命中通知。
+前端页面负责展示通知流、筛选通知，并直接在页面里切换 watcher 的 `http / ws / auto` 模式。通知和筛选都只保留在当前浏览器页面会话，不写 `localStorage`，也不写 Node 端内存或文件。服务端 API 只负责向 DexScreener 拉取批次数据、解析 WS payload，并把 DexScreener 自带字段整理后返回给页面。`runtime:refresh` 走 REST 单次刷新，`runtime:watch` 仍然支持 `http`、`ws`、`auto` 三种模式，但 CLI 只输出处理日志，不再为页面持久化任何通知数据。
 
 ## Architecture
 
 ```text
-Python collectors -> StrategyEngine -> NotificationStore -> data/notifications.json
-                                                      \
-                                                       -> stdout / webhook
+DexScreener REST / WebSocket -> normalize + notification formatting -> stateless API response
 
-Next.js dashboard -> app/api/* -> data/notifications.json / data/dashboard-filters.json / rules.json
+Next.js dashboard -> in-page React state
 ```
 
 核心目录：
 
 - `app/`：Next.js 页面与 API Route
-- `components/`：dashboard 组件与 shadcn 风格 UI 组件
-- `lib/`：本地数据读写、类型、demo 数据
-- `core/`、`collectors/`、`services/`：原有 Python 运行时
-- `data/`：前端筛选条件和通知持久化目录
+- `components/`：dashboard 组件与本地 UI 组件
+- `lib/`：类型与前端默认数据
+- `lib/runtime/`：采集、富化与通知格式化
+- `scripts/`：runtime CLI 入口
 
-## Features
-
-- 通知代币面板：展示命中的代币、策略、链、来源、市值、持币人数、社区人数
-- 前端条件筛选：链路、来源、策略、持币人数、市值、社区人数、观察名单关键词、paid only
-- 本地条件持久化：前端保存到 `data/dashboard-filters.json`
-- 策略摘要：从 `rules.json` 读取当前启用策略的关键条件
-- 后端通知落盘：Python 每次命中通知后写入 `data/notifications.json`
-
-## Frontend Setup
+## Setup
 
 在仓库根执行一次：
 
@@ -43,125 +33,122 @@ Next.js dashboard -> app/api/* -> data/notifications.json / data/dashboard-filte
 pnpm install
 ```
 
-启动前端开发服务：
+在 `apps/signal-trade` 目录初始化本地配置：
+
+```bash
+cd apps/signal-trade
+cp .env.example .env
+cp config.example.json config.json
+```
+
+`config.json` 现在只保留这些运行时参数：
+
+- `dexscreener.pollIntervalSec`
+- `dexscreener.requestTimeoutSec`
+- `dexscreener.wsHeartbeatSec`
+- `dexscreener.reconnectDelaySec`
+- `twitter.requestTimeoutSec`
+
+## Commands
+
+前端开发：
 
 ```bash
 pnpm --filter signal-trade dev
-```
-
-常用命令：
-
-```bash
 pnpm --filter signal-trade build
 pnpm --filter signal-trade start
 pnpm --filter signal-trade type-check
 ```
 
-## Backend Setup
-
-以下命令默认在 `apps/signal-trade` 目录下执行：
+运行时刷新：
 
 ```bash
-uv python install
-uv venv
-uv pip install -r requirements.txt
-cp .env.example .env
-cp config.example.json config.json
+pnpm --filter signal-trade runtime:refresh -- --limit 10 --subscriptions token_profiles_latest community_takeovers_latest
+# HTTP polling
+pnpm --filter signal-trade runtime:watch -- --transport http --interval-sec 15 --limit 10 --subscriptions token_profiles_latest ads_latest
+# pure WebSocket
+pnpm --filter signal-trade runtime:watch -- --transport ws --limit 10 --subscriptions token_profiles_latest token_boosts_latest
+# WebSocket with REST fallback
+pnpm --filter signal-trade runtime:watch -- --transport auto --interval-sec 15 --limit 10 --subscriptions token_profiles_latest token_boosts_top
 ```
 
-查看 CLI：
+## Workflow
 
-```bash
-uv run python main.py --help
-```
-
-常用后端命令：
-
-```bash
-uv run python main.py --rules rules.json dex-rest --subscriptions token_profiles_latest --limit 10
-uv run python main.py --rules rules.json dex-ws --subscriptions token_profiles_latest --limit 10
-uv run python main.py twitter elonmusk
-```
-
-也可以通过 workspace script 触发：
-
-```bash
-pnpm --filter signal-trade backend:help
-pnpm --filter signal-trade backend:dex-rest
-pnpm --filter signal-trade backend:twitter
-```
-
-## Full-Stack Workflow
-
-1. 启动前端：
+1. 启动页面：
 
 ```bash
 pnpm --filter signal-trade dev
 ```
 
-2. 启动任一 Python 信号源，把通知写入本地存储：
+2. 通过页面点击“同步通知”，或者直接运行：
 
 ```bash
-cd apps/signal-trade
-uv run python main.py --rules rules.json dex-rest --subscriptions token_profiles_latest --limit 10
+pnpm --filter signal-trade runtime:refresh -- --limit 10
 ```
 
-3. 打开前端页面，查看通知代币与策略摘要。
+3. 打开页面查看当前会话通知流，并通过页面筛选条件过滤结果。
 
-当前页面每 30 秒轮询一次 `/api/notifications`。
+4. 如需常驻监听，可以直接在页面左侧选择 `监听模式`、勾选需要的 `WS 订阅`，再点击“启动监听”。
 
-## Data Files
+如果需要单独看 CLI 日志，也可以另开一个终端运行：
 
-- `data/notifications.json`
-  - Python 后端写入
-  - 前端用来展示通知代币
-- `data/dashboard-filters.json`
-  - 前端写入
-  - 保存筛选条件
-- `rules.json`
-  - Python 策略引擎读取
-  - 前端只读展示摘要
+```bash
+pnpm --filter signal-trade runtime:watch -- --transport auto --subscriptions token_profiles_latest community_takeovers_latest ads_latest
+```
 
-这两个 `data/*.json` 已加入 git ignore，不会提交。
+`runtime:watch` 与页面内 watcher 的模式说明：
+
+- `http`：仅按 `--interval-sec` 做 REST 轮询
+- `ws`：页面里走浏览器直连 DexScreener WebSocket，CLI 仍然是服务端直连，不做 REST 兜底
+- `auto`：页面里优先使用浏览器 WebSocket，异常时退回浏览器端 HTTP 刷新；CLI 则是服务端 WS + REST fallback
+
+页面不会再轮询服务端通知缓存。“同步通知”按钮会直接触发 `/api/notifications/refresh` 拉取一轮新数据，并合并到当前页面会话。
+
+页面里的 `WS 订阅` 支持这 5 个 DexScreener feed：
+
+- `token profiles`
+- `community takeovers`
+- `ads`
+- `boosted tokens`
+- `most active boosts`
+
+未选中的 feed 不会发起订阅；如果全部取消勾选，页面不会自动回退到默认 feed。
+
+## Session Behavior
+
+- 通知流
+  - 只保存在当前页面的 React state
+  - 刷新页面后会清空
+  - Node 端不会缓存、不会落文件
+- 前端筛选
+  - 只保存在当前页面状态
+  - 刷新页面后恢复默认
+  - 不写浏览器 `localStorage`
 
 ## Frontend Filters
 
-当前前端支持这些可保存条件：
+当前前端支持这些会话内条件：
 
 - `search`：搜索代币 symbol / name / address / Twitter 用户名 / 消息文本
 - `watchTerms`：逗号或换行分隔的观察名单关键词
+- `watchTransport`
+- `watchSubscriptions`
 - `chain`
 - `source`
-- `strategyId`
 - `minHolders`
+- `maxHolders`
 - `maxMarketCap`
 - `minCommunityCount`
+- `kolNames`
+- `followAddresses`
 - `paidOnly`
 
-这些条件只作用在前端展示层，不会直接改写 Python 侧策略规则。
-
-## Strategy Rules
-
-规则文件仍然使用现有格式，示例见：
-
-- [rules.json](./rules.json)
-- [rules.example.json](./rules.example.json)
-
-前端会读取并汇总这些字段：
-
-- `id`
-- `enabled`
-- `chains`
-- `source`
-- `notify` / `action.channels`
-- `xxyy.holder_count >=`
-- `xxyy.holder_count >`
-- `xxyy.market_cap >`
-- `xxyy.kol_names contains_any`
-- `xxyy.follow_addresses contains_any`
+这些条件只作用在展示层，不会改写原始通知数据。
 
 ## Notes
 
-- 如果 `data/notifications.json` 不存在，前端会显示内置 demo 数据
-- Python 命中通知后会自动创建 `data/notifications.json`
-- 现在 `signal-trade` 是“Next.js 仪表盘 + Python runtime” 双栈结构，不再是单纯的 Python CLI 项目
+- 页面首次打开时通知列表为空，等待手动同步或页面内 `ws/http` 监听写入当前会话
+- 当前 runtime 同时支持 DexScreener REST 单次刷新和 WebSocket 实时监听，页面直接展示 DexScreener feed 返回的字段
+- 页面内 watcher 完全由浏览器驱动，不依赖服务端通知缓存
+- 当前 Node 端不再写 `notifications.json`、`dashboard-filters.json`，也不保留进程内通知缓存
+- 这个项目不再需要 `uv`、`requirements.txt` 或 Python 入口脚本
