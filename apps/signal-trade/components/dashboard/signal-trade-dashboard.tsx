@@ -2,10 +2,10 @@
 
 import type { JSX, ReactNode } from 'react';
 import {
-  startTransition,
   useDeferredValue,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import type { LucideIcon } from 'lucide-react';
@@ -13,17 +13,12 @@ import {
   Activity,
   ArrowUpRight,
   BellRing,
-  Coins,
   Filter,
-  Flame,
   Layers,
   LoaderCircle,
   RefreshCw,
-  Save,
   Search,
-  Sparkles,
   Target,
-  Users,
 } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
@@ -37,52 +32,96 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  DEFAULT_DEX_WATCH_SUBSCRIPTIONS,
+  DEX_WATCH_SUBSCRIPTION_OPTIONS,
+  getDexWatchSubscriptionLabel,
+} from '@/lib/dexscreener-subscriptions';
 import type {
   DashboardFilters,
   NotificationRecord,
-  StrategySnapshot,
+  RuntimeDiagnosticsResult,
+  RuntimeRefreshResult,
+  WatchRuntimeState,
 } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 type DashboardProps = {
   initialFilters: DashboardFilters;
+  initialNow: number;
   initialNotifications: NotificationRecord[];
-  strategies: StrategySnapshot[];
 };
 
-type SaveState = 'idle' | 'saving' | 'saved' | 'error';
+type RefreshState = 'idle' | 'syncing' | 'synced' | 'error';
+type RuntimeIngestResult = {
+  message?: string;
+  notifications?: NotificationRecord[];
+  processed?: number;
+  stored?: number;
+};
+
+const WATCH_INTERVAL_SEC = 15;
+const WATCH_LIMIT = 10;
+const MAX_SESSION_NOTIFICATIONS = 250;
+const BROWSER_WS_CONNECT_TIMEOUT_MS = 15_000;
+const BROWSER_WS_STALE_TIMEOUT_MS = 60_000;
+const BROWSER_WS_RECONNECT_DELAY_MS = 3_000;
 
 export function SignalTradeDashboard({
   initialFilters,
+  initialNow,
   initialNotifications,
-  strategies,
 }: DashboardProps): JSX.Element {
   const [filters, setFilters] = useState<DashboardFilters>(initialFilters);
   const [notifications, setNotifications] =
     useState<NotificationRecord[]>(initialNotifications);
-  const [saveState, setSaveState] = useState<SaveState>('idle');
+  const [relativeNow, setRelativeNow] = useState(initialNow);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isWatchMutating, setIsWatchMutating] = useState(false);
+  const [isDiagnosing, setIsDiagnosing] = useState(false);
+  const [refreshState, setRefreshState] = useState<RefreshState>('idle');
+  const [refreshSummary, setRefreshSummary] = useState('');
+  const [diagnostics, setDiagnostics] = useState<RuntimeDiagnosticsResult | null>(
+    null,
+  );
+  const [diagnosticsError, setDiagnosticsError] = useState('');
+  const [watchRuntime, setWatchRuntime] = useState<WatchRuntimeState | null>(null);
+  const browserConnectTimersRef = useRef(new Map<string, number>());
+  const browserReconnectTimersRef = useRef(new Map<string, number>());
+  const browserStaleTimersRef = useRef(new Map<string, number>());
+  const browserHttpIntervalRef = useRef<number | null>(null);
+  const browserProcessingRef = useRef<Promise<void>>(Promise.resolve());
+  const browserSessionRef = useRef(0);
+  const browserSocketsRef = useRef(new Map<string, WebSocket>());
+  const watchRuntimeRef = useRef<WatchRuntimeState | null>(null);
 
   const deferredSearch = useDeferredValue(filters.search);
   const deferredWatchTerms = useDeferredValue(filters.watchTerms);
 
   useEffect(() => {
+    setRelativeNow(Date.now());
+
     const timer = window.setInterval(() => {
-      void refreshNotifications(false);
-    }, 30_000);
+      setRelativeNow(Date.now());
+    }, 60_000);
 
     return () => window.clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    watchRuntimeRef.current = watchRuntime;
+  }, [watchRuntime]);
+
+  useEffect(() => {
+    return () => {
+      teardownBrowserWatch();
+    };
+  }, []);
+
   const chainOptions = useMemo(
-    () =>
-      uniqueValues([
-        ...notifications.map(record => record.event.chain ?? ''),
-        ...strategies.flatMap(strategy => strategy.chains),
-      ]),
-    [notifications, strategies],
+    () => uniqueValues(notifications.map(record => record.event.chain ?? '')),
+    [notifications],
   );
 
   const sourceOptions = useMemo(
@@ -95,134 +134,786 @@ export function SignalTradeDashboard({
     [notifications],
   );
 
-  const strategyOptions = useMemo(
-    () =>
-      uniqueValues([
-        ...notifications.map(record => record.strategyId),
-        ...strategies.map(strategy => strategy.id),
-      ]),
-    [notifications, strategies],
+  const selectedWatchSubscriptions = useMemo(
+    () => getSelectedWatchSubscriptions(filters.watchSubscriptions),
+    [filters.watchSubscriptions],
   );
 
   const filteredNotifications = useMemo(() => {
     const search = deferredSearch.trim().toLowerCase();
-    const watchTerms = parseWatchTerms(deferredWatchTerms);
+    const watchTerms = parseListFilter(deferredWatchTerms);
     const minHolders = parseNumericFilter(filters.minHolders);
+    const maxHolders = parseNumericFilter(filters.maxHolders);
     const maxMarketCap = parseNumericFilter(filters.maxMarketCap);
     const minCommunityCount = parseNumericFilter(filters.minCommunityCount);
+    const kolNames = parseListFilter(filters.kolNames);
+    const followAddresses = parseListFilter(filters.followAddresses);
+    return notifications
+      .filter(record => {
+        const sourceKey = `${record.event.source}.${record.event.subtype}`;
+        const searchHaystack = [
+          record.event.token.symbol,
+          record.event.token.name,
+          record.event.token.address,
+          record.message,
+          record.summary.twitterUsername,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
 
-    return notifications.filter(record => {
-      const sourceKey = `${record.event.source}.${record.event.subtype}`;
-      const searchHaystack = [
-        record.event.token.symbol,
-        record.event.token.name,
-        record.event.token.address,
-        record.message,
-        record.summary.twitterUsername,
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
-
-      if (filters.chain !== 'all' && record.event.chain !== filters.chain) {
-        return false;
-      }
-      if (filters.source !== 'all' && sourceKey !== filters.source) {
-        return false;
-      }
-      if (filters.strategyId !== 'all' && record.strategyId !== filters.strategyId) {
-        return false;
-      }
-      if (filters.paidOnly && !record.summary.paid) {
-        return false;
-      }
-      if (search && !searchHaystack.includes(search)) {
-        return false;
-      }
-      if (
-        minHolders !== null &&
-        (record.summary.holderCount ?? Number.NEGATIVE_INFINITY) < minHolders
-      ) {
-        return false;
-      }
-      if (
-        maxMarketCap !== null &&
-        (record.summary.marketCap ?? Number.POSITIVE_INFINITY) > maxMarketCap
-      ) {
-        return false;
-      }
-      if (
-        minCommunityCount !== null &&
-        (record.summary.communityCount ?? Number.NEGATIVE_INFINITY) < minCommunityCount
-      ) {
-        return false;
-      }
-      if (
-        watchTerms.length > 0 &&
-        !watchTerms.some(term => searchHaystack.includes(term))
-      ) {
-        return false;
-      }
-      return true;
-    });
+        if (filters.chain !== 'all' && record.event.chain !== filters.chain) {
+          return false;
+        }
+        if (filters.source !== 'all' && sourceKey !== filters.source) {
+          return false;
+        }
+        if (filters.paidOnly && !record.summary.paid) {
+          return false;
+        }
+        if (search && !searchHaystack.includes(search)) {
+          return false;
+        }
+        if (
+          minHolders !== null &&
+          (record.summary.holderCount ?? Number.NEGATIVE_INFINITY) < minHolders
+        ) {
+          return false;
+        }
+        if (
+          maxHolders !== null &&
+          (record.summary.holderCount ?? Number.POSITIVE_INFINITY) > maxHolders
+        ) {
+          return false;
+        }
+        if (
+          maxMarketCap !== null &&
+          (record.summary.marketCap ?? Number.POSITIVE_INFINITY) > maxMarketCap
+        ) {
+          return false;
+        }
+        if (
+          minCommunityCount !== null &&
+          (record.summary.communityCount ?? Number.NEGATIVE_INFINITY) < minCommunityCount
+        ) {
+          return false;
+        }
+        if (
+          watchTerms.length > 0 &&
+          !watchTerms.some(term => searchHaystack.includes(term))
+        ) {
+          return false;
+        }
+        if (
+          kolNames.length > 0 &&
+          !matchesAnyValue(record.context.xxyy?.kol_names, kolNames)
+        ) {
+          return false;
+        }
+        if (
+          followAddresses.length > 0 &&
+          !matchesAnyValue(record.context.xxyy?.follow_addresses, followAddresses)
+        ) {
+          return false;
+        }
+        return true;
+      })
+      .sort(
+        (left, right) =>
+          new Date(right.notifiedAt).getTime() - new Date(left.notifiedAt).getTime(),
+      );
   }, [
     deferredSearch,
     deferredWatchTerms,
     filters.chain,
+    filters.followAddresses,
+    filters.kolNames,
     filters.maxMarketCap,
     filters.minCommunityCount,
+    filters.maxHolders,
     filters.minHolders,
     filters.paidOnly,
     filters.source,
-    filters.strategyId,
     notifications,
   ]);
 
-  const metrics = useMemo(() => {
-    const paidCount = filteredNotifications.filter(item => item.summary.paid).length;
-    const averageMarketCap = average(
-      filteredNotifications
-        .map(item => item.summary.marketCap)
-        .filter((value): value is number => value !== null),
-    );
-    const topChain = topCount(
-      filteredNotifications.map(item => item.event.chain || 'unknown'),
-    );
-
-    return {
-      totalAlerts: notifications.length,
-      visibleAlerts: filteredNotifications.length,
-      paidRatio:
-        filteredNotifications.length > 0
-          ? Math.round((paidCount / filteredNotifications.length) * 100)
-          : 0,
-      averageMarketCap,
-      topChain,
-    };
-  }, [filteredNotifications, notifications.length]);
-
-  async function refreshNotifications(showSpinner: boolean): Promise<void> {
-    if (showSpinner) {
-      setIsRefreshing(true);
+  function appendNotifications(nextNotifications: NotificationRecord[]): void {
+    if (nextNotifications.length === 0) {
+      return;
     }
 
+    setNotifications(current => mergeNotifications(current, nextNotifications));
+  }
+
+  async function syncNotifications(): Promise<void> {
+    setIsRefreshing(true);
+    setRefreshState('syncing');
+    setRefreshSummary('');
+
     try {
-      const response = await fetch('/api/notifications', {
+      if (selectedWatchSubscriptions.length === 0) {
+        throw new Error('请至少选择一个订阅');
+      }
+
+      const response = await fetch('/api/notifications/refresh', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          limit: WATCH_LIMIT,
+          subscriptions: selectedWatchSubscriptions,
+        }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as Partial<
+        RuntimeRefreshResult
+      > & {
+        message?: string;
+      };
+      if (!response.ok) {
+        throw new Error(
+          typeof payload.message === 'string' && payload.message.trim()
+            ? payload.message.trim()
+            : `unexpected status ${response.status}`,
+        );
+      }
+      const nextNotifications = Array.isArray(payload.notifications)
+        ? payload.notifications
+        : [];
+
+      appendNotifications(nextNotifications);
+      setRefreshState('synced');
+      setRefreshSummary(
+        `本次扫描 ${payload.processed ?? 0} 条事件，接收 ${payload.stored ?? 0} 条通知。`,
+      );
+    } catch (error) {
+      setRefreshState('error');
+      setRefreshSummary(
+        `同步失败：${error instanceof Error ? error.message : '请检查网络连通性和本地运行配置。'}`,
+      );
+    } finally {
+      setIsRefreshing(false);
+    }
+  }
+
+  function setBrowserWatchState(
+    sessionId: number,
+    updater: (current: WatchRuntimeState) => WatchRuntimeState,
+  ): void {
+    setWatchRuntime(current => {
+      if (browserSessionRef.current !== sessionId) {
+        return current;
+      }
+
+      return updater(current ?? createBrowserWatchState());
+    });
+  }
+
+  function clearBrowserHttpInterval(): void {
+    if (browserHttpIntervalRef.current === null) {
+      return;
+    }
+
+    window.clearInterval(browserHttpIntervalRef.current);
+    browserHttpIntervalRef.current = null;
+  }
+
+  function clearBrowserWatchTimers(subscription?: string): void {
+    clearBrowserTimerMap(browserConnectTimersRef.current, subscription);
+    clearBrowserTimerMap(browserReconnectTimersRef.current, subscription);
+    clearBrowserTimerMap(browserStaleTimersRef.current, subscription);
+  }
+
+  function teardownBrowserWatch(): void {
+    browserSessionRef.current += 1;
+    clearBrowserHttpInterval();
+    clearBrowserWatchTimers();
+    browserProcessingRef.current = Promise.resolve();
+
+    for (const socket of browserSocketsRef.current.values()) {
+      if (
+        socket.readyState === WebSocket.CONNECTING ||
+        socket.readyState === WebSocket.OPEN
+      ) {
+        socket.close(1000, 'stopped');
+      }
+    }
+    browserSocketsRef.current.clear();
+  }
+
+  function stopBrowserWatch(): void {
+    teardownBrowserWatch();
+    setWatchRuntime(null);
+  }
+
+  async function runBrowserHttpRefresh(
+    sessionId: number,
+    subscriptions: string[],
+    reason: 'fallback' | 'interval' | 'start',
+    transport: 'auto' | 'http',
+  ): Promise<void> {
+    if (browserSessionRef.current !== sessionId) {
+      return;
+    }
+
+    const currentRuntime = watchRuntimeRef.current;
+    if (
+      transport === 'auto' &&
+      reason === 'interval' &&
+      currentRuntime?.running &&
+      currentRuntime.lastStatus === 'open' &&
+      !currentRuntime.lastError
+    ) {
+      return;
+    }
+
+    const detailPrefix = transport === 'auto' ? 'HTTP fallback' : 'HTTP polling';
+
+    setBrowserWatchState(sessionId, current => ({
+      ...current,
+      lastStatus:
+        transport === 'http' && current.lastStatus !== 'open'
+          ? 'connecting'
+          : current.lastStatus,
+      lastStatusDetail:
+        reason === 'start' ? `${detailPrefix} starting` : `${detailPrefix} running`,
+      running: true,
+      subscriptions: [...subscriptions],
+    }));
+
+    const response = await fetch('/api/notifications/refresh', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        limit: WATCH_LIMIT,
+        subscriptions,
+      }),
+    });
+
+    const payload = (await response.json().catch(() => ({}))) as Partial<
+      RuntimeRefreshResult
+    > & {
+      message?: string;
+    };
+
+    if (!response.ok) {
+      throw new Error(
+        typeof payload.message === 'string' && payload.message.trim()
+          ? payload.message.trim()
+          : `unexpected status ${response.status}`,
+      );
+    }
+
+    if (browserSessionRef.current !== sessionId) {
+      return;
+    }
+
+    const nextNotifications = Array.isArray(payload.notifications)
+      ? payload.notifications
+      : [];
+
+    appendNotifications(nextNotifications);
+
+    setBrowserWatchState(sessionId, current => ({
+      ...current,
+      lastActivityAt: new Date().toISOString(),
+      lastError: null,
+      lastStatus: 'open',
+      lastStatusDetail: `${detailPrefix} processed=${payload.processed ?? 0} stored=${payload.stored ?? 0}`,
+      running: true,
+      subscriptions: [...subscriptions],
+    }));
+  }
+
+  function maybeRunAutoHttpFallback(
+    sessionId: number,
+    subscriptions: string[],
+    reason: 'fallback' | 'interval',
+  ): void {
+    const runtime = watchRuntimeRef.current;
+    if (runtime?.transport !== 'auto') {
+      return;
+    }
+
+    void runBrowserHttpRefresh(sessionId, subscriptions, reason, 'auto').catch(
+      error => {
+        if (browserSessionRef.current !== sessionId) {
+          return;
+        }
+
+        const detail =
+          error instanceof Error ? error.message : 'HTTP fallback failed';
+        setBrowserWatchState(sessionId, current => ({
+          ...current,
+          lastActivityAt: new Date().toISOString(),
+          lastError: detail,
+          lastStatus: 'error',
+          lastStatusDetail: detail,
+          running: true,
+          subscriptions: [...subscriptions],
+        }));
+      },
+    );
+  }
+
+  function startBrowserHttpWatch(
+    sessionId: number,
+    subscriptions: string[],
+    transport: 'auto' | 'http',
+  ): void {
+    clearBrowserHttpInterval();
+
+    if (transport === 'http') {
+      void runBrowserHttpRefresh(sessionId, subscriptions, 'start', 'http').catch(
+        error => {
+          if (browserSessionRef.current !== sessionId) {
+            return;
+          }
+
+          const detail =
+            error instanceof Error ? error.message : 'HTTP watch start failed';
+          setBrowserWatchState(sessionId, current => ({
+            ...current,
+            lastActivityAt: new Date().toISOString(),
+            lastError: detail,
+            lastStatus: 'error',
+            lastStatusDetail: detail,
+            running: true,
+            subscriptions: [...subscriptions],
+          }));
+        },
+      );
+    }
+
+    browserHttpIntervalRef.current = window.setInterval(() => {
+      if (transport === 'auto') {
+        maybeRunAutoHttpFallback(sessionId, subscriptions, 'interval');
+        return;
+      }
+
+      void runBrowserHttpRefresh(sessionId, subscriptions, 'interval', 'http').catch(
+        error => {
+          if (browserSessionRef.current !== sessionId) {
+            return;
+          }
+
+          const detail =
+            error instanceof Error ? error.message : 'HTTP polling failed';
+          setBrowserWatchState(sessionId, current => ({
+            ...current,
+            lastActivityAt: new Date().toISOString(),
+            lastError: detail,
+            lastStatus: 'error',
+            lastStatusDetail: detail,
+            running: true,
+            subscriptions: [...subscriptions],
+          }));
+        },
+      );
+    }, WATCH_INTERVAL_SEC * 1000);
+  }
+
+  function scheduleBrowserReconnect(
+    sessionId: number,
+    subscription: string,
+    subscriptions: string[],
+  ): void {
+    if (browserSessionRef.current !== sessionId) {
+      return;
+    }
+
+    clearBrowserTimerMap(browserReconnectTimersRef.current, subscription);
+
+    browserReconnectTimersRef.current.set(
+      subscription,
+      window.setTimeout(() => {
+        if (browserSessionRef.current !== sessionId) {
+          return;
+        }
+
+        connectBrowserWatchSubscription(sessionId, subscription, subscriptions);
+      }, BROWSER_WS_RECONNECT_DELAY_MS),
+    );
+  }
+
+  function resetBrowserStaleTimer(
+    sessionId: number,
+    subscription: string,
+    socket: WebSocket,
+    subscriptions: string[],
+  ): void {
+    clearBrowserTimerMap(browserStaleTimersRef.current, subscription);
+
+    browserStaleTimersRef.current.set(
+      subscription,
+      window.setTimeout(() => {
+        if (browserSessionRef.current !== sessionId) {
+          return;
+        }
+
+        const detail = `${getDexWatchSubscriptionLabel(subscription)} no messages for ${Math.round(
+          BROWSER_WS_STALE_TIMEOUT_MS / 1000,
+        )}s`;
+        setBrowserWatchState(sessionId, current => ({
+          ...current,
+          lastActivityAt: new Date().toISOString(),
+          lastError: detail,
+          lastStatus: 'stale',
+          lastStatusDetail: detail,
+          running: true,
+          subscriptions: [...subscriptions],
+        }));
+        maybeRunAutoHttpFallback(sessionId, subscriptions, 'fallback');
+
+        if (
+          socket.readyState === WebSocket.CONNECTING ||
+          socket.readyState === WebSocket.OPEN
+        ) {
+          socket.close(1013, 'stale');
+        }
+      }, BROWSER_WS_STALE_TIMEOUT_MS),
+    );
+  }
+
+  async function ingestBrowserPayload(
+    sessionId: number,
+    subscription: string,
+    subscriptions: string[],
+    payloadText: string,
+  ): Promise<void> {
+    const response = await fetch('/api/runtime/ingest', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        limit: WATCH_LIMIT,
+        payloadText,
+        subscription,
+      }),
+    });
+    const payload = (await response.json().catch(() => ({}))) as RuntimeIngestResult;
+
+    if (!response.ok) {
+      throw new Error(
+        typeof payload.message === 'string' && payload.message.trim()
+          ? payload.message.trim()
+          : `unexpected status ${response.status}`,
+      );
+    }
+
+    if (browserSessionRef.current !== sessionId) {
+      return;
+    }
+
+    const detail = `${getDexWatchSubscriptionLabel(subscription)} processed=${payload.processed ?? 0} stored=${payload.stored ?? 0}`;
+    const nextNotifications = Array.isArray(payload.notifications)
+      ? payload.notifications
+      : [];
+
+    appendNotifications(nextNotifications);
+
+    setBrowserWatchState(sessionId, current => ({
+      ...current,
+      lastActivityAt: new Date().toISOString(),
+      lastError: null,
+      lastStatus: 'open',
+      lastStatusDetail: detail,
+      running: true,
+      subscriptions: [...subscriptions],
+    }));
+  }
+
+  function connectBrowserWatch(
+    sessionId: number,
+    subscriptions: string[],
+  ): void {
+    for (const subscription of subscriptions) {
+      connectBrowserWatchSubscription(sessionId, subscription, subscriptions);
+    }
+  }
+
+  function connectBrowserWatchSubscription(
+    sessionId: number,
+    subscription: string,
+    subscriptions: string[],
+  ): void {
+    const endpoint = buildDexSubscriptionWsUrl(subscription, WATCH_LIMIT);
+
+    const socket = new WebSocket(endpoint);
+    browserSocketsRef.current.set(subscription, socket);
+
+    setBrowserWatchState(sessionId, current => ({
+      ...current,
+      lastError: null,
+      lastStatus: 'connecting',
+      lastStatusDetail: `${getDexWatchSubscriptionLabel(subscription)} ${endpoint}`,
+      running: true,
+      subscriptions: [...subscriptions],
+    }));
+
+    clearBrowserTimerMap(browserConnectTimersRef.current, subscription);
+
+    browserConnectTimersRef.current.set(
+      subscription,
+      window.setTimeout(() => {
+        if (browserSessionRef.current !== sessionId) {
+          return;
+        }
+
+        const detail = `connection timeout for ${subscription}`;
+        setBrowserWatchState(sessionId, current => ({
+          ...current,
+          lastActivityAt: new Date().toISOString(),
+          lastError: detail,
+          lastStatus: 'error',
+          lastStatusDetail: detail,
+          running: true,
+          subscriptions: [...subscriptions],
+        }));
+        maybeRunAutoHttpFallback(sessionId, subscriptions, 'fallback');
+
+        if (
+          socket.readyState === WebSocket.CONNECTING ||
+          socket.readyState === WebSocket.OPEN
+        ) {
+          socket.close(1013, 'connect_timeout');
+        }
+      }, BROWSER_WS_CONNECT_TIMEOUT_MS),
+    );
+
+    socket.addEventListener('open', () => {
+      if (browserSessionRef.current !== sessionId) {
+        return;
+      }
+
+      clearBrowserTimerMap(browserConnectTimersRef.current, subscription);
+
+      setBrowserWatchState(sessionId, current => ({
+        ...current,
+        lastActivityAt: new Date().toISOString(),
+        lastError: null,
+        lastStatus: 'open',
+        lastStatusDetail: `${getDexWatchSubscriptionLabel(subscription)} connected`,
+        running: true,
+        subscriptions: [...subscriptions],
+      }));
+      resetBrowserStaleTimer(sessionId, subscription, socket, subscriptions);
+    });
+
+    socket.addEventListener('message', event => {
+      if (browserSessionRef.current !== sessionId) {
+        return;
+      }
+
+      resetBrowserStaleTimer(sessionId, subscription, socket, subscriptions);
+
+      browserProcessingRef.current = browserProcessingRef.current
+        .then(async () => {
+          const payloadText = await readBrowserWsMessageText(event.data);
+          if (!payloadText || browserSessionRef.current !== sessionId) {
+            return;
+          }
+
+          setBrowserWatchState(sessionId, current => ({
+            ...current,
+            lastActivityAt: new Date().toISOString(),
+            lastStatus: 'open',
+            lastStatusDetail: `${getDexWatchSubscriptionLabel(subscription)} message received`,
+            running: true,
+            subscriptions: [...subscriptions],
+          }));
+
+          await ingestBrowserPayload(
+            sessionId,
+            subscription,
+            subscriptions,
+            payloadText,
+          );
+        })
+        .catch(error => {
+          if (browserSessionRef.current !== sessionId) {
+            return;
+          }
+
+          const detail =
+            error instanceof Error ? error.message : 'Unknown ingest error';
+          setBrowserWatchState(sessionId, current => ({
+            ...current,
+            lastActivityAt: new Date().toISOString(),
+            lastError: detail,
+            lastStatus: 'error',
+            lastStatusDetail: detail,
+            running: true,
+            subscriptions: [...subscriptions],
+          }));
+        });
+    });
+
+    socket.addEventListener('error', () => {
+      if (browserSessionRef.current !== sessionId) {
+        return;
+      }
+
+      const detail = `${getDexWatchSubscriptionLabel(subscription)} WebSocket transport error`;
+      setBrowserWatchState(sessionId, current => ({
+        ...current,
+        lastActivityAt: new Date().toISOString(),
+        lastError: detail,
+        lastStatus: 'error',
+        lastStatusDetail: detail,
+        running: true,
+        subscriptions: [...subscriptions],
+      }));
+      maybeRunAutoHttpFallback(sessionId, subscriptions, 'fallback');
+    });
+
+    socket.addEventListener('close', event => {
+      if (browserSessionRef.current !== sessionId) {
+        return;
+      }
+
+      clearBrowserWatchTimers(subscription);
+      browserSocketsRef.current.delete(subscription);
+
+      if (event.code === 1000) {
+        return;
+      }
+
+      const detail = `${getDexWatchSubscriptionLabel(subscription)} code=${event.code}${
+        event.reason ? ` reason=${event.reason}` : ''
+      }`;
+      setBrowserWatchState(sessionId, current => ({
+        ...current,
+        lastActivityAt: new Date().toISOString(),
+        lastError: `socket closed for ${subscription} with code ${event.code}`,
+        lastStatus: 'reconnecting',
+        lastStatusDetail: detail,
+        running: true,
+        subscriptions: [...subscriptions],
+      }));
+      maybeRunAutoHttpFallback(sessionId, subscriptions, 'fallback');
+
+      scheduleBrowserReconnect(sessionId, subscription, subscriptions);
+    });
+  }
+
+  async function startWatch(): Promise<void> {
+    setIsWatchMutating(true);
+
+    try {
+      if (selectedWatchSubscriptions.length === 0) {
+        throw new Error('请至少选择一个订阅');
+      }
+
+      stopBrowserWatch();
+
+      const sessionId = browserSessionRef.current + 1;
+      browserSessionRef.current = sessionId;
+      setWatchRuntime(
+        createBrowserWatchState({
+          lastStartedAt: new Date().toISOString(),
+          lastStatus: 'starting',
+          running: true,
+          subscriptions: [...selectedWatchSubscriptions],
+          transport: filters.watchTransport,
+        }),
+      );
+
+      if (filters.watchTransport === 'http') {
+        startBrowserHttpWatch(sessionId, selectedWatchSubscriptions, 'http');
+        return;
+      }
+
+      if (filters.watchTransport === 'auto') {
+        startBrowserHttpWatch(sessionId, selectedWatchSubscriptions, 'auto');
+      }
+
+      connectBrowserWatch(sessionId, selectedWatchSubscriptions);
+    } catch (error) {
+      setWatchRuntime(
+        createBrowserWatchState({
+          lastError: error instanceof Error ? error.message : 'watch_start_failed',
+          lastStartedAt: new Date().toISOString(),
+          lastStatus: 'error',
+          lastStatusDetail:
+            error instanceof Error ? error.message : 'watch_start_failed',
+          running: false,
+          subscriptions: [...selectedWatchSubscriptions],
+          transport: filters.watchTransport,
+        }),
+      );
+    } finally {
+      setIsWatchMutating(false);
+    }
+  }
+
+  async function stopWatch(): Promise<void> {
+    setIsWatchMutating(true);
+
+    try {
+      stopBrowserWatch();
+      setWatchRuntime(current =>
+        createBrowserWatchState({
+          lastActivityAt: current?.lastActivityAt ?? null,
+          lastStartedAt: current?.lastStartedAt ?? null,
+          lastStatus: 'stopped',
+          running: false,
+          subscriptions:
+            current?.subscriptions.length
+              ? [...current.subscriptions]
+              : [...selectedWatchSubscriptions],
+          transport: current?.transport ?? filters.watchTransport,
+        }),
+      );
+    } catch (error) {
+      setWatchRuntime(current =>
+        current
+          ? {
+              ...current,
+              lastError:
+                error instanceof Error ? error.message : 'watch_stop_failed',
+              lastStatus: 'error',
+            }
+          : null,
+      );
+    } finally {
+      setIsWatchMutating(false);
+    }
+  }
+
+  async function runDiagnostics(): Promise<void> {
+    setIsDiagnosing(true);
+    setDiagnosticsError('');
+
+    try {
+      const response = await fetch('/api/runtime/diagnostics', {
+        method: 'POST',
         cache: 'no-store',
       });
-      if (!response.ok) {
-        throw new Error(`unexpected status ${response.status}`);
-      }
-      const payload = (await response.json()) as {
-        notifications?: NotificationRecord[];
+      const payload = (await response.json().catch(() => ({}))) as Partial<
+        RuntimeDiagnosticsResult
+      > & {
+        message?: string;
       };
-      setNotifications(Array.isArray(payload.notifications) ? payload.notifications : []);
-    } catch {
-      // Keep current state when refresh fails.
-    } finally {
-      if (showSpinner) {
-        setIsRefreshing(false);
+
+      if (!response.ok) {
+        throw new Error(
+          typeof payload.message === 'string' && payload.message.trim()
+            ? payload.message.trim()
+            : `unexpected status ${response.status}`,
+        );
       }
+
+      setDiagnostics(payload as RuntimeDiagnosticsResult);
+    } catch (error) {
+      setDiagnosticsError(
+        error instanceof Error ? error.message : 'Unknown diagnostics error',
+      );
+    } finally {
+      setIsDiagnosing(false);
     }
   }
 
@@ -231,115 +922,55 @@ export function SignalTradeDashboard({
     value: DashboardFilters[Key],
   ): void {
     setFilters(current => ({ ...current, [key]: value }));
-    if (saveState === 'saved') {
-      setSaveState('idle');
-    }
   }
 
   function resetFilters(): void {
     setFilters(initialFilters);
-    setSaveState('idle');
-  }
-
-  function saveFilters(): void {
-    startTransition(() => {
-      void (async () => {
-        setSaveState('saving');
-        try {
-          const response = await fetch('/api/dashboard-filters', {
-            method: 'PUT',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(filters),
-          });
-          if (!response.ok) {
-            throw new Error(`unexpected status ${response.status}`);
-          }
-          const payload = (await response.json()) as {
-            filters?: DashboardFilters;
-          };
-          setFilters(payload.filters ?? filters);
-          setSaveState('saved');
-        } catch {
-          setSaveState('error');
-        }
-      })();
-    });
   }
 
   return (
     <div className="relative overflow-hidden">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(0,162,142,0.14),transparent_28%),radial-gradient(circle_at_top_right,rgba(212,103,47,0.22),transparent_35%),linear-gradient(180deg,rgba(255,255,255,0.18),rgba(255,255,255,0))]" />
 
-      <div className="relative mx-auto flex min-h-screen w-full max-w-[1560px] flex-col px-4 pb-10 pt-5 sm:px-6 lg:px-8">
-        <header className="grid gap-6 rounded-[34px] border border-white/50 bg-white/72 px-5 py-6 shadow-[0_24px_90px_rgba(53,42,33,0.08)] backdrop-blur lg:grid-cols-[1.2fr_0.8fr] lg:px-8">
-          <div className="space-y-5">
-            <Badge className="w-fit gap-2 rounded-full px-3 py-1.5 text-[10px]">
-              <Sparkles className="size-3" />
-              Signal Trade Control Room
-            </Badge>
-            <div className="max-w-3xl space-y-3">
-              <h1 className="text-4xl font-semibold tracking-[-0.05em] text-balance text-foreground sm:text-5xl">
-                把 Python 信号流转成一块可交互的全栈筛选面板
-              </h1>
-              <p className="max-w-2xl text-sm leading-7 text-muted-foreground sm:text-base">
-                Next.js 负责数据面板、过滤条件和策略摘要，Python 继续做
-                DexScreener / X / XXYY 采集与命中通知。前端会轮询本地通知存储，
-                用同一套界面看热度、看链路、看命中代币。
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <Button
-                className="rounded-full"
-                onClick={() => {
-                  void refreshNotifications(true);
-                }}
-              >
-                {isRefreshing ? (
-                  <LoaderCircle className="size-4 animate-spin" />
-                ) : (
-                  <RefreshCw className="size-4" />
-                )}
-                刷新通知
-              </Button>
-              <Button className="rounded-full" variant="secondary" onClick={saveFilters}>
-                <Save className="size-4" />
-                保存筛选条件
-              </Button>
-              <StatusChip saveState={saveState} />
-            </div>
+      <div className="relative mx-auto flex min-h-screen w-full max-w-[1440px] flex-col px-4 pb-10 pt-5 sm:px-6 lg:px-8">
+        <header className="space-y-4 rounded-[34px] border border-white/50 bg-white/72 px-5 py-6 shadow-[0_24px_90px_rgba(53,42,33,0.08)] backdrop-blur lg:px-8">
+          <Badge className="w-fit gap-2 rounded-full px-3 py-1.5 text-[10px]">
+            <BellRing className="size-3" />
+            Signal Trade Notifications
+          </Badge>
+          <div className="space-y-3">
+            <h1 className="text-3xl font-semibold tracking-[-0.05em] text-balance text-foreground sm:text-4xl">
+              只保留筛选和通知列表
+            </h1>
+            <p className="max-w-2xl text-sm leading-7 text-muted-foreground sm:text-base">
+              左侧设置筛选条件，右侧直接查看当前页面会话里的通知。刷新页面后，通知和筛选都会回到初始状态。
+            </p>
           </div>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <MetricCard
-              hint="累计可视通知"
-              icon={BellRing}
-              label="Visible Alerts"
-              value={String(metrics.visibleAlerts)}
-            />
-            <MetricCard
-              hint="当前筛选结果中 paid 比例"
-              icon={Activity}
-              label="Paid Coverage"
-              value={`${metrics.paidRatio}%`}
-            />
-            <MetricCard
-              hint="当前筛选结果中的平均市值"
-              icon={Coins}
-              label="Avg Market Cap"
-              value={formatUsd(metrics.averageMarketCap)}
-            />
-            <MetricCard
-              hint="最活跃链路"
-              icon={Flame}
-              label="Top Chain"
-              value={metrics.topChain}
-            />
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              className="rounded-full"
+              disabled={isRefreshing}
+              onClick={() => {
+                void syncNotifications();
+              }}
+            >
+              {isRefreshing ? (
+                <LoaderCircle className="size-4 animate-spin" />
+              ) : (
+                <RefreshCw className="size-4" />
+              )}
+              同步通知
+            </Button>
+            <SessionChip />
+            <RefreshChip refreshState={refreshState} />
+            <WatchChip watchRuntime={watchRuntime} />
           </div>
+          {refreshSummary ? (
+            <p className="text-xs leading-6 text-muted-foreground">{refreshSummary}</p>
+          ) : null}
         </header>
 
-        <div className="mt-6 grid gap-6 xl:grid-cols-[340px_minmax(0,1fr)]">
+        <div className="mt-6 grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
           <aside className="space-y-6 xl:sticky xl:top-6 xl:self-start">
             <Card className="overflow-hidden">
               <CardHeader>
@@ -348,7 +979,7 @@ export function SignalTradeDashboard({
                   Dashboard Filters
                 </CardTitle>
                 <CardDescription>
-                  前端保存的筛选条件只影响展示层，不会改写 Python 采集逻辑。
+                  这些筛选只影响当前页面展示，不会写入浏览器缓存，也不会写到 Node 端。
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-5">
@@ -357,7 +988,7 @@ export function SignalTradeDashboard({
                     <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
                       className="pl-10"
-                      placeholder="代币、策略、Twitter 用户名"
+                      placeholder="代币、来源、Twitter 用户名"
                       value={filters.search}
                       onChange={event => updateFilter('search', event.target.value)}
                     />
@@ -369,6 +1000,52 @@ export function SignalTradeDashboard({
                     placeholder="支持逗号或换行，例如：ansem, base, hype"
                     value={filters.watchTerms}
                     onChange={event => updateFilter('watchTerms', event.target.value)}
+                  />
+                </FieldGroup>
+
+                <FieldGroup label="监听模式">
+                  <SelectField
+                    options={['auto', 'ws', 'http']}
+                    value={filters.watchTransport}
+                    onChange={value =>
+                      updateFilter('watchTransport', value as DashboardFilters['watchTransport'])
+                    }
+                  />
+                </FieldGroup>
+
+                <FieldGroup label="WS 订阅">
+                  <SubscriptionMultiSelect
+                    selectedSubscriptions={filters.watchSubscriptions}
+                    onToggle={subscription =>
+                      updateFilter(
+                        'watchSubscriptions',
+                        toggleWatchSubscription(
+                          filters.watchSubscriptions,
+                          subscription,
+                        ),
+                      )
+                    }
+                  />
+                  <p className="text-xs leading-6 text-muted-foreground">
+                    只有选中的 DexScreener feed 会被订阅；未选中的不会连接。
+                  </p>
+                </FieldGroup>
+
+                <FieldGroup label="KOL 名单">
+                  <Textarea
+                    placeholder="支持逗号或换行，例如：ansem, k4ye"
+                    value={filters.kolNames}
+                    onChange={event => updateFilter('kolNames', event.target.value)}
+                  />
+                </FieldGroup>
+
+                <FieldGroup label="关注地址">
+                  <Textarea
+                    placeholder="支持逗号或换行，匹配 xxyy.follow_addresses"
+                    value={filters.followAddresses}
+                    onChange={event =>
+                      updateFilter('followAddresses', event.target.value)
+                    }
                   />
                 </FieldGroup>
 
@@ -387,19 +1064,20 @@ export function SignalTradeDashboard({
                       onChange={value => updateFilter('source', value)}
                     />
                   </FieldGroup>
-                  <FieldGroup label="策略">
-                    <SelectField
-                      options={['all', ...strategyOptions]}
-                      value={filters.strategyId}
-                      onChange={value => updateFilter('strategyId', value)}
-                    />
-                  </FieldGroup>
                   <FieldGroup label="最少持币人数">
                     <Input
                       inputMode="numeric"
                       placeholder="100"
                       value={filters.minHolders}
                       onChange={event => updateFilter('minHolders', event.target.value)}
+                    />
+                  </FieldGroup>
+                  <FieldGroup label="最多持币人数">
+                    <Input
+                      inputMode="numeric"
+                      placeholder="5000"
+                      value={filters.maxHolders}
+                      onChange={event => updateFilter('maxHolders', event.target.value)}
                     />
                   </FieldGroup>
                   <FieldGroup label="最高市值">
@@ -446,116 +1124,86 @@ export function SignalTradeDashboard({
                 </button>
 
                 <div className="flex flex-wrap gap-3">
-                  <Button className="flex-1 rounded-full" onClick={saveFilters}>
-                    <Save className="size-4" />
-                    保存
-                  </Button>
-                  <Button className="rounded-full" variant="outline" onClick={resetFilters}>
+                  <Button className="w-full rounded-full" variant="outline" onClick={resetFilters}>
                     重置
                   </Button>
                 </div>
-              </CardContent>
-            </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-xl">
-                  <Target className="size-5 text-[color:var(--color-accent)]" />
-                  Strategy Snapshot
-                </CardTitle>
-                <CardDescription>
-                  从 `rules.json` 读取的当前策略摘要，方便对照前端筛选结果。
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {strategies.map(strategy => (
-                  <StrategyCard key={strategy.id} strategy={strategy} />
-                ))}
+                <div className="flex flex-wrap gap-3">
+                  <Button
+                    className="flex-1 rounded-full"
+                    disabled={isWatchMutating}
+                    variant="secondary"
+                    onClick={() => {
+                      void startWatch();
+                    }}
+                  >
+                    {watchRuntime?.running ? '重启监听' : '启动监听'}
+                  </Button>
+                  <Button
+                    className="rounded-full"
+                    disabled={isWatchMutating || !watchRuntime?.running}
+                    variant="outline"
+                    onClick={() => {
+                      void stopWatch();
+                    }}
+                  >
+                    停止监听
+                  </Button>
+                </div>
+                <Button
+                  className="w-full rounded-full"
+                  disabled={isDiagnosing}
+                  variant="outline"
+                  onClick={() => {
+                    void runDiagnostics();
+                  }}
+                >
+                  {isDiagnosing ? (
+                    <LoaderCircle className="size-4 animate-spin" />
+                  ) : (
+                    <Target className="size-4" />
+                  )}
+                  运行网络诊断
+                </Button>
+                <p className="text-xs leading-6 text-muted-foreground">
+                  当前页面直接控制 `auto / ws / http`。`ws` 由浏览器直连，`http`
+                  由浏览器定时请求刷新接口；通知只保留在当前页面内存，不写浏览器缓存，也不写 Node 存储。
+                </p>
+                <WatchStatusPanel watchRuntime={watchRuntime} />
+                <DiagnosticsPanel
+                  diagnostics={diagnostics}
+                  diagnosticsError={diagnosticsError}
+                />
               </CardContent>
             </Card>
           </aside>
 
-          <section className="space-y-6">
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-              <Card className="overflow-hidden">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-xl">
-                    <Layers className="size-5 text-[color:var(--color-accent)]" />
-                    Notification Stream
-                  </CardTitle>
-                  <CardDescription>
-                    当前后端累计记录 {metrics.totalAlerts} 条通知，筛选后显示{' '}
-                    {metrics.visibleAlerts} 条。
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
-                  {filteredNotifications.length > 0 ? (
-                    filteredNotifications.map(record => (
-                      <NotificationCard key={record.id} record={record} />
-                    ))
-                  ) : (
-                    <EmptyState />
-                  )}
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-xl">
-                    <Users className="size-5 text-[color:var(--color-accent)]" />
-                    Operator Notes
-                  </CardTitle>
-                  <CardDescription>
-                    这里是前端最适合快速判断的几个信号切片。
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <FocusRow
-                    label="优先查看"
-                    value={
-                      filters.search ||
-                      filters.watchTerms ||
-                      (filters.strategyId !== 'all' ? filters.strategyId : '全部信号')
-                    }
-                  />
-                  <FocusRow
-                    label="筛选阈值"
-                    value={[
-                      filters.minHolders && `holders ≥ ${filters.minHolders}`,
-                      filters.maxMarketCap && `market cap ≤ ${filters.maxMarketCap}`,
-                      filters.minCommunityCount &&
-                        `community ≥ ${filters.minCommunityCount}`,
-                    ]
-                      .filter(Boolean)
-                      .join(' · ') || '未设置'}
-                  />
-                  <Separator />
-                  {filteredNotifications.slice(0, 3).map(record => (
-                    <div
-                      key={record.id}
-                      className="rounded-3xl border border-border bg-[color:var(--color-panel-soft)] p-4"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-semibold text-foreground">
-                            {record.event.token.symbol || 'UNKNOWN'}
-                          </p>
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            {record.event.token.name || record.event.token.address}
-                          </p>
-                        </div>
-                        <Badge variant={record.summary.paid ? 'success' : 'secondary'}>
-                          {record.summary.paid ? 'paid' : 'organic'}
-                        </Badge>
-                      </div>
-                      <div className="mt-4 flex items-center justify-between text-xs text-muted-foreground">
-                        <span>{record.strategyId}</span>
-                        <span>{formatRelativeTime(record.notifiedAt)}</span>
-                      </div>
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
+          <section className="overflow-hidden rounded-[32px] border border-white/50 bg-white/72 shadow-[0_24px_90px_rgba(53,42,33,0.08)] backdrop-blur">
+            <div className="border-b border-border/70 px-5 py-5 sm:px-6">
+              <div className="flex items-center gap-2 text-xl font-semibold text-foreground">
+                <Layers className="size-5 text-[color:var(--color-accent)]" />
+                Notification Stream
+              </div>
+              <p className="mt-2 text-sm text-muted-foreground">
+                当前页面会话累计记录 {notifications.length} 条通知，筛选后显示{' '}
+                {filteredNotifications.length} 条。
+              </p>
+            </div>
+            <div className="p-0">
+                {filteredNotifications.length > 0 ? (
+                  <ol className="divide-y divide-border">
+                    {filteredNotifications.map(record => (
+                      <NotificationListItem
+                        key={record.id}
+                        currentTimeMs={relativeNow}
+                        record={record}
+                      />
+                    ))}
+                  </ol>
+                ) : (
+                  <EmptyState />
+                )}
             </div>
           </section>
         </div>
@@ -564,264 +1212,367 @@ export function SignalTradeDashboard({
   );
 }
 
-function MetricCard({
-  hint,
-  icon: Icon,
-  label,
-  value,
-}: {
-  hint: string;
-  icon: LucideIcon;
-  label: string;
-  value: string;
-}): JSX.Element {
-  return (
-    <Card className="border-white/60 bg-[linear-gradient(180deg,rgba(255,255,255,0.9),rgba(250,244,238,0.92))]">
-      <CardContent className="flex h-full flex-col justify-between gap-4 p-5">
-        <div className="flex items-center justify-between">
-          <Badge variant="secondary">{label}</Badge>
-          <div className="rounded-2xl bg-[color:var(--color-panel-soft)] p-2 text-[color:var(--color-accent)]">
-            <Icon className="size-4" />
-          </div>
-        </div>
-        <div>
-          <p className="text-3xl font-semibold tracking-[-0.04em] text-foreground">
-            {value}
-          </p>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">{hint}</p>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function StatusChip({ saveState }: { saveState: SaveState }): JSX.Element {
-  if (saveState === 'saving') {
-    return (
-      <Badge variant="secondary" className="gap-2 px-3 py-1.5 normal-case tracking-normal">
-        <LoaderCircle className="size-3 animate-spin" />
-        正在保存筛选条件
-      </Badge>
-    );
-  }
-  if (saveState === 'saved') {
-    return (
-      <Badge variant="success" className="px-3 py-1.5 normal-case tracking-normal">
-        已保存到 data/dashboard-filters.json
-      </Badge>
-    );
-  }
-  if (saveState === 'error') {
-    return (
-      <Badge className="px-3 py-1.5 normal-case tracking-normal" variant="outline">
-        保存失败，请检查本地写入权限
-      </Badge>
-    );
-  }
+function SessionChip(): JSX.Element {
   return (
     <Badge variant="secondary" className="px-3 py-1.5 normal-case tracking-normal">
-      前端筛选条件未保存
+      仅当前页面会话
     </Badge>
   );
 }
 
-function StrategyCard({
-  strategy,
+function RefreshChip({
+  refreshState,
 }: {
-  strategy: StrategySnapshot;
-}): JSX.Element {
+  refreshState: RefreshState;
+}): JSX.Element | null {
+  if (refreshState === 'idle') {
+    return null;
+  }
+  if (refreshState === 'syncing') {
+    return (
+      <Badge variant="secondary" className="gap-2 px-3 py-1.5 normal-case tracking-normal">
+        <LoaderCircle className="size-3 animate-spin" />
+        正在同步信号
+      </Badge>
+    );
+  }
+  if (refreshState === 'synced') {
+    return (
+      <Badge variant="success" className="px-3 py-1.5 normal-case tracking-normal">
+        已更新当前会话通知
+      </Badge>
+    );
+  }
   return (
-    <div className="rounded-[28px] border border-border bg-[color:var(--color-panel-soft)] p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-sm font-semibold text-foreground">{strategy.id}</p>
-          <p className="mt-1 text-xs text-muted-foreground">{strategy.source}</p>
-        </div>
-        <Badge variant={strategy.enabled ? 'success' : 'outline'}>
-          {strategy.enabled ? 'enabled' : 'disabled'}
-        </Badge>
-      </div>
-      <div className="mt-4 flex flex-wrap gap-2">
-        {strategy.chains.map(chain => (
-          <Badge key={chain} variant="secondary">
-            {chain}
-          </Badge>
-        ))}
-        {strategy.channels.map(channel => (
-          <Badge key={channel} variant="outline">
-            {channel}
-          </Badge>
-        ))}
-      </div>
-      <dl className="mt-4 grid grid-cols-2 gap-3 text-xs">
-        <SummaryItem label="Min holders" value={formatOptionalNumber(strategy.minHolderCount)} />
-        <SummaryItem label="Max holders" value={formatOptionalNumber(strategy.maxHolderCount)} />
-        <SummaryItem label="Max market cap" value={formatUsd(strategy.maxMarketCap)} />
-        <SummaryItem label="Tracked KOL" value={String(strategy.trackedKolNames.length)} />
-      </dl>
-      {(strategy.trackedKolNames.length > 0 ||
-        strategy.trackedFollowAddresses.length > 0) && (
-        <>
-          <Separator className="my-4" />
-          <div className="space-y-3 text-xs text-muted-foreground">
-            {strategy.trackedKolNames.length > 0 && (
-              <p>
-                <span className="font-semibold text-foreground">KOL</span>{' '}
-                {strategy.trackedKolNames.join(', ')}
-              </p>
-            )}
-            {strategy.trackedFollowAddresses.length > 0 && (
-              <p className="break-all">
-                <span className="font-semibold text-foreground">Follow wallets</span>{' '}
-                {strategy.trackedFollowAddresses.join(', ')}
-              </p>
-            )}
-          </div>
-        </>
-      )}
+    <Badge className="px-3 py-1.5 normal-case tracking-normal" variant="outline">
+      同步失败
+    </Badge>
+  );
+}
+
+function WatchChip({
+  watchRuntime,
+}: {
+  watchRuntime: WatchRuntimeState | null;
+}): JSX.Element {
+  if (!watchRuntime) {
+    return (
+      <Badge variant="secondary" className="px-3 py-1.5 normal-case tracking-normal">
+        监听状态未知
+      </Badge>
+    );
+  }
+
+  if (hasWatchConnectionIssue(watchRuntime)) {
+    return (
+      <Badge className="px-3 py-1.5 normal-case tracking-normal" variant="outline">
+        连接异常 {watchRuntime.transport}
+      </Badge>
+    );
+  }
+
+  if (watchRuntime.running) {
+    return (
+      <Badge
+        variant={
+          watchRuntime.lastStatus === 'connecting' ||
+          watchRuntime.lastStatus === 'reconnecting'
+            ? 'secondary'
+            : 'success'
+        }
+        className="px-3 py-1.5 normal-case tracking-normal"
+      >
+        {watchRuntime.lastStatus === 'connecting' ||
+        watchRuntime.lastStatus === 'reconnecting'
+          ? '连接中'
+          : '监听中'}{' '}
+        {watchRuntime.transport}
+      </Badge>
+    );
+  }
+
+  return (
+    <Badge variant="secondary" className="px-3 py-1.5 normal-case tracking-normal">
+      监听未启动
+    </Badge>
+  );
+}
+
+function WatchStatusPanel({
+  watchRuntime,
+}: {
+  watchRuntime: WatchRuntimeState | null;
+}): JSX.Element | null {
+  if (!watchRuntime) {
+    return null;
+  }
+
+  const detail = watchRuntime.lastError ?? watchRuntime.lastStatusDetail;
+  const toneClass =
+    hasWatchConnectionIssue(watchRuntime)
+      ? 'border-red-200/80 bg-red-50/80 text-red-700'
+      : 'border-border bg-[color:var(--color-panel-soft)] text-muted-foreground';
+
+  return (
+    <div className={cn('rounded-3xl border px-4 py-3 text-xs leading-6', toneClass)}>
+      <p>
+        watcher 状态：{formatWatchStatus(watchRuntime)}，模式 {watchRuntime.transport}
+      </p>
+      {watchRuntime.subscriptions.length > 0 ? (
+        <p>订阅：{formatWatchSubscriptions(watchRuntime.subscriptions)}</p>
+      ) : null}
+      {watchRuntime.lastActivityAt ? (
+        <p>最后活动：{formatAbsoluteTime(watchRuntime.lastActivityAt)}</p>
+      ) : null}
+      {detail ? <p className="break-all">详情：{detail}</p> : null}
     </div>
   );
 }
 
-function NotificationCard({
+function DiagnosticsPanel({
+  diagnostics,
+  diagnosticsError,
+}: {
+  diagnostics: RuntimeDiagnosticsResult | null;
+  diagnosticsError: string;
+}): JSX.Element | null {
+  if (!diagnostics && !diagnosticsError) {
+    return null;
+  }
+
+  return (
+    <div className="rounded-3xl border border-border bg-[color:var(--color-panel-soft)] px-4 py-3 text-xs leading-6 text-muted-foreground">
+      <p className="font-semibold text-foreground">网络诊断</p>
+      {diagnosticsError ? (
+        <p className="mt-2 break-all text-red-700">执行失败：{diagnosticsError}</p>
+      ) : null}
+      {diagnostics ? (
+        <>
+          <p className="mt-2">检查时间：{formatAbsoluteTime(diagnostics.checkedAt)}</p>
+          <p>通知存储：{formatNotificationStore(diagnostics.notificationsStore)}</p>
+          <p>HTTP：{formatNetworkCheck(diagnostics.httpCheck)}</p>
+          <p>WS：{formatNetworkCheck(diagnostics.wsCheck)}</p>
+          {Object.keys(diagnostics.proxyEnv).length > 0 ? (
+            <div className="mt-2 space-y-1">
+              <p className="text-foreground">代理环境变量：</p>
+              {Object.entries(diagnostics.proxyEnv).map(([key, value]) => (
+                <p key={key} className="break-all font-mono text-[11px]">
+                  {key}={value}
+                </p>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-2">代理环境变量：未检测到</p>
+          )}
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function NotificationListItem({
+  currentTimeMs,
   record,
 }: {
+  currentTimeMs: number;
   record: NotificationRecord;
 }): JSX.Element {
   const sourceKey = `${record.event.source}.${record.event.subtype}`;
+  const displayAddress =
+    record.context.token?.address || record.event.token.address || null;
+  const displaySymbol =
+    record.context.token?.symbol ||
+    record.event.token.symbol ||
+    (displayAddress ? truncateMiddle(displayAddress, 6, 4).toUpperCase() : 'UNKNOWN');
+  const displayName =
+    record.context.token?.name ||
+    record.event.token.name ||
+    record.context.token?.address ||
+    record.event.token.address ||
+    'unnamed token';
 
   return (
-    <article className="group flex h-full flex-col rounded-[30px] border border-border bg-[linear-gradient(180deg,rgba(255,255,255,0.95),rgba(248,242,235,0.94))] p-5 shadow-[0_18px_55px_rgba(22,20,18,0.06)] transition-transform duration-200 hover:-translate-y-1">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="text-xl font-semibold tracking-[-0.04em] text-foreground">
-              {record.event.token.symbol || 'UNKNOWN'}
-            </p>
-            <Badge variant={record.summary.paid ? 'success' : 'secondary'}>
-              {record.summary.paid ? 'paid' : 'organic'}
-            </Badge>
+    <li className="px-5 py-4 transition-colors hover:bg-white/50 sm:px-6">
+      <div className="flex flex-col gap-3">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex min-w-0 items-start gap-3">
+            <TokenAvatar
+              imageUrl={record.summary.imageUrl}
+              symbol={displaySymbol}
+            />
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-base font-semibold tracking-[-0.03em] text-foreground">
+                  {displaySymbol}
+                </p>
+                <Badge variant={record.summary.paid ? 'success' : 'secondary'}>
+                  {record.summary.paid ? 'paid' : 'organic'}
+                </Badge>
+                <span className="rounded-full bg-[color:var(--color-panel-soft)] px-2.5 py-1 font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                  {record.event.chain || 'n/a'}
+                </span>
+              </div>
+              <p className="mt-1 truncate text-sm text-foreground/80">{displayName}</p>
+              {displayAddress ? (
+                <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+                  {truncateMiddle(displayAddress, 8, 6)}
+                </p>
+              ) : null}
+            </div>
           </div>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {record.event.token.name || record.event.token.address || 'unnamed token'}
-          </p>
+          <div className="shrink-0 text-right">
+            <p className="font-mono text-[11px] text-muted-foreground">
+              {formatRelativeTime(record.notifiedAt, currentTimeMs)}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {formatAbsoluteTime(record.notifiedAt)}
+            </p>
+          </div>
         </div>
-        <span className="rounded-full bg-[color:var(--color-panel-soft)] px-3 py-1 font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-          {record.event.chain || 'n/a'}
-        </span>
+
+        <div className="flex flex-wrap gap-2">
+          <InfoPill icon={Activity} label={sourceKey} />
+          {record.channels.length > 0 ? (
+            <InfoPill icon={BellRing} label={record.channels.join(', ')} />
+          ) : null}
+        </div>
+
+        <div className="grid gap-2 text-sm sm:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
+          <p className="min-w-0 truncate text-muted-foreground">{record.message}</p>
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-right sm:grid-cols-3">
+            <MetricPair label="市值" value={formatUsd(record.summary.marketCap)} />
+            <MetricPair
+              label="持币人数"
+              value={formatOptionalNumber(record.summary.holderCount)}
+            />
+            <MetricPair
+              label="流动性"
+              value={formatUsd(record.summary.liquidityUsd)}
+            />
+            <MetricPair
+              label="价格"
+              value={formatPriceUsd(record.summary.priceUsd)}
+            />
+            <MetricPair
+              label="社区人数"
+              value={formatOptionalNumber(record.summary.communityCount)}
+            />
+            <MetricPair
+              label="关注者"
+              value={formatOptionalNumber(record.summary.followersCount)}
+            />
+          </dl>
+        </div>
+
+        <p className="text-[11px] text-muted-foreground">
+          市值优先取 XXYY，缺失时回退 DexScreener；持币人数当前来自 XXYY。
+        </p>
+
+        <div className="flex flex-wrap gap-2">
+          {record.summary.twitterUsername ? (
+            <a
+              className="inline-flex items-center gap-1 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-[color:var(--color-panel-soft)]"
+              href={`https://x.com/${record.summary.twitterUsername}`}
+              rel="noreferrer"
+              target="_blank"
+            >
+              @{record.summary.twitterUsername}
+              <ArrowUpRight className="size-3" />
+            </a>
+          ) : null}
+          {record.summary.dexscreenerUrl ? (
+            <a
+              className="inline-flex items-center gap-1 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-[color:var(--color-panel-soft)]"
+              href={record.summary.dexscreenerUrl}
+              rel="noreferrer"
+              target="_blank"
+            >
+              Dex
+              <ArrowUpRight className="size-3" />
+            </a>
+          ) : null}
+          {record.summary.telegramUrl ? (
+            <a
+              className="inline-flex items-center gap-1 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-[color:var(--color-panel-soft)]"
+              href={record.summary.telegramUrl}
+              rel="noreferrer"
+              target="_blank"
+            >
+              Telegram
+              <ArrowUpRight className="size-3" />
+            </a>
+          ) : null}
+        </div>
       </div>
+    </li>
+  );
+}
 
-      <div className="mt-5 flex flex-wrap gap-2">
-        <InfoPill icon={Layers} label={record.strategyId} />
-        <InfoPill icon={Activity} label={sourceKey} />
-        <InfoPill icon={BellRing} label={record.channels.join(', ') || 'stdout'} />
-      </div>
+function TokenAvatar({
+  imageUrl,
+  symbol,
+}: {
+  imageUrl: string | null;
+  symbol: string;
+}): JSX.Element {
+  const [imageFailed, setImageFailed] = useState(false);
+  const label = symbol.trim().slice(0, 2).toUpperCase() || 'TK';
 
-      <dl className="mt-5 grid grid-cols-2 gap-3">
-        <SignalStat
-          icon={Coins}
-          label="市值"
-          value={formatUsd(record.summary.marketCap)}
-        />
-        <SignalStat
-          icon={Users}
-          label="持币人数"
-          value={formatOptionalNumber(record.summary.holderCount)}
-        />
-        <SignalStat
-          icon={Sparkles}
-          label="社区人数"
-          value={formatOptionalNumber(record.summary.communityCount)}
-        />
-        <SignalStat
-          icon={Flame}
-          label="关注者"
-          value={formatOptionalNumber(record.summary.followersCount)}
-        />
-      </dl>
+  if (imageUrl && !imageFailed) {
+    return (
+      <img
+        alt={symbol}
+        className="size-12 rounded-2xl border border-border/80 bg-[color:var(--color-panel-soft)] object-cover"
+        height={48}
+        loading="lazy"
+        src={imageUrl}
+        width={48}
+        onError={() => {
+          setImageFailed(true);
+        }}
+      />
+    );
+  }
 
-      <p className="mt-5 line-clamp-3 text-sm leading-6 text-muted-foreground">
-        {record.message}
-      </p>
-
-      <div className="mt-5 flex flex-wrap gap-2">
-        {record.summary.twitterUsername ? (
-          <a
-            className="inline-flex items-center gap-1 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-[color:var(--color-panel-soft)]"
-            href={`https://x.com/${record.summary.twitterUsername}`}
-            rel="noreferrer"
-            target="_blank"
-          >
-            @{record.summary.twitterUsername}
-            <ArrowUpRight className="size-3" />
-          </a>
-        ) : null}
-        {record.summary.dexscreenerUrl ? (
-          <a
-            className="inline-flex items-center gap-1 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-[color:var(--color-panel-soft)]"
-            href={record.summary.dexscreenerUrl}
-            rel="noreferrer"
-            target="_blank"
-          >
-            Dex
-            <ArrowUpRight className="size-3" />
-          </a>
-        ) : null}
-        {record.summary.telegramUrl ? (
-          <a
-            className="inline-flex items-center gap-1 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-[color:var(--color-panel-soft)]"
-            href={record.summary.telegramUrl}
-            rel="noreferrer"
-            target="_blank"
-          >
-            Telegram
-            <ArrowUpRight className="size-3" />
-          </a>
-        ) : null}
-      </div>
-
-      <div className="mt-auto pt-6 text-xs text-muted-foreground">
-        <span className="font-mono">{formatRelativeTime(record.notifiedAt)}</span>
-      </div>
-    </article>
+  return (
+    <div className="flex size-12 items-center justify-center rounded-2xl border border-border/80 bg-[color:var(--color-panel-soft)] text-sm font-semibold text-foreground">
+      {label}
+    </div>
   );
 }
 
 function EmptyState(): JSX.Element {
   return (
-    <div className="md:col-span-2 2xl:col-span-3">
+    <div className="px-6 py-10">
       <div className="flex min-h-[280px] flex-col items-center justify-center rounded-[32px] border border-dashed border-border bg-[color:var(--color-panel-soft)] px-6 py-10 text-center">
         <div className="rounded-full bg-[color:var(--color-accent)]/10 p-4 text-[color:var(--color-accent)]">
           <BellRing className="size-8" />
         </div>
         <h3 className="mt-5 text-2xl font-semibold tracking-[-0.04em] text-foreground">
-          当前没有命中的通知代币
+          当前没有符合筛选条件的通知
         </h3>
         <p className="mt-3 max-w-md text-sm leading-6 text-muted-foreground">
-          你可以降低前端筛选阈值，或者先运行 Python 后端采集命令，把新的通知记录写入
-          `data/notifications.json`。
+          你可以降低前端筛选阈值，点击上方“同步通知”，或者直接启动 `ws / http`
+          监听，把新通知写入当前页面会话。
         </p>
       </div>
     </div>
   );
 }
 
-function SignalStat({
-  icon: Icon,
+function MetricPair({
   label,
   value,
 }: {
-  icon: LucideIcon;
   label: string;
   value: string;
 }): JSX.Element {
   return (
-    <div className="rounded-3xl border border-border bg-white/80 p-3">
-      <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-muted-foreground">
-        <Icon className="size-3.5" />
+    <div>
+      <dt className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
         {label}
-      </div>
-      <p className="mt-2 text-sm font-semibold text-foreground">{value}</p>
+      </dt>
+      <dd className="mt-1 font-semibold text-foreground">{value}</dd>
     </div>
   );
 }
@@ -883,36 +1634,37 @@ function SelectField({
   );
 }
 
-function SummaryItem({
-  label,
-  value,
+function SubscriptionMultiSelect({
+  onToggle,
+  selectedSubscriptions,
 }: {
-  label: string;
-  value: string;
+  onToggle: (subscription: string) => void;
+  selectedSubscriptions: string[];
 }): JSX.Element {
   return (
-    <div className="rounded-2xl border border-border bg-white/80 p-3">
-      <dt className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-        {label}
-      </dt>
-      <dd className="mt-2 text-sm font-semibold text-foreground">{value}</dd>
-    </div>
-  );
-}
+    <div className="grid gap-2">
+      {DEX_WATCH_SUBSCRIPTION_OPTIONS.map(option => {
+        const selected = selectedSubscriptions.includes(option.id);
 
-function FocusRow({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}): JSX.Element {
-  return (
-    <div className="rounded-3xl border border-border bg-[color:var(--color-panel-soft)] p-4">
-      <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-        {label}
-      </p>
-      <p className="mt-2 text-sm font-semibold leading-6 text-foreground">{value}</p>
+        return (
+          <button
+            key={option.id}
+            type="button"
+            className={cn(
+              'flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition-colors',
+              selected
+                ? 'border-[color:var(--color-accent)] bg-[color:var(--color-accent)]/8'
+                : 'border-border bg-[color:var(--color-panel-soft)]',
+            )}
+            onClick={() => onToggle(option.id)}
+          >
+            <span className="text-sm text-foreground">{option.label}</span>
+            <Badge variant={selected ? 'success' : 'secondary'}>
+              {selected ? 'ON' : 'OFF'}
+            </Badge>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -923,11 +1675,91 @@ function uniqueValues(values: string[]): string[] {
   ).sort((left, right) => left.localeCompare(right));
 }
 
-function parseWatchTerms(value: string): string[] {
+function parseListFilter(value: string): string[] {
   return value
     .split(/[\n,]/)
     .map(item => item.trim().toLowerCase())
     .filter(Boolean);
+}
+
+function getSelectedWatchSubscriptions(value: string[]): string[] {
+  return DEX_WATCH_SUBSCRIPTION_OPTIONS
+    .map(option => option.id)
+    .filter(option => value.includes(option));
+}
+
+function toggleWatchSubscription(
+  selectedSubscriptions: string[],
+  subscription: string,
+): string[] {
+  const nextSelected = selectedSubscriptions.includes(subscription)
+    ? selectedSubscriptions.filter(item => item !== subscription)
+    : [...selectedSubscriptions, subscription];
+
+  return DEX_WATCH_SUBSCRIPTION_OPTIONS
+    .map(option => option.id)
+    .filter(option => nextSelected.includes(option));
+}
+
+function mergeNotifications(
+  current: NotificationRecord[],
+  incoming: NotificationRecord[],
+): NotificationRecord[] {
+  const merged = new Map<string, NotificationRecord>();
+
+  for (const record of [...incoming, ...current]) {
+    const existing = merged.get(record.id);
+    if (!existing) {
+      merged.set(record.id, record);
+      continue;
+    }
+
+    if (
+      new Date(record.notifiedAt).getTime() >
+      new Date(existing.notifiedAt).getTime()
+    ) {
+      merged.set(record.id, record);
+    }
+  }
+
+  return Array.from(merged.values())
+    .sort(
+      (left, right) =>
+        new Date(right.notifiedAt).getTime() - new Date(left.notifiedAt).getTime(),
+    )
+    .slice(0, MAX_SESSION_NOTIFICATIONS);
+}
+
+function clearBrowserTimerMap(
+  timers: Map<string, number>,
+  subscription?: string,
+): void {
+  if (subscription) {
+    const timer = timers.get(subscription);
+    if (timer !== undefined) {
+      window.clearTimeout(timer);
+      timers.delete(subscription);
+    }
+    return;
+  }
+
+  for (const timer of timers.values()) {
+    window.clearTimeout(timer);
+  }
+  timers.clear();
+}
+
+function matchesAnyValue(value: unknown, expected: string[]): boolean {
+  if (!Array.isArray(value) || expected.length === 0) {
+    return false;
+  }
+
+  const actual = new Set(
+    value
+      .map(item => (typeof item === 'string' ? item.trim().toLowerCase() : ''))
+      .filter(Boolean),
+  );
+  return expected.some(item => actual.has(item));
 }
 
 function parseNumericFilter(value: string): number | null {
@@ -938,48 +1770,39 @@ function parseNumericFilter(value: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function average(values: number[]): number | null {
-  if (values.length === 0) {
-    return null;
-  }
-  const total = values.reduce((sum, value) => sum + value, 0);
-  return total / values.length;
-}
-
-function topCount(values: string[]): string {
-  const counter = new Map<string, number>();
-  for (const value of values) {
-    counter.set(value, (counter.get(value) ?? 0) + 1);
-  }
-  const top = Array.from(counter.entries()).sort((left, right) => right[1] - left[1])[0];
-  return top ? top[0] : 'n/a';
-}
-
 function formatUsd(value: number | null): string {
   if (value === null) {
     return 'N/A';
   }
-  return new Intl.NumberFormat('en-US', {
-    notation: 'compact',
-    maximumFractionDigits: value >= 1_000_000 ? 2 : 1,
-    style: 'currency',
-    currency: 'USD',
-  }).format(value);
+  return `$${formatCompactNumber(value)}`;
 }
 
 function formatOptionalNumber(value: number | null): string {
   if (value === null) {
     return 'N/A';
   }
-  return new Intl.NumberFormat('en-US', {
-    notation: 'compact',
-    maximumFractionDigits: 1,
-  }).format(value);
+  return formatCompactNumber(value);
 }
 
-function formatRelativeTime(value: string): string {
+function formatPriceUsd(value: number | null): string {
+  if (value === null) {
+    return 'N/A';
+  }
+
+  if (value >= 1) {
+    return `$${formatPlainNumber(Number(value.toFixed(4)))}`;
+  }
+
+  return `$${trimTrailingZeros(value.toFixed(8))}`;
+}
+
+function formatRelativeTime(value: string, currentTimeMs: number): string {
   const date = new Date(value);
-  const diffMs = date.getTime() - Date.now();
+  if (Number.isNaN(date.getTime())) {
+    return 'unknown';
+  }
+
+  const diffMs = date.getTime() - currentTimeMs;
   const diffMinutes = Math.round(diffMs / 60_000);
   if (Math.abs(diffMinutes) < 60) {
     return `${Math.abs(diffMinutes)}m ${diffMinutes <= 0 ? 'ago' : 'later'}`;
@@ -990,4 +1813,226 @@ function formatRelativeTime(value: string): string {
   }
   const diffDays = Math.round(diffHours / 24);
   return `${Math.abs(diffDays)}d ${diffDays <= 0 ? 'ago' : 'later'}`;
+}
+
+function formatWatchStatus(watchRuntime: WatchRuntimeState): string {
+  if (hasWatchConnectionIssue(watchRuntime)) {
+    if (
+      watchRuntime.lastStatus === 'connecting' ||
+      watchRuntime.lastStatus === 'reconnecting'
+    ) {
+      return '连接失败，正在重试';
+    }
+
+    return '连接异常';
+  }
+
+  switch (watchRuntime.lastStatus) {
+    case 'connecting':
+      return '连接中';
+    case 'open':
+      return '已连接';
+    case 'reconnecting':
+      return '重连中';
+    case 'stale':
+      return '连接超时';
+    case 'error':
+      return '异常';
+    case 'closed':
+      return '已关闭';
+    case 'starting':
+      return '启动中';
+    case 'stopped':
+      return '已停止';
+    case 'idle':
+      return '空闲';
+    default:
+      return watchRuntime.lastStatus;
+  }
+}
+
+function formatWatchSubscriptions(subscriptions: string[]): string {
+  return subscriptions.map(getDexWatchSubscriptionLabel).join(', ');
+}
+
+function hasWatchConnectionIssue(watchRuntime: WatchRuntimeState): boolean {
+  if (!watchRuntime.running) {
+    return watchRuntime.lastStatus === 'error' || watchRuntime.lastStatus === 'stale';
+  }
+
+  return Boolean(watchRuntime.lastError) || watchRuntime.lastStatus === 'error' || watchRuntime.lastStatus === 'stale';
+}
+
+function formatNotificationStore(
+  notificationsStore: RuntimeDiagnosticsResult['notificationsStore'],
+): string {
+  if (notificationsStore.mode === 'none') {
+    return '未启用服务端通知存储，数据只存在于当前浏览器会话';
+  }
+
+  if (notificationsStore.isEmpty) {
+    return '当前没有服务端通知记录';
+  }
+
+  return `当前记录 ${notificationsStore.count} 条`;
+}
+
+function formatNetworkCheck(
+  check: RuntimeDiagnosticsResult['httpCheck'],
+): string {
+  const duration = formatDurationMs(check.durationMs);
+  if (check.ok) {
+    const detail = check.statusCode ? `HTTP ${check.statusCode}` : check.detail;
+    return `${detail ?? 'ok'}，耗时 ${duration}`;
+  }
+
+  if (check.closeCode !== undefined && check.closeCode !== null) {
+    return `${check.status.toUpperCase()}，close code=${check.closeCode}，耗时 ${duration}${
+      check.error ? `，${check.error}` : ''
+    }`;
+  }
+
+  return `${check.status.toUpperCase()}，耗时 ${duration}${
+    check.error ? `，${check.error}` : ''
+  }`;
+}
+
+function formatDurationMs(value: number): string {
+  if (!Number.isFinite(value) || value < 0) {
+    return 'n/a';
+  }
+
+  if (value < 1000) {
+    return `${value}ms`;
+  }
+
+  return `${(value / 1000).toFixed(1)}s`;
+}
+
+function formatAbsoluteTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return 'unknown';
+  }
+
+  return [
+    date.getFullYear(),
+    padNumber(date.getMonth() + 1),
+    padNumber(date.getDate()),
+  ].join('-')
+    .concat(
+      ` ${padNumber(date.getHours())}:${padNumber(date.getMinutes())}:${padNumber(
+        date.getSeconds(),
+      )}`,
+    );
+}
+
+function createBrowserWatchState(
+  overrides: Partial<WatchRuntimeState> = {},
+): WatchRuntimeState {
+  return {
+    intervalSec: WATCH_INTERVAL_SEC,
+    lastActivityAt: null,
+    lastError: null,
+    lastStartedAt: null,
+    lastStatus: 'idle',
+    lastStatusDetail: null,
+    limit: WATCH_LIMIT,
+    running: false,
+    subscriptions: [...DEFAULT_DEX_WATCH_SUBSCRIPTIONS],
+    transport: 'auto',
+    ...overrides,
+  };
+}
+
+function buildDexSubscriptionWsUrl(subscription: string, limit: number): string {
+  const endpoint =
+    subscription === 'community_takeovers_latest'
+      ? '/community-takeovers/latest/v1'
+      : subscription === 'ads_latest'
+        ? '/ads/latest/v1'
+        : subscription === 'token_boosts_latest'
+          ? '/token-boosts/latest/v1'
+          : subscription === 'token_boosts_top'
+            ? '/token-boosts/top/v1'
+            : '/token-profiles/latest/v1';
+
+  const url = new URL(endpoint, 'wss://api.dexscreener.com');
+  if (limit > 0) {
+    url.searchParams.set('limit', String(limit));
+  }
+  return url.toString();
+}
+
+async function readBrowserWsMessageText(data: unknown): Promise<string | null> {
+  if (typeof data === 'string') {
+    return data;
+  }
+  if (data instanceof ArrayBuffer) {
+    return new TextDecoder().decode(data);
+  }
+  if (ArrayBuffer.isView(data)) {
+    return new TextDecoder().decode(data);
+  }
+  if (typeof Blob !== 'undefined' && data instanceof Blob) {
+    return await data.text();
+  }
+  return null;
+}
+
+function formatCompactNumber(value: number): string {
+  const abs = Math.abs(value);
+
+  if (abs >= 1_000_000_000) {
+    return `${formatCompactUnit(value / 1_000_000_000)}B`;
+  }
+  if (abs >= 1_000_000) {
+    return `${formatCompactUnit(value / 1_000_000)}M`;
+  }
+  if (abs >= 1_000) {
+    return `${formatCompactUnit(value / 1_000)}K`;
+  }
+
+  return formatPlainNumber(value);
+}
+
+function formatCompactUnit(value: number): string {
+  const abs = Math.abs(value);
+  const decimals = abs < 100 ? 1 : 0;
+  return trimTrailingZeros(value.toFixed(decimals));
+}
+
+function formatPlainNumber(value: number): string {
+  const normalized = Number.isInteger(value)
+    ? value.toString()
+    : trimTrailingZeros(value.toFixed(1));
+
+  const [integerPart, fractionPart] = normalized.split('.');
+  const sign = integerPart.startsWith('-') ? '-' : '';
+  const unsignedInteger = sign ? integerPart.slice(1) : integerPart;
+  const groupedInteger = unsignedInteger.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+
+  return fractionPart
+    ? `${sign}${groupedInteger}.${fractionPart}`
+    : `${sign}${groupedInteger}`;
+}
+
+function trimTrailingZeros(value: string): string {
+  return value.replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
+}
+
+function padNumber(value: number): string {
+  return value.toString().padStart(2, '0');
+}
+
+function truncateMiddle(
+  value: string,
+  start = 6,
+  end = 4,
+): string {
+  if (value.length <= start + end + 3) {
+    return value;
+  }
+
+  return `${value.slice(0, start)}...${value.slice(-end)}`;
 }

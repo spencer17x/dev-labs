@@ -1,24 +1,17 @@
 import { SignalTradeDashboard } from '@/components/dashboard/signal-trade-dashboard';
-import {
-  getDashboardFilters,
-  getNotificationFeed,
-  getStrategySnapshots,
-} from '@/lib/signal-trade-data';
+import { getDashboardFilters } from '@/lib/signal-trade-data';
 
 export const dynamic = 'force-dynamic';
 
 export default async function Page() {
-  const [initialNotifications, initialFilters, strategies] = await Promise.all([
-    getNotificationFeed(),
-    getDashboardFilters(),
-    getStrategySnapshots(),
-  ]);
+  const initialNow = Date.now();
+  const initialFilters = await getDashboardFilters();
 
   return (
     <SignalTradeDashboard
       initialFilters={initialFilters}
-      initialNotifications={initialNotifications}
-      strategies={strategies}
+      initialNow={initialNow}
+      initialNotifications={[]}
     />
   );
 }

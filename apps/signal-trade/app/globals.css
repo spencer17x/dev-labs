@@ -13,6 +13,12 @@
   --accent: oklch(0.67 0.15 44);
   --accent-strong: oklch(0.61 0.16 41);
   --accent-foreground: oklch(0.98 0.01 95);
+  --font-display:
+    'Avenir Next', 'Trebuchet MS', 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+    sans-serif;
+  --font-mono:
+    'SFMono-Regular', 'SF Mono', 'Monaco', 'Menlo', 'Consolas',
+    'Liberation Mono', monospace;
 }
 
 @theme inline {

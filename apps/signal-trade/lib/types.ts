@@ -37,8 +37,19 @@ export interface SignalContextDexscreener {
   timestamp?: number;
   url?: string | null;
   icon?: string | null;
+  imageUrl?: string | null;
   header?: string | null;
   description?: string | null;
+  priceUsd?: number | null;
+  liquidityUsd?: number | null;
+  marketCap?: number | null;
+  fdv?: number | null;
+  websites?: string[];
+  socials?: Array<{
+    handle?: string | null;
+    platform?: string | null;
+    url?: string | null;
+  }>;
   links?: Array<Record<string, unknown>>;
 }
 
@@ -73,8 +84,11 @@ export interface SignalContext {
 
 export interface NotificationSummary {
   paid: boolean;
+  imageUrl: string | null;
   marketCap: number | null;
   holderCount: number | null;
+  liquidityUsd: number | null;
+  priceUsd: number | null;
   communityCount: number | null;
   followersCount: number | null;
   twitterUsername: string | null;
@@ -85,7 +99,6 @@ export interface NotificationSummary {
 export interface NotificationRecord {
   id: string;
   notifiedAt: string;
-  strategyId: string;
   channels: string[];
   message: string;
   event: SignalEvent;
@@ -93,27 +106,67 @@ export interface NotificationRecord {
   summary: NotificationSummary;
 }
 
+export type WatchTransport = 'auto' | 'ws' | 'http';
+
+export interface RuntimeRefreshResult {
+  generatedAt: string;
+  stored: number;
+  notifications: NotificationRecord[];
+  processed: number;
+  subscriptions: string[];
+}
+
 export interface DashboardFilters {
   search: string;
   watchTerms: string;
+  watchTransport: WatchTransport;
+  watchSubscriptions: string[];
   chain: string;
   source: string;
-  strategyId: string;
   minHolders: string;
+  maxHolders: string;
   maxMarketCap: string;
   minCommunityCount: string;
+  kolNames: string;
+  followAddresses: string;
   paidOnly: boolean;
 }
 
-export interface StrategySnapshot {
-  id: string;
-  enabled: boolean;
-  source: string;
-  chains: string[];
-  channels: string[];
-  minHolderCount: number | null;
-  maxHolderCount: number | null;
-  maxMarketCap: number | null;
-  trackedKolNames: string[];
-  trackedFollowAddresses: string[];
+export interface WatchRuntimeState {
+  intervalSec: number;
+  lastActivityAt: string | null;
+  lastError: string | null;
+  lastStartedAt: string | null;
+  lastStatus: string;
+  lastStatusDetail: string | null;
+  limit: number | null;
+  running: boolean;
+  subscriptions: string[];
+  transport: WatchTransport;
+}
+
+export interface RuntimeNetworkCheck {
+  closeCode?: number | null;
+  detail: string | null;
+  durationMs: number;
+  error: string | null;
+  ok: boolean;
+  status: 'ok' | 'error' | 'timeout';
+  statusCode?: number | null;
+  target: string;
+}
+
+export interface RuntimeDiagnosticsNotificationStore {
+  count: number;
+  isEmpty: boolean;
+  mode: 'none';
+  resetsOnRestart: boolean;
+}
+
+export interface RuntimeDiagnosticsResult {
+  checkedAt: string;
+  httpCheck: RuntimeNetworkCheck;
+  notificationsStore: RuntimeDiagnosticsNotificationStore;
+  proxyEnv: Record<string, string>;
+  wsCheck: RuntimeNetworkCheck;
 }

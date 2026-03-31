@@ -7,12 +7,11 @@
   },
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
-    "type-check": "tsc --noEmit",
-    "backend:help": "uv run python main.py --help",
-    "backend:dex-rest": "uv run python main.py --rules rules.json dex-rest --subscriptions token_profiles_latest --limit 10",
-    "backend:twitter": "uv run python main.py twitter elonmusk"
+    "type-check": "next typegen && tsc --noEmit",
+    "runtime:refresh": "vite-node scripts/refresh-feed.ts",
+    "runtime:watch": "vite-node scripts/watch-feed.ts"
   },
   "dependencies": {
     "clsx": "^2.1.1",
@@ -20,7 +19,8 @@
     "next": "^16.0.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "tailwind-merge": "^3.3.1"
+    "tailwind-merge": "^3.3.1",
+    "ws": "^8.18.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.13",
