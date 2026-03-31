@@ -26,7 +26,7 @@ Dev Lab 是一个现代化的开发实验室，专注于智能代理、消息处
 | ---------------------------------------------------- | ----------- | --------- | ---------------------------- |
 | **[notifier-bot](./apps/notifier-bot/)**             | TypeScript  | **1.0MB** | Webhook 消息聚合与多渠道推送 |
 | **[twitter-bot](./apps/twitter-bot/)**               | TypeScript  | **2.4MB** | Twitter 到 Telegram 消息转发 |
-| **[signal-trade](./apps/signal-trade/)**             | Next.js + Python | 全栈仪表盘 | 通知代币展示与前端筛选面板   |
+| **[signal-trade](./apps/signal-trade/)**             | Next.js + TypeScript | 全栈仪表盘 | 通知代币展示与前端筛选面板   |
 | **[telegram-forwarder](./apps/telegram-forwarder/)** | Python 3.11 | uv + .venv | Telegram 智能转发机器人      |
 | **[telegram-watcher](./apps/telegram-watcher/)**     | Python 3.11 | uv + .venv | Telegram 消息监听处理        |
 
@@ -54,10 +54,10 @@ dev-lab/
 
 ```bash
 # 基础环境
-Node.js ≥ 18.0.0    # TypeScript 项目
+Node.js 22.11.0     # 根 package.json 当前固定版本
 uv ≥ 0.5.0          # Python 版本与虚拟环境管理
 Python 3.11.15      # 由仓库根 .python-version 固定
-pnpm ≥ 8.0.0        # 推荐包管理器
+pnpm 10.33.0        # 与根 package.json 保持一致
 ```
 
 ### 🚀 一键启动
@@ -74,12 +74,20 @@ pnpm install
 # 开发模式（热重载 + 毫秒级启动）
 pnpm --filter notifier-bot dev
 pnpm --filter twitter-bot dev
+pnpm --filter signal-trade dev
 
 # 构建生产版本（零依赖单文件）
 pnpm --filter <project> build
 
 # 生产环境启动
 pnpm --filter <project> start:prod
+```
+
+`signal-trade` 是 Next.js 全栈项目，常用运行时命令：
+
+```bash
+pnpm --filter signal-trade runtime:refresh -- --limit 10
+pnpm --filter signal-trade runtime:watch -- --interval-sec 15 --limit 10
 ```
 
 #### Python 项目
@@ -228,7 +236,7 @@ uv run python -m flake8 src/       # 代码检查
 | ------------------ | ----------- | --------- | --------------------------------------------- | ------------------------ |
 | **消息聚合服务**   | TypeScript  | **1.0MB** | [README](./apps/notifier-bot/README.md)       | Webhook 聚合与推送       |
 | **Twitter 机器人** | TypeScript  | **2.4MB** | [README](./apps/twitter-bot/README.md)        | Twitter 到 Telegram 转发 |
-| **Signal Trade**   | Next.js + Python | 全栈仪表盘 | [README](./apps/signal-trade/README.md)       | 通知代币展示与前端筛选   |
+| **Signal Trade**   | Next.js + TypeScript | 全栈仪表盘 | [README](./apps/signal-trade/README.md)       | 通知代币展示与前端筛选   |
 | **Telegram 转发**  | Python 3.11 | uv + .venv | [README](./apps/telegram-forwarder/README.md) | 智能消息转发与过滤       |
 | **Telegram 监听**  | Python 3.11 | uv + .venv | [README](./apps/telegram-watcher/README.md)   | 消息监听与处理服务       |
 
