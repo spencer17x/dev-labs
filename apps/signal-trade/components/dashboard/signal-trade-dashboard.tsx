@@ -2244,30 +2244,6 @@ function NotificationListItem({
             <p className="text-[11px] text-muted-foreground">
               {formatAbsoluteTime(record.notifiedAt)}
             </p>
-            <div className="mt-1.5 flex flex-wrap gap-1.5">
-              <Badge variant={record.summary.paid ? 'success' : 'secondary'}>
-                {record.summary.paid ? 'paid' : 'organic'}
-              </Badge>
-              {strategyEnabled ? (
-                <Badge variant="outline" className="tracking-[0.12em]">
-                  strategy
-                </Badge>
-              ) : null}
-              {strategyEnabled
-                ? strategyBadges.map(badge => (
-                    <Badge
-                      key={badge.label}
-                      className={badge.className}
-                      variant={badge.variant}
-                    >
-                      {badge.label}
-                    </Badge>
-                  ))
-                : null}
-              <span className="rounded-full border border-border/60 bg-[rgba(14,18,27,0.92)] px-2.5 py-1 font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                {record.event.chain || 'n/a'}
-              </span>
-            </div>
             {displayName ? (
               <p className="mt-1 truncate text-sm text-foreground/80">{displayName}</p>
             ) : null}
@@ -2292,6 +2268,30 @@ function NotificationListItem({
               </button>
             ) : null}
           </div>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          <Badge variant={record.summary.paid ? 'success' : 'secondary'}>
+            {record.summary.paid ? 'paid' : 'organic'}
+          </Badge>
+          {strategyEnabled ? (
+            <Badge variant="outline" className="tracking-[0.12em]">
+              strategy
+            </Badge>
+          ) : null}
+          {strategyEnabled
+            ? strategyBadges.map(badge => (
+                <Badge
+                  key={badge.label}
+                  className={badge.className}
+                  variant={badge.variant}
+                >
+                  {badge.label}
+                </Badge>
+              ))
+            : null}
+          <span className="rounded-full border border-border/60 bg-[rgba(14,18,27,0.92)] px-2.5 py-1 font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+            {record.event.chain || 'n/a'}
+          </span>
         </div>
 
         <div className="flex flex-wrap gap-2">
