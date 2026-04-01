@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Signal Trade Control Room',
+  title: 'Signal Trade Scan Desk',
   description:
     'Signal Trade dashboard for reviewing the local notification stream and adjusting frontend filters.',
 };

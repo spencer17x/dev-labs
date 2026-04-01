@@ -1,23 +1,23 @@
 @import 'tailwindcss';
 
 :root {
-  --background: oklch(0.985 0.01 77);
-  --foreground: oklch(0.27 0.018 38);
-  --muted-foreground: oklch(0.53 0.024 40);
-  --border: oklch(0.9 0.015 72);
-  --ring: oklch(0.67 0.14 44);
-  --panel: rgba(255, 253, 250, 0.78);
-  --panel-soft: rgba(249, 244, 237, 0.9);
-  --panel-muted: rgba(238, 227, 216, 0.85);
-  --panel-strong: rgba(232, 216, 199, 0.94);
-  --accent: oklch(0.67 0.15 44);
-  --accent-strong: oklch(0.61 0.16 41);
-  --accent-foreground: oklch(0.98 0.01 95);
+  --background: #080a0f;
+  --foreground: #f2f5ff;
+  --muted-foreground: #8f98ad;
+  --border: rgba(143, 152, 173, 0.18);
+  --ring: #5b84ff;
+  --panel: rgba(11, 14, 21, 0.96);
+  --panel-soft: rgba(14, 18, 27, 0.98);
+  --panel-muted: rgba(18, 23, 34, 0.99);
+  --panel-strong: rgba(25, 31, 45, 1);
+  --accent: #5b84ff;
+  --accent-strong: #86a5ff;
+  --accent-foreground: #f8fbff;
   --font-display:
-    'Avenir Next', 'Trebuchet MS', 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
-    sans-serif;
+    'Space Grotesk', 'Avenir Next', 'Trebuchet MS', 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', sans-serif;
   --font-mono:
-    'SFMono-Regular', 'SF Mono', 'Monaco', 'Menlo', 'Consolas',
+    'IBM Plex Mono', 'SFMono-Regular', 'SF Mono', 'Monaco', 'Menlo', 'Consolas',
     'Liberation Mono', monospace;
 }
 
@@ -50,9 +50,11 @@
   body {
     @apply bg-background font-sans text-foreground antialiased;
     background-image:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(250, 244, 237, 0.94)),
-      radial-gradient(circle at top left, rgba(0, 162, 142, 0.14), transparent 28%),
-      radial-gradient(circle at 90% 10%, rgba(220, 88, 42, 0.22), transparent 32%);
+      linear-gradient(180deg, rgba(6, 8, 13, 1), rgba(9, 11, 18, 1)),
+      radial-gradient(circle at 12% 0%, rgba(91, 132, 255, 0.14), transparent 26%),
+      radial-gradient(circle at 38% 0%, rgba(168, 85, 247, 0.08), transparent 24%),
+      radial-gradient(circle at 85% 0%, rgba(54, 98, 217, 0.1), transparent 20%);
+    background-size: auto;
     min-height: 100vh;
   }
 
@@ -61,6 +63,6 @@
   }
 
   ::selection {
-    background: rgba(220, 88, 42, 0.18);
+    background: rgba(91, 132, 255, 0.24);
   }
 }
