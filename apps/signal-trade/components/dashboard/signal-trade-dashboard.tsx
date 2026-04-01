@@ -2115,55 +2115,53 @@ function NotificationListItem({
       )}
     >
       <div className="flex h-full flex-col gap-2.5">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 items-start gap-3">
-            <TokenAvatar
-              imageUrl={record.summary.imageUrl}
-              symbol={displaySymbol}
-            />
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="text-base font-semibold tracking-[-0.03em] text-foreground">
-                  {displaySymbol}
-                </p>
-                <Badge variant={record.summary.paid ? 'success' : 'secondary'}>
-                  {record.summary.paid ? 'paid' : 'organic'}
-                </Badge>
-                {strategyEnabled ? (
-                  <Badge variant="outline" className="tracking-[0.12em]">
-                    strategy
-                  </Badge>
-                ) : null}
-                {strategyEnabled
-                  ? strategyBadges.map(badge => (
-                      <Badge
-                        key={badge.label}
-                        className={badge.className}
-                        variant={badge.variant}
-                      >
-                        {badge.label}
-                      </Badge>
-                    ))
-                  : null}
-                <span className="rounded-full border border-border/60 bg-[rgba(14,18,27,0.92)] px-2.5 py-1 font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                  {record.event.chain || 'n/a'}
-                </span>
-              </div>
-              <p className="mt-1 truncate text-sm text-foreground/80">{displayName}</p>
-              {displayAddress ? (
-                <p className="mt-1 font-mono text-[11px] text-muted-foreground">
-                  {truncateMiddle(displayAddress, 8, 6)}
-                </p>
-              ) : null}
+        <div className="flex min-w-0 items-start gap-3">
+          <TokenAvatar
+            imageUrl={record.summary.imageUrl}
+            symbol={displaySymbol}
+          />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-baseline justify-between gap-2">
+              <p className="truncate text-base font-semibold tracking-[-0.03em] text-foreground">
+                {displaySymbol}
+              </p>
+              <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
+                {formatRelativeTime(record.notifiedAt, currentTimeMs)}
+              </span>
             </div>
-          </div>
-          <div className="shrink-0 text-right">
-            <p className="font-mono text-[11px] text-muted-foreground">
-              {formatRelativeTime(record.notifiedAt, currentTimeMs)}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="text-[11px] text-muted-foreground">
               {formatAbsoluteTime(record.notifiedAt)}
             </p>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              <Badge variant={record.summary.paid ? 'success' : 'secondary'}>
+                {record.summary.paid ? 'paid' : 'organic'}
+              </Badge>
+              {strategyEnabled ? (
+                <Badge variant="outline" className="tracking-[0.12em]">
+                  strategy
+                </Badge>
+              ) : null}
+              {strategyEnabled
+                ? strategyBadges.map(badge => (
+                    <Badge
+                      key={badge.label}
+                      className={badge.className}
+                      variant={badge.variant}
+                    >
+                      {badge.label}
+                    </Badge>
+                  ))
+                : null}
+              <span className="rounded-full border border-border/60 bg-[rgba(14,18,27,0.92)] px-2.5 py-1 font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                {record.event.chain || 'n/a'}
+              </span>
+            </div>
+            <p className="mt-1 truncate text-sm text-foreground/80">{displayName}</p>
+            {displayAddress ? (
+              <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+                {truncateMiddle(displayAddress, 8, 6)}
+              </p>
+            ) : null}
           </div>
         </div>
 
