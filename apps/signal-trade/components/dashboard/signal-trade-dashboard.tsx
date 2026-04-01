@@ -2314,7 +2314,7 @@ function NotificationListItem({
 
         <div className="grid gap-2.5 text-sm">
           {displayText ? (
-            <p className="line-clamp-2 text-[13px] leading-5 text-muted-foreground">
+            <p className="text-[13px] leading-5 text-muted-foreground">
               {displayText}
             </p>
           ) : null}
