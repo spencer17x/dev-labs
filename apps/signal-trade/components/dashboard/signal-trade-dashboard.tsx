@@ -154,6 +154,7 @@ export function SignalTradeDashboard({
   initialNotifications,
 }: DashboardProps): JSX.Element {
   const [filters, setFilters] = useState<DashboardFilters>(initialFilters);
+  const [pendingFilters, setPendingFilters] = useState<DashboardFilters>(initialFilters);
   const [notifications, setNotifications] =
     useState<NotificationRecord[]>(initialNotifications);
   const [laohuangHistory, setLaohuangHistory] = useState<NotificationRecord[]>(
@@ -1256,6 +1257,39 @@ export function SignalTradeDashboard({
     setFilters(current => ({ ...current, [key]: value }));
   }
 
+  function updatePendingFilter<Key extends keyof DashboardFilters>(
+    key: Key,
+    value: DashboardFilters[Key],
+  ): void {
+    setPendingFilters(current => ({ ...current, [key]: value }));
+  }
+
+  function applyPendingFilters(): void {
+    setFilters(current => ({
+      ...current,
+      chain: pendingFilters.chain,
+      source: pendingFilters.source,
+      paidOnly: pendingFilters.paidOnly,
+      minHolders: pendingFilters.minHolders,
+      maxHolders: pendingFilters.maxHolders,
+      maxMarketCap: pendingFilters.maxMarketCap,
+      minCommunityCount: pendingFilters.minCommunityCount,
+    }));
+  }
+
+  function clearPendingFilters(): void {
+    setPendingFilters(current => ({
+      ...current,
+      chain: initialFilters.chain,
+      source: initialFilters.source,
+      paidOnly: initialFilters.paidOnly,
+      minHolders: initialFilters.minHolders,
+      maxHolders: initialFilters.maxHolders,
+      maxMarketCap: initialFilters.maxMarketCap,
+      minCommunityCount: initialFilters.minCommunityCount,
+    }));
+  }
+
   function updateStrategyFilter<Key extends keyof DashboardFilters>(
     key: Key,
     value: DashboardFilters[Key],
@@ -1360,7 +1394,7 @@ export function SignalTradeDashboard({
                       ? 'border-[color:var(--color-accent)] bg-[rgba(91,132,255,0.12)] text-foreground'
                       : 'border-border bg-[rgba(14,18,27,0.92)] text-muted-foreground hover:text-foreground',
                   )}
-                  onClick={() => setAdvancedOpen(true)}
+                  onClick={() => { setPendingFilters(filters); setAdvancedOpen(true); }}
                 >
                   <SlidersHorizontal className="size-3" />
                   筛选
@@ -1628,15 +1662,15 @@ export function SignalTradeDashboard({
                   <FieldGroup label="链路">
                     <SelectField
                       options={['all', ...chainOptions]}
-                      value={filters.chain}
-                      onChange={value => updateFilter('chain', value)}
+                      value={pendingFilters.chain}
+                      onChange={value => updatePendingFilter('chain', value)}
                     />
                   </FieldGroup>
                   <FieldGroup label="来源">
                     <SelectField
                       options={['all', ...sourceOptions]}
-                      value={filters.source}
-                      onChange={value => updateFilter('source', value)}
+                      value={pendingFilters.source}
+                      onChange={value => updatePendingFilter('source', value)}
                     />
                   </FieldGroup>
                 </div>
@@ -1644,11 +1678,11 @@ export function SignalTradeDashboard({
                   type="button"
                   className={cn(
                     'flex w-full items-center justify-between rounded-[18px] border px-4 py-3 text-left transition-colors',
-                    filters.paidOnly
+                    pendingFilters.paidOnly
                       ? 'border-[color:var(--color-accent)] bg-[rgba(91,132,255,0.12)] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
                       : 'border-border bg-[color:var(--color-panel-soft)]',
                   )}
-                  onClick={() => updateFilter('paidOnly', !filters.paidOnly)}
+                  onClick={() => updatePendingFilter('paidOnly', !pendingFilters.paidOnly)}
                 >
                   <div>
                     <p className="text-sm font-semibold text-foreground">
@@ -1658,8 +1692,8 @@ export function SignalTradeDashboard({
                       对应 `dexscreener.paid = true`
                     </p>
                   </div>
-                  <Badge variant={filters.paidOnly ? 'success' : 'secondary'}>
-                    {filters.paidOnly ? 'ON' : 'OFF'}
+                  <Badge variant={pendingFilters.paidOnly ? 'success' : 'secondary'}>
+                    {pendingFilters.paidOnly ? 'ON' : 'OFF'}
                   </Badge>
                 </button>
               </div>
@@ -1676,38 +1710,56 @@ export function SignalTradeDashboard({
                     <Input
                       inputMode="numeric"
                       placeholder="100"
-                      value={filters.minHolders}
-                      onChange={event => updateFilter('minHolders', event.target.value)}
+                      value={pendingFilters.minHolders}
+                      onChange={event => updatePendingFilter('minHolders', event.target.value)}
                     />
                   </FieldGroup>
                   <FieldGroup label="最多持币人数">
                     <Input
                       inputMode="numeric"
                       placeholder="5000"
-                      value={filters.maxHolders}
-                      onChange={event => updateFilter('maxHolders', event.target.value)}
+                      value={pendingFilters.maxHolders}
+                      onChange={event => updatePendingFilter('maxHolders', event.target.value)}
                     />
                   </FieldGroup>
                   <FieldGroup label="最高市值">
                     <Input
                       inputMode="numeric"
                       placeholder="3000000"
-                      value={filters.maxMarketCap}
-                      onChange={event => updateFilter('maxMarketCap', event.target.value)}
+                      value={pendingFilters.maxMarketCap}
+                      onChange={event => updatePendingFilter('maxMarketCap', event.target.value)}
                     />
                   </FieldGroup>
                   <FieldGroup label="最少社区人数">
                     <Input
                       inputMode="numeric"
                       placeholder="5000"
-                      value={filters.minCommunityCount}
-                      onChange={event => updateFilter('minCommunityCount', event.target.value)}
+                      value={pendingFilters.minCommunityCount}
+                      onChange={event => updatePendingFilter('minCommunityCount', event.target.value)}
                     />
                   </FieldGroup>
                 </div>
 
               </div>
             ) : null}
+
+            {/* Footer */}
+            <div className="mt-6 flex items-center justify-end gap-3 border-t border-border/60 pt-4">
+              <button
+                type="button"
+                className="rounded-full border border-border bg-[rgba(14,18,27,0.92)] px-4 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground"
+                onClick={clearPendingFilters}
+              >
+                清空筛选
+              </button>
+              <button
+                type="button"
+                className="rounded-full bg-[color:var(--color-accent)] px-5 py-2 text-xs font-semibold text-white shadow-[0_0_12px_rgba(91,132,255,0.35)] transition-opacity hover:opacity-90"
+                onClick={() => { applyPendingFilters(); setAdvancedOpen(false); }}
+              >
+                确认
+              </button>
+            </div>
           </Dialog>
 
           <section className="overflow-hidden rounded-[24px] border border-border bg-[linear-gradient(180deg,rgba(10,12,19,0.98),rgba(8,10,16,0.98))] shadow-[0_18px_56px_rgba(0,0,0,0.24)]">
