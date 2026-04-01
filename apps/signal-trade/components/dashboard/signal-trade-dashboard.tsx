@@ -1352,14 +1352,7 @@ export function SignalTradeDashboard({
                 <BellRing className="size-3" />
                 Signal Trade // Scan Desk
               </Badge>
-            <div className="space-y-1.5">
-              <h1 className="max-w-4xl text-lg font-semibold tracking-[-0.05em] text-balance text-foreground sm:text-xl lg:text-[1.45rem]">
-                把 Dex 通知、laohuang 状态和监听控制压成一块扫链面板
-              </h1>
-              <p className="hidden max-w-3xl text-xs leading-5 text-muted-foreground xl:block">
-                参考 xxyy.io 的黑色扫链台布局，把筛选、监听和命中状态收成更紧凑的盯盘工作台。
-              </p>
-            </div>
+
             <div className="flex flex-wrap items-center gap-3">
               <Button
                 className="rounded-full"
@@ -1375,11 +1368,10 @@ export function SignalTradeDashboard({
                 )}
                 同步通知
               </Button>
-              <SessionChip />
               <RefreshChip refreshState={refreshState} />
               <WatchChip watchRuntime={watchRuntime} />
             </div>
-            <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-2 md:grid-cols-3">
               <ControlMetricCard
                 label="会话流"
                 value={String(notifications.length)}
@@ -1389,11 +1381,6 @@ export function SignalTradeDashboard({
                 label="命中结果"
                 value={String(filteredNotifications.length)}
                 detail="当前筛选后结果"
-              />
-              <ControlMetricCard
-                label="传输模式"
-                value={transportLabel.toUpperCase()}
-                detail={watchStatusLabel}
               />
               <ControlMetricCard
                 label="策略"
@@ -1481,7 +1468,6 @@ export function SignalTradeDashboard({
               </div>
             </CardHeader>
             <CardContent className="pt-4 space-y-4">
-              <WatchStatusPanel watchRuntime={watchRuntime} />
               <div className="grid gap-3 sm:grid-cols-2">
                 <Button className="w-full rounded-full" variant="outline" onClick={resetFilters}>
                   重置筛选
@@ -1809,34 +1795,7 @@ export function SignalTradeDashboard({
                     />
                   </FieldGroup>
                 </div>
-                <FieldGroup label="KOL 名单">
-                  <Textarea
-                    className="min-h-[84px]"
-                    placeholder="当前停用 XXYY，KOL 筛选暂不可用"
-                    value={filters.kolNames}
-                    onChange={event => updateFilter('kolNames', event.target.value)}
-                  />
-                </FieldGroup>
-                <FieldGroup label="关注地址">
-                  <Textarea
-                    className="min-h-[84px]"
-                    placeholder="当前停用 XXYY，关注地址筛选暂不可用"
-                    value={filters.followAddresses}
-                    onChange={event => updateFilter('followAddresses', event.target.value)}
-                  />
-                </FieldGroup>
-                <div className="rounded-[14px] border border-border bg-[rgba(14,18,27,0.92)] px-4 py-4 text-xs leading-6 text-muted-foreground">
-                  <p>
-                    当前页面直接控制 `auto / ws / http`。`ws` 由浏览器直连，`http`
-                    由浏览器定时请求刷新接口；通知只保留在当前页面内存，不写浏览器缓存，也不写 Node 存储。
-                  </p>
-                  <p className="mt-2">
-                    当前已停用 XXYY 富化，通知卡片优先直接展示 DexScreener feed 自带字段。
-                  </p>
-                  <p className="mt-2">
-                    `KOL 名单` 与 `关注地址` 仍保留在表单里，但当前不会参与过滤。
-                  </p>
-                </div>
+
                 <DiagnosticsPanel
                   diagnostics={diagnostics}
                   diagnosticsError={diagnosticsError}
@@ -2229,9 +2188,6 @@ function NotificationListItem({
                 {formatRelativeTime(record.notifiedAt, currentTimeMs)}
               </span>
             </div>
-            <p className="text-[11px] text-muted-foreground">
-              {formatAbsoluteTime(record.notifiedAt)}
-            </p>
             {displayName ? (
               <p className="mt-1 truncate text-sm text-foreground/80">{displayName}</p>
             ) : null}
@@ -2283,7 +2239,6 @@ function NotificationListItem({
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <InfoPill icon={Activity} label={sourceKey} />
           {record.event.author?.display_name ? (
             <InfoPill icon={Target} label={record.event.author.display_name} />
           ) : null}
@@ -2338,23 +2293,10 @@ function NotificationListItem({
                 label="FDV"
                 value={formatUsd(currentFdv)}
               />
-              <MetricPair
-                label="单次金额"
-                value={formatLooseNumber(rawAmount)}
-              />
-              <MetricPair
-                label="累计金额"
-                value={formatLooseNumber(rawTotalAmount)}
-              />
+
             </dl>
           ) : null}
         </div>
-
-        <p className="text-[10px] leading-5 text-muted-foreground">
-          {strategyEnabled
-            ? '当前卡片附带策略会话状态：首推基准、跌幅、回调、涨幅都在前端会话内维护。'
-            : '当前卡片直接展示 DexScreener feed 字段；不再请求 XXYY 富化。'}
-        </p>
 
         <div className="mt-auto flex flex-wrap gap-2">
           {record.summary.twitterUsername && twitterProfileUrl ? (
