@@ -1375,20 +1375,6 @@ export function SignalTradeDashboard({
                 )}
                 同步通知
               </Button>
-              <Button
-                className="rounded-full"
-                disabled={isWatchMutating}
-                variant="secondary"
-                onClick={() => {
-                  if (watchRuntime?.running) {
-                    void stopWatch();
-                    return;
-                  }
-                  void startWatch();
-                }}
-              >
-                {watchRuntime?.running ? '停止监听' : '启动监听'}
-              </Button>
               <SessionChip />
               <RefreshChip refreshState={refreshState} />
               <WatchChip watchRuntime={watchRuntime} />
