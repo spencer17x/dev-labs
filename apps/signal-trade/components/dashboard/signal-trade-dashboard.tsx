@@ -1602,7 +1602,7 @@ export function SignalTradeDashboard({
                 </FieldGroup>
               </div>
 
-              {/* 策略预设 */}
+              {/* 策略预设 — 选择后回填参数到下方字段 */}
               <FieldGroup label="策略预设">
                 <SelectField
                   options={STRATEGY_PRESET_OPTIONS.map(option => ({
@@ -1611,18 +1611,16 @@ export function SignalTradeDashboard({
                   }))}
                   value={pendingFilters.strategyPreset}
                   onChange={value =>
-                    setPendingFilters(current => ({
-                      ...current,
-                      strategyPreset: value as DashboardFilters['strategyPreset'],
-                    }))
+                    setPendingFilters(current =>
+                      applyStrategyPreset(current, value as DashboardFilters['strategyPreset']),
+                    )
                   }
                 />
               </FieldGroup>
 
               {/* 策略详细参数 */}
-              {isStrategyPresetEnabled(pendingFilters.strategyPreset) ? (
-                <div className="space-y-3">
-                  <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-2">
                     <FieldGroup label="种子订阅">
                       <SelectField
                         options={DEX_WATCH_SUBSCRIPTION_OPTIONS.map(option => ({
@@ -1704,8 +1702,7 @@ export function SignalTradeDashboard({
                       {pendingFilters.strategyRequirePaid ? 'ON' : 'OFF'}
                     </Badge>
                   </button>
-                </div>
-              ) : null}
+              </div>
 
               {/* 仅看 Paid */}
               <button
