@@ -1344,43 +1344,12 @@ export function SignalTradeDashboard({
       <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-[linear-gradient(180deg,rgba(91,132,255,0.06),transparent)]" />
 
       <div className="relative mx-auto flex min-h-screen w-full max-w-[1580px] flex-col px-3 pb-8 pt-3 sm:px-4 lg:px-5 lg:pt-4">
-        <header className="relative overflow-hidden rounded-[22px] border border-border bg-[linear-gradient(180deg,rgba(11,14,21,0.98),rgba(12,15,23,0.98))] px-4 py-4 shadow-[0_18px_56px_rgba(0,0,0,0.26)] lg:px-5">
-          <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-[linear-gradient(90deg,transparent,rgba(91,132,255,0.55),transparent)]" />
-          <div className="pointer-events-none absolute -right-10 top-0 h-32 w-32 rounded-full bg-[rgba(91,132,255,0.08)] blur-3xl" />
-            <div className="space-y-2">
-              <Badge className="w-fit gap-2 rounded-full bg-[rgba(12,15,23,0.96)] px-3 py-1.5 text-[10px] text-[#9ab4ff]">
-                <BellRing className="size-3" />
-                Signal Trade // Scan Desk
-              </Badge>
-
-            <div className="flex flex-wrap items-center gap-3">
-              <Button
-                className="rounded-full"
-                disabled={isRefreshing}
-                onClick={() => {
-                  void syncNotifications();
-                }}
-              >
-                {isRefreshing ? (
-                  <LoaderCircle className="size-4 animate-spin" />
-                ) : (
-                  <RefreshCw className="size-4" />
-                )}
-                同步通知
-              </Button>
-              <WatchChip watchRuntime={watchRuntime} />
-            </div>
-
-
-          </div>
-        </header>
-
-        <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(560px,0.92fr)_minmax(0,1.08fr)]">
+        <div className="grid gap-4 xl:grid-cols-[280px_1fr]">
           <Card className="overflow-hidden xl:sticky xl:top-4 xl:self-start">
             <CardHeader className="border-b border-border/70 bg-[rgba(11,14,21,0.92)]">
-              <div className="flex items-center justify-between gap-3">
-                <CardTitle className="flex items-center gap-2 text-xl">
-                  <Filter className="size-5 text-[color:var(--color-accent)]" />
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Filter className="size-4 text-[color:var(--color-accent)]" />
                   扫链控制台
                 </CardTitle>
                 <button
@@ -1402,7 +1371,22 @@ export function SignalTradeDashboard({
                   ) : null}
                 </button>
               </div>
-              <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(0,1.45fr)_repeat(2,minmax(0,0.85fr))]">
+              <div className="mt-2 flex items-center gap-2">
+                <Button
+                  className="h-8 flex-1 rounded-full text-xs"
+                  disabled={isRefreshing}
+                  onClick={() => { void syncNotifications(); }}
+                >
+                  {isRefreshing ? (
+                    <LoaderCircle className="size-3 animate-spin" />
+                  ) : (
+                    <RefreshCw className="size-3" />
+                  )}
+                  同步
+                </Button>
+                <WatchChip watchRuntime={watchRuntime} />
+              </div>
+              <div className="mt-3 grid gap-3">
                 <FieldGroup label="快速搜索">
                   <div className="relative">
                     <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -1414,63 +1398,59 @@ export function SignalTradeDashboard({
                     />
                   </div>
                 </FieldGroup>
-                <FieldGroup label="监听模式">
-                  <SelectField
-                    options={['auto', 'ws', 'http']}
-                    value={filters.watchTransport}
-                    onChange={value =>
-                      updateFilter(
-                        'watchTransport',
-                        value as DashboardFilters['watchTransport'],
-                      )
-                    }
-                  />
-                </FieldGroup>
-                <FieldGroup label="策略预设">
-                  <SelectField
-                    options={STRATEGY_PRESET_OPTIONS.map(option => ({
-                      label: option.label,
-                      value: option.value,
-                    }))}
-                    value={filters.strategyPreset}
-                    onChange={value =>
-                      applySelectedStrategyPreset(
-                        value as DashboardFilters['strategyPreset'],
-                      )
-                    }
-                  />
-                </FieldGroup>
+                <div className="grid grid-cols-2 gap-3">
+                  <FieldGroup label="监听模式">
+                    <SelectField
+                      options={['auto', 'ws', 'http']}
+                      value={filters.watchTransport}
+                      onChange={value =>
+                        updateFilter(
+                          'watchTransport',
+                          value as DashboardFilters['watchTransport'],
+                        )
+                      }
+                    />
+                  </FieldGroup>
+                  <FieldGroup label="策略预设">
+                    <SelectField
+                      options={STRATEGY_PRESET_OPTIONS.map(option => ({
+                        label: option.label,
+                        value: option.value,
+                      }))}
+                      value={filters.strategyPreset}
+                      onChange={value =>
+                        applySelectedStrategyPreset(
+                          value as DashboardFilters['strategyPreset'],
+                        )
+                      }
+                    />
+                  </FieldGroup>
+                </div>
               </div>
             </CardHeader>
             <CardContent className="pt-4 space-y-4">
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid grid-cols-2 gap-2">
                 <Button
                   className="w-full rounded-full"
                   disabled={isWatchMutating}
                   variant="secondary"
-                  onClick={() => {
-                    void startWatch();
-                  }}
+                  onClick={() => { void startWatch(); }}
                 >
-                  {watchRuntime?.running ? '重启监听' : '启动监听'}
+                  {watchRuntime?.running ? '重启' : '启动'}
                 </Button>
                 <Button
                   className="w-full rounded-full"
                   disabled={isWatchMutating || !watchRuntime?.running}
                   variant="outline"
-                  onClick={() => {
-                    void stopWatch();
-                  }}
+                  onClick={() => { void stopWatch(); }}
                 >
-                  停止监听
+                  停止
                 </Button>
                 <Button
-                  className="w-full rounded-full"
+                  className="col-span-2 w-full rounded-full"
                   disabled={isDiagnosing}
                   variant="outline"
-                  onClick={() => {
-                    void runDiagnostics();
-                  }}
+                  onClick={() => { void runDiagnostics(); }}
                 >
                   {isDiagnosing ? (
                     <LoaderCircle className="size-4 animate-spin" />
@@ -1856,7 +1836,7 @@ export function SignalTradeDashboard({
             </div>
             <div className="p-3 sm:p-4">
               {filteredNotifications.length > 0 ? (
-                <ol className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                <ol className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                   {filteredNotifications.map(record => (
                     <NotificationListItem
                       key={record.id}
@@ -2128,11 +2108,11 @@ function NotificationListItem({
   return (
     <li
       className={cn(
-        'flex h-full flex-col rounded-[18px] border border-border bg-[linear-gradient(180deg,rgba(12,15,23,0.98),rgba(9,12,18,0.98))] p-3 shadow-[0_10px_24px_rgba(0,0,0,0.16)] transition-colors hover:border-white/[0.12] hover:bg-[linear-gradient(180deg,rgba(15,19,29,0.98),rgba(10,13,20,0.98))]',
+        'flex h-full flex-col rounded-[14px] border border-border bg-[linear-gradient(180deg,rgba(12,15,23,0.98),rgba(9,12,18,0.98))] p-2.5 shadow-[0_10px_24px_rgba(0,0,0,0.16)] transition-colors hover:border-white/[0.12] hover:bg-[linear-gradient(180deg,rgba(15,19,29,0.98),rgba(10,13,20,0.98))]',
         strategyEnabled ? getLaohuangToneClass(strategyState) : '',
       )}
     >
-      <div className="flex h-full flex-col gap-2.5">
+      <div className="flex h-full flex-col gap-2">
         <div className="flex min-w-0 items-start gap-3">
           <TokenAvatar
             imageUrl={record.summary.imageUrl}
