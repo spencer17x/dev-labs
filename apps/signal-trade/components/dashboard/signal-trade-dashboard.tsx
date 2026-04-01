@@ -13,6 +13,8 @@ import {
   Activity,
   ArrowUpRight,
   BellRing,
+  Check,
+  Copy,
   Filter,
   Layers,
   LoaderCircle,
@@ -2077,11 +2079,8 @@ function NotificationListItem({
     record.event.token.symbol ||
     (displayAddress ? truncateMiddle(displayAddress, 6, 4).toUpperCase() : 'UNKNOWN');
   const displayName =
-    record.context.token?.name ||
-    record.event.token.name ||
-    record.context.token?.address ||
-    record.event.token.address ||
-    'unnamed token';
+    record.context.token?.name || record.event.token.name || null;
+  const [addressCopied, setAddressCopied] = useState(false);
   const displayText =
     record.context.dexscreener?.description ||
     record.context.dexscreener?.header ||
@@ -2156,11 +2155,28 @@ function NotificationListItem({
                 {record.event.chain || 'n/a'}
               </span>
             </div>
-            <p className="mt-1 truncate text-sm text-foreground/80">{displayName}</p>
+            {displayName ? (
+              <p className="mt-1 truncate text-sm text-foreground/80">{displayName}</p>
+            ) : null}
             {displayAddress ? (
-              <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+              <button
+                type="button"
+                className="mt-1 flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+                title={addressCopied ? '已复制' : '点击复制合约地址'}
+                onClick={() => {
+                  void navigator.clipboard.writeText(displayAddress).then(() => {
+                    setAddressCopied(true);
+                    setTimeout(() => { setAddressCopied(false); }, 1500);
+                  });
+                }}
+              >
+                {addressCopied ? (
+                  <Check className="size-3 text-green-400" />
+                ) : (
+                  <Copy className="size-3" />
+                )}
                 {truncateMiddle(displayAddress, 8, 6)}
-              </p>
+              </button>
             ) : null}
           </div>
         </div>
