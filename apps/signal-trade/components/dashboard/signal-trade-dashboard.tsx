@@ -113,7 +113,7 @@ type ActiveFilterChip = {
     | 'watchTransport';
   label: string;
 };
-type FilterDialogTab = 'basic' | 'watch' | 'strategy' | 'advanced';
+type FilterDialogTab = 'basic' | 'advanced';
 
 interface TokenMarketData {
   priceUsd: number | null;
@@ -1336,7 +1336,7 @@ export function SignalTradeDashboard({
   const transportLabel = watchRuntime?.transport ?? filters.watchTransport;
   const watchStatusLabel = watchRuntime ? formatWatchStatus(watchRuntime) : '待机';
   const activeDialogCount =
-    activeBasicCount + activeWatchCount + activeAdvancedCount;
+    activeBasicCount + activeAdvancedCount;
 
   return (
     <div className="relative overflow-hidden">
@@ -1428,7 +1428,7 @@ export function SignalTradeDashboard({
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="pt-4 space-y-4">
+            <CardContent className="pt-4 space-y-4 overflow-y-auto max-h-[calc(100vh-12rem)]">
               <div className="grid grid-cols-2 gap-2">
                 <Button
                   className="w-full rounded-full"
@@ -1446,8 +1446,126 @@ export function SignalTradeDashboard({
                 >
                   停止
                 </Button>
+              </div>
+
+              <div className="space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">监听配置</p>
+                <FieldGroup label="观察名单关键词">
+                  <Textarea
+                    className="min-h-[60px] text-xs"
+                    placeholder="支持逗号或换行，例如：ansem, base, hype"
+                    value={filters.watchTerms}
+                    onChange={event => updateFilter('watchTerms', event.target.value)}
+                  />
+                </FieldGroup>
+                <div className="space-y-2">
+                  <Label className="text-xs">WS 订阅</Label>
+                  <SubscriptionMultiSelect
+                    selectedSubscriptions={filters.watchSubscriptions}
+                    onToggle={subscription =>
+                      updateFilter(
+                        'watchSubscriptions',
+                        toggleWatchSubscription(
+                          filters.watchSubscriptions,
+                          subscription,
+                        ),
+                      )
+                    }
+                  />
+                </div>
+              </div>
+
+              {isStrategyPresetEnabled(filters.strategyPreset) ? (
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">策略参数</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <FieldGroup label="种子订阅">
+                      <SelectField
+                        options={DEX_WATCH_SUBSCRIPTION_OPTIONS.map(option => ({
+                          label: option.label,
+                          value: option.id,
+                        }))}
+                        value={filters.strategySeedSubscription}
+                        onChange={value => updateStrategyFilter('strategySeedSubscription', value)}
+                      />
+                    </FieldGroup>
+                    <FieldGroup label="种子链">
+                      <Input
+                        placeholder="solana"
+                        value={filters.strategySeedChain}
+                        onChange={event => updateStrategyFilter('strategySeedChain', event.target.value)}
+                      />
+                    </FieldGroup>
+                    <FieldGroup label="首推 FDV 上限">
+                      <Input
+                        inputMode="decimal"
+                        placeholder="80000"
+                        value={filters.strategyMaxFirstSeenFdv}
+                        onChange={event => updateStrategyFilter('strategyMaxFirstSeenFdv', event.target.value)}
+                      />
+                    </FieldGroup>
+                    <FieldGroup label="跟踪窗口(h)">
+                      <Input
+                        inputMode="decimal"
+                        placeholder="12"
+                        value={filters.strategyTrackHours}
+                        onChange={event => updateStrategyFilter('strategyTrackHours', event.target.value)}
+                      />
+                    </FieldGroup>
+                    <FieldGroup label="下跌比例">
+                      <Input
+                        inputMode="decimal"
+                        placeholder="0.5"
+                        value={filters.strategyDropRatio}
+                        onChange={event => updateStrategyFilter('strategyDropRatio', event.target.value)}
+                      />
+                    </FieldGroup>
+                    <FieldGroup label="回调倍数">
+                      <Input
+                        inputMode="decimal"
+                        placeholder="1.2"
+                        value={filters.strategyReboundRatio}
+                        onChange={event => updateStrategyFilter('strategyReboundRatio', event.target.value)}
+                      />
+                    </FieldGroup>
+                    <FieldGroup label="回调延迟(s)">
+                      <Input
+                        inputMode="decimal"
+                        placeholder="6"
+                        value={filters.strategyReboundDelaySec}
+                        onChange={event => updateStrategyFilter('strategyReboundDelaySec', event.target.value)}
+                      />
+                    </FieldGroup>
+                    <FieldGroup label="涨幅阈值 %">
+                      <Input
+                        inputMode="decimal"
+                        placeholder="20"
+                        value={filters.strategyGrowthPercent}
+                        onChange={event => updateStrategyFilter('strategyGrowthPercent', event.target.value)}
+                      />
+                    </FieldGroup>
+                  </div>
+                  <button
+                    type="button"
+                    className={cn(
+                      'flex w-full items-center justify-between rounded-[14px] border px-3 py-2.5 text-left transition-colors',
+                      filters.strategyRequirePaid
+                        ? 'border-[color:var(--color-accent)] bg-[rgba(91,132,255,0.12)]'
+                        : 'border-border bg-[color:var(--color-panel-soft)]',
+                    )}
+                    onClick={() => updateStrategyFilter('strategyRequirePaid', !filters.strategyRequirePaid)}
+                  >
+                    <p className="text-xs font-semibold text-foreground">种子必须是 Paid</p>
+                    <Badge variant={filters.strategyRequirePaid ? 'success' : 'secondary'}>
+                      {filters.strategyRequirePaid ? 'ON' : 'OFF'}
+                    </Badge>
+                  </button>
+                </div>
+              ) : null}
+
+              <div className="space-y-2">
                 <Button
-                  className="col-span-2 w-full rounded-full"
+                  className="w-full rounded-full"
                   disabled={isDiagnosing}
                   variant="outline"
                   onClick={() => { void runDiagnostics(); }}
@@ -1459,6 +1577,10 @@ export function SignalTradeDashboard({
                   )}
                   诊断
                 </Button>
+                <DiagnosticsPanel
+                  diagnostics={diagnostics}
+                  diagnosticsError={diagnosticsError}
+                />
               </div>
             </CardContent>
           </Card>
@@ -1473,10 +1595,6 @@ export function SignalTradeDashboard({
               {(
                 [
                   { id: 'basic', label: '基础', count: activeBasicCount },
-                  { id: 'watch', label: '监听', count: activeWatchCount },
-                  ...(isStrategyPresetEnabled(filters.strategyPreset)
-                    ? [{ id: 'strategy', label: '策略', count: strategyStatusCounts.triggered }]
-                    : []),
                   { id: 'advanced', label: '高级', count: activeAdvancedCount },
                 ] as Array<{ id: FilterDialogTab; label: string; count: number }>
               ).map(tab => (
@@ -1548,167 +1666,7 @@ export function SignalTradeDashboard({
             ) : null}
 
             {/* 监听 tab */}
-            {filterDialogTab === 'watch' ? (
-              <div className="space-y-4">
-                <FieldGroup label="观察名单关键词">
-                  <Textarea
-                    className="min-h-[72px]"
-                    placeholder="支持逗号或换行，例如：ansem, base, hype"
-                    value={filters.watchTerms}
-                    onChange={event => updateFilter('watchTerms', event.target.value)}
-                  />
-                </FieldGroup>
-                <div className="space-y-2.5">
-                  <Label>WS 订阅</Label>
-                  <SubscriptionMultiSelect
-                    selectedSubscriptions={filters.watchSubscriptions}
-                    onToggle={subscription =>
-                      updateFilter(
-                        'watchSubscriptions',
-                        toggleWatchSubscription(
-                          filters.watchSubscriptions,
-                          subscription,
-                        ),
-                      )
-                    }
-                  />
-                  <p className="text-xs leading-6 text-muted-foreground">
-                    只有选中的 DexScreener feed 会被订阅；未选中的不会连接。
-                  </p>
-                </div>
-              </div>
-            ) : null}
 
-            {/* 策略 tab */}
-            {filterDialogTab === 'strategy' && isStrategyPresetEnabled(filters.strategyPreset) ? (
-              <div className="space-y-4">
-                <p className="text-xs leading-6 text-muted-foreground">
-                  会话内跟踪 {laohuangSummary.visible} 个 token，命中异常{' '}
-                  {laohuangSummary.triggered} 个，首推超{' '}
-                  {formatUsd(laohuangConfig.maxFirstSeenFdv)} 被隐藏{' '}
-                  {laohuangSummary.blacklisted} 个。
-                </p>
-                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                  <FieldGroup label="种子订阅">
-                    <SelectField
-                      options={DEX_WATCH_SUBSCRIPTION_OPTIONS.map(option => ({
-                        label: option.label,
-                        value: option.id,
-                      }))}
-                      value={filters.strategySeedSubscription}
-                      onChange={value =>
-                        updateStrategyFilter('strategySeedSubscription', value)
-                      }
-                    />
-                  </FieldGroup>
-                  <FieldGroup label="种子链">
-                    <Input
-                      placeholder="solana"
-                      value={filters.strategySeedChain}
-                      onChange={event =>
-                        updateStrategyFilter('strategySeedChain', event.target.value)
-                      }
-                    />
-                  </FieldGroup>
-                  <FieldGroup label="首推 FDV 上限">
-                    <Input
-                      inputMode="decimal"
-                      placeholder="80000"
-                      value={filters.strategyMaxFirstSeenFdv}
-                      onChange={event =>
-                        updateStrategyFilter(
-                          'strategyMaxFirstSeenFdv',
-                          event.target.value,
-                        )
-                      }
-                    />
-                  </FieldGroup>
-                  <FieldGroup label="跟踪窗口小时">
-                    <Input
-                      inputMode="decimal"
-                      placeholder="12"
-                      value={filters.strategyTrackHours}
-                      onChange={event =>
-                        updateStrategyFilter('strategyTrackHours', event.target.value)
-                      }
-                    />
-                  </FieldGroup>
-                  <FieldGroup label="下跌比例">
-                    <Input
-                      inputMode="decimal"
-                      placeholder="0.5"
-                      value={filters.strategyDropRatio}
-                      onChange={event =>
-                        updateStrategyFilter('strategyDropRatio', event.target.value)
-                      }
-                    />
-                  </FieldGroup>
-                  <FieldGroup label="回调倍数">
-                    <Input
-                      inputMode="decimal"
-                      placeholder="1.2"
-                      value={filters.strategyReboundRatio}
-                      onChange={event =>
-                        updateStrategyFilter('strategyReboundRatio', event.target.value)
-                      }
-                    />
-                  </FieldGroup>
-                  <FieldGroup label="回调延迟秒数">
-                    <Input
-                      inputMode="decimal"
-                      placeholder="6"
-                      value={filters.strategyReboundDelaySec}
-                      onChange={event =>
-                        updateStrategyFilter(
-                          'strategyReboundDelaySec',
-                          event.target.value,
-                        )
-                      }
-                    />
-                  </FieldGroup>
-                  <FieldGroup label="涨幅阈值 %">
-                    <Input
-                      inputMode="decimal"
-                      placeholder="20"
-                      value={filters.strategyGrowthPercent}
-                      onChange={event =>
-                        updateStrategyFilter(
-                          'strategyGrowthPercent',
-                          event.target.value,
-                        )
-                      }
-                    />
-                  </FieldGroup>
-                </div>
-                <button
-                  type="button"
-                  className={cn(
-                    'flex w-full items-center justify-between rounded-[18px] border px-4 py-3 text-left transition-colors',
-                    filters.strategyRequirePaid
-                      ? 'border-[color:var(--color-accent)] bg-[rgba(91,132,255,0.12)] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
-                      : 'border-border bg-[color:var(--color-panel-soft)]',
-                  )}
-                  onClick={() =>
-                    updateStrategyFilter(
-                      'strategyRequirePaid',
-                      !filters.strategyRequirePaid,
-                    )
-                  }
-                >
-                  <div>
-                    <p className="text-sm font-semibold text-foreground">
-                      种子必须是 Paid
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      关闭后，只按订阅 + 链来当作策略种子。
-                    </p>
-                  </div>
-                  <Badge variant={filters.strategyRequirePaid ? 'success' : 'secondary'}>
-                    {filters.strategyRequirePaid ? 'ON' : 'OFF'}
-                  </Badge>
-                </button>
-              </div>
-            ) : null}
 
             {/* 高级 tab */}
             {filterDialogTab === 'advanced' ? (
@@ -1748,10 +1706,6 @@ export function SignalTradeDashboard({
                   </FieldGroup>
                 </div>
 
-                <DiagnosticsPanel
-                  diagnostics={diagnostics}
-                  diagnosticsError={diagnosticsError}
-                />
               </div>
             ) : null}
           </Dialog>
