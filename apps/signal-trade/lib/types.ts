@@ -107,6 +107,17 @@ export interface NotificationRecord {
 }
 
 export type WatchTransport = 'auto' | 'ws' | 'http';
+export type StrategyPreset =
+  | 'none'
+  | 'custom'
+  | 'laohuang';
+export type StrategyStatus =
+  | 'all'
+  | 'tracking'
+  | 'drop'
+  | 'rebound'
+  | 'growth'
+  | 'triggered';
 
 export interface RuntimeRefreshResult {
   generatedAt: string;
@@ -121,6 +132,17 @@ export interface DashboardFilters {
   watchTerms: string;
   watchTransport: WatchTransport;
   watchSubscriptions: string[];
+  strategyPreset: StrategyPreset;
+  strategyStatus: StrategyStatus;
+  strategySeedSubscription: string;
+  strategySeedChain: string;
+  strategyRequirePaid: boolean;
+  strategyMaxFirstSeenFdv: string;
+  strategyDropRatio: string;
+  strategyReboundRatio: string;
+  strategyReboundDelaySec: string;
+  strategyGrowthPercent: string;
+  strategyTrackHours: string;
   chain: string;
   source: string;
   minHolders: string;
