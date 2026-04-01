@@ -1908,9 +1908,6 @@ export function SignalTradeDashboard({
                 <EmptyState
                   activeFilterCount={activeFilterChips.length}
                   onResetFilters={resetFilters}
-                  onSync={() => {
-                    void syncNotifications();
-                  }}
                 />
               )}
             </div>
@@ -2366,11 +2363,9 @@ function TokenAvatar({
 function EmptyState({
   activeFilterCount,
   onResetFilters,
-  onSync,
 }: {
   activeFilterCount: number;
   onResetFilters: () => void;
-  onSync: () => void;
 }): JSX.Element {
   return (
     <div className="px-6 py-10">
@@ -2387,9 +2382,6 @@ function EmptyState({
             : '你可以直接同步一次通知，或者启动 `ws / http` 监听，把新通知写入当前页面会话。'}
         </p>
         <div className="mt-5 flex flex-wrap justify-center gap-3">
-          <Button className="rounded-full" onClick={onSync}>
-            同步通知
-          </Button>
           <Button className="rounded-full" variant="outline" onClick={onResetFilters}>
             清空筛选
           </Button>
