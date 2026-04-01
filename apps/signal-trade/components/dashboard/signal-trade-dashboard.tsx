@@ -2215,29 +2215,36 @@ function NotificationListItem({
           <p className="min-w-0 max-h-12 overflow-hidden text-[13px] leading-5 text-muted-foreground">
             {displayText}
           </p>
-          <dl className="grid grid-cols-2 gap-2 text-right sm:grid-cols-3">
-            <MetricPair label="市值" value={formatUsd(currentMarketCap)} />
-            <MetricPair
-              label="流动性"
-              value={formatUsd(record.summary.liquidityUsd)}
-            />
-            <MetricPair
-              label="价格"
-              value={formatPriceUsd(currentPriceUsd)}
-            />
-            <MetricPair
-              label="FDV"
-              value={formatUsd(currentFdv)}
-            />
-            <MetricPair
-              label="单次金额"
-              value={formatLooseNumber(rawAmount)}
-            />
-            <MetricPair
-              label="累计金额"
-              value={formatLooseNumber(rawTotalAmount)}
-            />
-          </dl>
+          {(currentMarketCap !== null ||
+            record.summary.liquidityUsd !== null ||
+            currentPriceUsd !== null ||
+            currentFdv !== null ||
+            rawAmount !== null ||
+            rawTotalAmount !== null) ? (
+            <dl className="grid grid-cols-2 gap-2 text-right sm:grid-cols-3">
+              <MetricPair label="市值" value={formatUsd(currentMarketCap)} />
+              <MetricPair
+                label="流动性"
+                value={formatUsd(record.summary.liquidityUsd)}
+              />
+              <MetricPair
+                label="价格"
+                value={formatPriceUsd(currentPriceUsd)}
+              />
+              <MetricPair
+                label="FDV"
+                value={formatUsd(currentFdv)}
+              />
+              <MetricPair
+                label="单次金额"
+                value={formatLooseNumber(rawAmount)}
+              />
+              <MetricPair
+                label="累计金额"
+                value={formatLooseNumber(rawTotalAmount)}
+              />
+            </dl>
+          ) : null}
         </div>
 
         <p className="text-[10px] leading-5 text-muted-foreground">
@@ -2373,8 +2380,9 @@ function MetricPair({
   value,
 }: {
   label: string;
-  value: string;
-}): JSX.Element {
+  value: string | null;
+}): JSX.Element | null {
+  if (value === null) return null;
   return (
     <div className="rounded-[14px] border border-border/70 bg-[rgba(14,18,27,0.92)] px-3 py-2">
       <dt className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
@@ -3023,30 +3031,30 @@ function parseNumericFilter(value: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function formatUsd(value: number | null): string {
+function formatUsd(value: number | null): string | null {
   if (value === null) {
-    return 'N/A';
+    return null;
   }
   return `$${formatCompactNumber(value)}`;
 }
 
-function formatOptionalNumber(value: number | null): string {
+function formatOptionalNumber(value: number | null): string | null {
   if (value === null) {
-    return 'N/A';
+    return null;
   }
   return formatCompactNumber(value);
 }
 
-function formatLooseNumber(value: number | null): string {
+function formatLooseNumber(value: number | null): string | null {
   if (value === null) {
-    return 'N/A';
+    return null;
   }
   return formatPlainMetric(value);
 }
 
-function formatPriceUsd(value: number | null): string {
+function formatPriceUsd(value: number | null): string | null {
   if (value === null) {
-    return 'N/A';
+    return null;
   }
 
   if (value >= 1) {
