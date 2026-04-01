@@ -1370,17 +1370,7 @@ export function SignalTradeDashboard({
               </Button>
               <WatchChip watchRuntime={watchRuntime} />
             </div>
-            <div className="grid gap-2">
-              <ControlMetricCard
-                label="策略"
-                value={activeStrategyLabel}
-                detail={
-                  isStrategyPresetEnabled(filters.strategyPreset)
-                    ? `Triggered ${laohuangSummary.triggered}`
-                    : 'Disabled'
-                }
-              />
-            </div>
+
 
           </div>
         </header>
