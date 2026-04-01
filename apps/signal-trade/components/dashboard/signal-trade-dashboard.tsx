@@ -1621,23 +1621,6 @@ export function SignalTradeDashboard({
               {/* 策略详细参数 */}
               <div className="space-y-3">
                 <div className="grid grid-cols-2 gap-2">
-                    <FieldGroup label="种子订阅">
-                      <SelectField
-                        options={DEX_WATCH_SUBSCRIPTION_OPTIONS.map(option => ({
-                          label: option.label,
-                          value: option.id,
-                        }))}
-                        value={pendingFilters.strategySeedSubscription}
-                        onChange={value => updatePendingStrategyFilter('strategySeedSubscription', value)}
-                      />
-                    </FieldGroup>
-                    <FieldGroup label="种子链">
-                      <Input
-                        placeholder="solana"
-                        value={pendingFilters.strategySeedChain}
-                        onChange={event => updatePendingStrategyFilter('strategySeedChain', event.target.value)}
-                      />
-                    </FieldGroup>
                     <FieldGroup label="首推 FDV 上限">
                       <Input
                         inputMode="decimal"
