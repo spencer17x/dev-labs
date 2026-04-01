@@ -2497,11 +2497,11 @@ function MetricPair({
 }): JSX.Element | null {
   if (value === null) return null;
   return (
-    <div className="rounded-[14px] border border-border/70 bg-[rgba(14,18,27,0.92)] px-3 py-2">
+    <div className="min-w-0 overflow-hidden rounded-[14px] border border-border/70 bg-[rgba(14,18,27,0.92)] px-3 py-2">
       <dt className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
         {label}
       </dt>
-      <dd className="mt-1 text-sm font-semibold text-foreground">{value}</dd>
+      <dd className="mt-1 truncate text-sm font-semibold text-foreground">{value}</dd>
     </div>
   );
 }
@@ -3172,6 +3172,11 @@ function formatPriceUsd(value: number | null): string | null {
 
   if (value >= 1) {
     return `$${formatPlainNumber(Number(value.toFixed(4)))}`;
+  }
+
+  // Use scientific notation for very small values to keep them compact
+  if (value < 0.000001) {
+    return `$${value.toExponential(2)}`;
   }
 
   return `$${trimTrailingZeros(value.toFixed(8))}`;
