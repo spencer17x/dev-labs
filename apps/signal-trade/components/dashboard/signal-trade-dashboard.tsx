@@ -2501,7 +2501,7 @@ function MetricPair({
       <dt className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
         {label}
       </dt>
-      <dd className="mt-1 truncate text-sm font-semibold text-foreground">{value}</dd>
+      <dd className="mt-1 break-all text-sm font-semibold text-foreground">{value}</dd>
     </div>
   );
 }
@@ -3174,12 +3174,7 @@ function formatPriceUsd(value: number | null): string | null {
     return `$${formatPlainNumber(Number(value.toFixed(4)))}`;
   }
 
-  // Use scientific notation for very small values to keep them compact
-  if (value < 0.000001) {
-    return `$${value.toExponential(2)}`;
-  }
-
-  return `$${trimTrailingZeros(value.toFixed(8))}`;
+  return `$${trimTrailingZeros(value.toFixed(10))}`;
 }
 
 function formatPlainMetric(value: number): string {
