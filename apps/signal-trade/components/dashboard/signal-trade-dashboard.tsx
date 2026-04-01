@@ -18,6 +18,7 @@ import {
   LoaderCircle,
   RefreshCw,
   Search,
+  SlidersHorizontal,
   Target,
 } from 'lucide-react';
 
@@ -30,6 +31,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { Dialog } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -38,6 +40,11 @@ import {
   DEX_WATCH_SUBSCRIPTION_OPTIONS,
   getDexWatchSubscriptionLabel,
 } from '@/lib/dexscreener-subscriptions';
+import {
+  applyStrategyPreset,
+  isStrategyPresetEnabled,
+  STRATEGY_PRESET_OPTIONS,
+} from '@/lib/strategy-presets';
 import type {
   DashboardFilters,
   NotificationRecord,
@@ -60,6 +67,62 @@ type RuntimeIngestResult = {
   processed?: number;
   stored?: number;
 };
+type LaohuangStage = 'tracking' | 'dropped' | 'rebounded';
+type LaohuangTokenState = {
+  address: string;
+  blacklisted: boolean;
+  chain: string;
+  currentFdv: number | null;
+  currentMarketCap: number | null;
+  currentPriceUsd: number | null;
+  dropAtMs: number | null;
+  dropTriggered: boolean;
+  firstSeenAt: string;
+  firstSeenAtMs: number;
+  firstSeenFdv: number | null;
+  growthTriggered: boolean;
+  latestNotifiedAt: string;
+  latestNotifiedAtMs: number;
+  latestSourceKey: string;
+  minFdv: number | null;
+  reboundAtMs: number | null;
+  reboundTriggered: boolean;
+  stage: LaohuangStage;
+};
+type LaohuangSummary = {
+  blacklisted: number;
+  total: number;
+  triggered: number;
+  visible: number;
+};
+type ActiveFilterChip = {
+  id:
+    | 'chain'
+    | 'maxHolders'
+    | 'maxMarketCap'
+    | 'minCommunityCount'
+    | 'minHolders'
+    | 'paidOnly'
+    | 'search'
+    | 'source'
+    | 'strategyStatus'
+    | 'watchSubscriptions'
+    | 'watchTerms'
+    | 'watchTransport';
+  label: string;
+};
+type ControlTab = 'basic' | 'strategy' | 'watch';
+type LaohuangStrategyConfig = {
+  chain: string;
+  dropRatio: number;
+  growthPercent: number;
+  maxFirstSeenFdv: number;
+  reboundDelayMs: number;
+  reboundRatio: number;
+  requirePaid: boolean;
+  seedSourceKey: string;
+  trackWindowMs: number;
+};
 
 const WATCH_INTERVAL_SEC = 15;
 const WATCH_LIMIT = 10;
@@ -67,6 +130,14 @@ const MAX_SESSION_NOTIFICATIONS = 250;
 const BROWSER_WS_CONNECT_TIMEOUT_MS = 15_000;
 const BROWSER_WS_STALE_TIMEOUT_MS = 60_000;
 const BROWSER_WS_RECONNECT_DELAY_MS = 3_000;
+const MAX_LAOHUANG_HISTORY = 1_000;
+const LAOHUANG_MAX_FIRST_SEEN_FDV = 80_000;
+const LAOHUANG_DROP_RATIO = 0.5;
+const LAOHUANG_REBOUND_RATIO = 1.2;
+const LAOHUANG_REBOUND_DELAY_MS = 6_000;
+const LAOHUANG_GROWTH_PERCENT = 20;
+const LAOHUANG_MAX_TRACK_MS = 12 * 60 * 60 * 1000;
+const LAOHUANG_SOURCE_KEY = 'dexscreener.token_profiles_latest';
 
 export function SignalTradeDashboard({
   initialFilters,
@@ -76,6 +147,9 @@ export function SignalTradeDashboard({
   const [filters, setFilters] = useState<DashboardFilters>(initialFilters);
   const [notifications, setNotifications] =
     useState<NotificationRecord[]>(initialNotifications);
+  const [laohuangHistory, setLaohuangHistory] = useState<NotificationRecord[]>(
+    initialNotifications,
+  );
   const [relativeNow, setRelativeNow] = useState(initialNow);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isWatchMutating, setIsWatchMutating] = useState(false);
@@ -87,6 +161,8 @@ export function SignalTradeDashboard({
   );
   const [diagnosticsError, setDiagnosticsError] = useState('');
   const [watchRuntime, setWatchRuntime] = useState<WatchRuntimeState | null>(null);
+  const [activeControlTab, setActiveControlTab] = useState<ControlTab>('basic');
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const browserConnectTimersRef = useRef(new Map<string, number>());
   const browserReconnectTimersRef = useRef(new Map<string, number>());
   const browserStaleTimersRef = useRef(new Map<string, number>());
@@ -98,6 +174,12 @@ export function SignalTradeDashboard({
 
   const deferredSearch = useDeferredValue(filters.search);
   const deferredWatchTerms = useDeferredValue(filters.watchTerms);
+
+  useEffect(() => {
+    if (!isStrategyPresetEnabled(filters.strategyPreset) && activeControlTab === 'strategy') {
+      setActiveControlTab('basic');
+    }
+  }, [activeControlTab, filters.strategyPreset]);
 
   useEffect(() => {
     setRelativeNow(Date.now());
@@ -138,6 +220,150 @@ export function SignalTradeDashboard({
     () => getSelectedWatchSubscriptions(filters.watchSubscriptions),
     [filters.watchSubscriptions],
   );
+  const watchTermsList = useMemo(
+    () => parseListFilter(filters.watchTerms),
+    [filters.watchTerms],
+  );
+
+  const laohuangConfig = useMemo(
+    () => buildLaohuangConfig(filters),
+    [
+      filters.strategyDropRatio,
+      filters.strategyGrowthPercent,
+      filters.strategyMaxFirstSeenFdv,
+      filters.strategyReboundDelaySec,
+      filters.strategyReboundRatio,
+      filters.strategyRequirePaid,
+      filters.strategySeedChain,
+      filters.strategySeedSubscription,
+      filters.strategyTrackHours,
+    ],
+  );
+
+  const laohuangStates = useMemo(
+    () => buildLaohuangState(laohuangHistory, laohuangConfig),
+    [laohuangConfig, laohuangHistory],
+  );
+
+  const strategyBaseRecords = useMemo(() => {
+    if (!isStrategyPresetEnabled(filters.strategyPreset)) {
+      return notifications;
+    }
+
+    return buildLatestLaohuangRecords(notifications, laohuangStates);
+  }, [filters.strategyPreset, laohuangStates, notifications]);
+
+  const laohuangSummary = useMemo(
+    () => summarizeLaohuangStates(laohuangStates, relativeNow, laohuangConfig),
+    [laohuangConfig, laohuangStates, relativeNow],
+  );
+  const strategyStatusCounts = useMemo(() => {
+    const visibleStates = Object.values(laohuangStates).filter(state =>
+      isVisibleLaohuangState(state, relativeNow, laohuangConfig),
+    );
+
+    return {
+      all: visibleStates.length,
+      drop: visibleStates.filter(state => matchesLaohuangStatus(state, 'drop')).length,
+      growth: visibleStates.filter(state => matchesLaohuangStatus(state, 'growth')).length,
+      rebound: visibleStates.filter(state => matchesLaohuangStatus(state, 'rebound')).length,
+      tracking: visibleStates.filter(state => matchesLaohuangStatus(state, 'tracking')).length,
+      triggered: visibleStates.filter(state =>
+        matchesLaohuangStatus(state, 'triggered'),
+      ).length,
+    };
+  }, [laohuangConfig, laohuangStates, relativeNow]);
+  const activeBasicCount =
+    Number(filters.search.trim().length > 0) +
+    Number(filters.paidOnly) +
+    Number(filters.watchTransport !== 'auto') +
+    Number(filters.chain !== 'all') +
+    Number(filters.source !== 'all');
+  const activeWatchCount =
+    Number(watchTermsList.length > 0) +
+    Number(
+      !areStringArraysEqual(selectedWatchSubscriptions, DEFAULT_DEX_WATCH_SUBSCRIPTIONS),
+    );
+  const activeAdvancedCount =
+    Number(filters.minHolders.trim().length > 0) +
+    Number(filters.maxHolders.trim().length > 0) +
+    Number(filters.maxMarketCap.trim().length > 0) +
+    Number(filters.minCommunityCount.trim().length > 0) +
+    Number(filters.kolNames.trim().length > 0) +
+    Number(filters.followAddresses.trim().length > 0);
+  const activeFilterChips = useMemo(() => {
+    const chips: ActiveFilterChip[] = [];
+
+    if (filters.search.trim()) {
+      chips.push({
+        id: 'search',
+        label: `搜索 ${truncateText(filters.search.trim(), 18)}`,
+      });
+    }
+    if (filters.paidOnly) {
+      chips.push({ id: 'paidOnly', label: '仅 Paid' });
+    }
+    if (filters.watchTransport !== 'auto') {
+      chips.push({ id: 'watchTransport', label: `传输 ${filters.watchTransport}` });
+    }
+    if (filters.chain !== 'all') {
+      chips.push({ id: 'chain', label: `链 ${filters.chain}` });
+    }
+    if (filters.source !== 'all') {
+      chips.push({ id: 'source', label: `来源 ${truncateText(filters.source, 18)}` });
+    }
+    if (watchTermsList.length > 0) {
+      chips.push({ id: 'watchTerms', label: `关键词 ${watchTermsList.length}` });
+    }
+    if (
+      !areStringArraysEqual(selectedWatchSubscriptions, DEFAULT_DEX_WATCH_SUBSCRIPTIONS)
+    ) {
+      chips.push({
+        id: 'watchSubscriptions',
+        label: `订阅 ${selectedWatchSubscriptions.length}`,
+      });
+    }
+    if (filters.minHolders.trim()) {
+      chips.push({ id: 'minHolders', label: `持币 >= ${filters.minHolders.trim()}` });
+    }
+    if (filters.maxHolders.trim()) {
+      chips.push({ id: 'maxHolders', label: `持币 <= ${filters.maxHolders.trim()}` });
+    }
+    if (filters.maxMarketCap.trim()) {
+      chips.push({
+        id: 'maxMarketCap',
+        label: `市值 <= ${filters.maxMarketCap.trim()}`,
+      });
+    }
+    if (filters.minCommunityCount.trim()) {
+      chips.push({
+        id: 'minCommunityCount',
+        label: `社区 >= ${filters.minCommunityCount.trim()}`,
+      });
+    }
+    if (isStrategyPresetEnabled(filters.strategyPreset) && filters.strategyStatus !== 'all') {
+      chips.push({
+        id: 'strategyStatus',
+        label: `策略 ${filters.strategyStatus}`,
+      });
+    }
+
+    return chips;
+  }, [
+    filters.chain,
+    filters.maxHolders,
+    filters.maxMarketCap,
+    filters.minCommunityCount,
+    filters.minHolders,
+    filters.paidOnly,
+    filters.search,
+    filters.source,
+    filters.strategyPreset,
+    filters.strategyStatus,
+    filters.watchTransport,
+    selectedWatchSubscriptions,
+    watchTermsList,
+  ]);
 
   const filteredNotifications = useMemo(() => {
     const search = deferredSearch.trim().toLowerCase();
@@ -146,9 +372,10 @@ export function SignalTradeDashboard({
     const maxHolders = parseNumericFilter(filters.maxHolders);
     const maxMarketCap = parseNumericFilter(filters.maxMarketCap);
     const minCommunityCount = parseNumericFilter(filters.minCommunityCount);
-    return notifications
+    return strategyBaseRecords
       .filter(record => {
         const sourceKey = `${record.event.source}.${record.event.subtype}`;
+        const laohuangState = getLaohuangStateForRecord(laohuangStates, record);
         const searchHaystack = [
           record.context.token?.symbol,
           record.context.token?.name,
@@ -208,6 +435,17 @@ export function SignalTradeDashboard({
         ) {
           return false;
         }
+        if (isStrategyPresetEnabled(filters.strategyPreset)) {
+          if (
+            !laohuangState ||
+            !isVisibleLaohuangState(laohuangState, relativeNow, laohuangConfig)
+          ) {
+            return false;
+          }
+          if (!matchesLaohuangStatus(laohuangState, filters.strategyStatus)) {
+            return false;
+          }
+        }
         return true;
       })
       .sort(
@@ -224,7 +462,12 @@ export function SignalTradeDashboard({
     filters.minHolders,
     filters.paidOnly,
     filters.source,
-    notifications,
+    filters.strategyPreset,
+    filters.strategyStatus,
+    laohuangConfig,
+    laohuangStates,
+    relativeNow,
+    strategyBaseRecords,
   ]);
 
   function appendNotifications(nextNotifications: NotificationRecord[]): void {
@@ -232,6 +475,9 @@ export function SignalTradeDashboard({
       return;
     }
 
+    setLaohuangHistory(current =>
+      appendLaohuangHistory(current, nextNotifications),
+    );
     setNotifications(current => mergeNotifications(current, nextNotifications));
   }
 
@@ -914,292 +1160,757 @@ export function SignalTradeDashboard({
     setFilters(current => ({ ...current, [key]: value }));
   }
 
+  function updateStrategyFilter<Key extends keyof DashboardFilters>(
+    key: Key,
+    value: DashboardFilters[Key],
+  ): void {
+    setFilters(current => ({
+      ...current,
+      [key]: value,
+      strategyPreset:
+        current.strategyPreset === 'none' || current.strategyPreset === 'custom'
+          ? current.strategyPreset
+          : 'custom',
+    }));
+  }
+
+  function applySelectedStrategyPreset(
+    preset: DashboardFilters['strategyPreset'],
+  ): void {
+    setFilters(current => applyStrategyPreset(current, preset));
+  }
+
   function resetFilters(): void {
     setFilters(initialFilters);
   }
 
+  function clearFilterChip(id: ActiveFilterChip['id']): void {
+    if (id === 'search') {
+      updateFilter('search', '');
+      return;
+    }
+    if (id === 'paidOnly') {
+      updateFilter('paidOnly', false);
+      return;
+    }
+    if (id === 'watchTransport') {
+      updateFilter('watchTransport', 'auto');
+      return;
+    }
+    if (id === 'chain') {
+      updateFilter('chain', 'all');
+      return;
+    }
+    if (id === 'source') {
+      updateFilter('source', 'all');
+      return;
+    }
+    if (id === 'watchTerms') {
+      updateFilter('watchTerms', '');
+      return;
+    }
+    if (id === 'watchSubscriptions') {
+      updateFilter('watchSubscriptions', [...DEFAULT_DEX_WATCH_SUBSCRIPTIONS]);
+      return;
+    }
+    if (id === 'minHolders') {
+      updateFilter('minHolders', '');
+      return;
+    }
+    if (id === 'maxHolders') {
+      updateFilter('maxHolders', '');
+      return;
+    }
+    if (id === 'maxMarketCap') {
+      updateFilter('maxMarketCap', '');
+      return;
+    }
+    if (id === 'minCommunityCount') {
+      updateFilter('minCommunityCount', '');
+      return;
+    }
+    if (id === 'strategyStatus') {
+      updateFilter('strategyStatus', 'all');
+    }
+  }
+
+  const activeStrategyLabel =
+    STRATEGY_PRESET_OPTIONS.find(option => option.value === filters.strategyPreset)
+      ?.label ?? filters.strategyPreset;
+  const transportLabel = watchRuntime?.transport ?? filters.watchTransport;
+  const watchStatusLabel = watchRuntime ? formatWatchStatus(watchRuntime) : '待机';
+  const controlTabs: Array<{ count?: number; hint: string; id: ControlTab; label: string }> = [
+    { count: activeBasicCount, hint: '链路、来源与会话开关', id: 'basic', label: '基础' },
+    { count: activeWatchCount, hint: '关键词、WS 订阅与连接状态', id: 'watch', label: '监听' },
+    ...(isStrategyPresetEnabled(filters.strategyPreset)
+      ? [{
+          count: strategyStatusCounts.triggered,
+          hint: 'laohuang 状态机参数',
+          id: 'strategy' as ControlTab,
+          label: '策略',
+        }]
+      : []),
+  ];
+  const activeControlTabMeta =
+    controlTabs.find(tab => tab.id === activeControlTab) ?? controlTabs[0];
+
   return (
     <div className="relative overflow-hidden">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(0,162,142,0.14),transparent_28%),radial-gradient(circle_at_top_right,rgba(212,103,47,0.22),transparent_35%),linear-gradient(180deg,rgba(255,255,255,0.18),rgba(255,255,255,0))]" />
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(91,132,255,0.14),transparent_26%),radial-gradient(circle_at_top_right,rgba(168,85,247,0.08),transparent_20%),linear-gradient(180deg,rgba(255,255,255,0.015),rgba(255,255,255,0))]" />
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-[linear-gradient(180deg,rgba(91,132,255,0.06),transparent)]" />
 
-      <div className="relative mx-auto flex min-h-screen w-full max-w-[1440px] flex-col px-4 pb-10 pt-5 sm:px-6 lg:px-8">
-        <header className="space-y-4 rounded-[34px] border border-white/50 bg-white/72 px-5 py-6 shadow-[0_24px_90px_rgba(53,42,33,0.08)] backdrop-blur lg:px-8">
-          <Badge className="w-fit gap-2 rounded-full px-3 py-1.5 text-[10px]">
-            <BellRing className="size-3" />
-            Signal Trade Notifications
-          </Badge>
-          <div className="space-y-3">
-            <h1 className="text-3xl font-semibold tracking-[-0.05em] text-balance text-foreground sm:text-4xl">
-              只保留筛选和通知列表
-            </h1>
-            <p className="max-w-2xl text-sm leading-7 text-muted-foreground sm:text-base">
-              左侧设置筛选条件，右侧直接查看当前页面会话里的通知。刷新页面后，通知和筛选都会回到初始状态。
-            </p>
+      <div className="relative mx-auto flex min-h-screen w-full max-w-[1580px] flex-col px-3 pb-8 pt-3 sm:px-4 lg:px-5 lg:pt-4">
+        <header className="relative overflow-hidden rounded-[22px] border border-border bg-[linear-gradient(180deg,rgba(11,14,21,0.98),rgba(12,15,23,0.98))] px-4 py-4 shadow-[0_18px_56px_rgba(0,0,0,0.26)] lg:px-5">
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-[linear-gradient(90deg,transparent,rgba(91,132,255,0.55),transparent)]" />
+          <div className="pointer-events-none absolute -right-10 top-0 h-32 w-32 rounded-full bg-[rgba(91,132,255,0.08)] blur-3xl" />
+            <div className="space-y-2">
+              <Badge className="w-fit gap-2 rounded-full bg-[rgba(12,15,23,0.96)] px-3 py-1.5 text-[10px] text-[#9ab4ff]">
+                <BellRing className="size-3" />
+                Signal Trade // Scan Desk
+              </Badge>
+            <div className="space-y-1.5">
+              <h1 className="max-w-4xl text-lg font-semibold tracking-[-0.05em] text-balance text-foreground sm:text-xl lg:text-[1.45rem]">
+                把 Dex 通知、laohuang 状态和监听控制压成一块扫链面板
+              </h1>
+              <p className="hidden max-w-3xl text-xs leading-5 text-muted-foreground xl:block">
+                参考 xxyy.io 的黑色扫链台布局，把筛选、监听和命中状态收成更紧凑的盯盘工作台。
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                className="rounded-full"
+                disabled={isRefreshing}
+                onClick={() => {
+                  void syncNotifications();
+                }}
+              >
+                {isRefreshing ? (
+                  <LoaderCircle className="size-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="size-4" />
+                )}
+                同步通知
+              </Button>
+              <Button
+                className="rounded-full"
+                disabled={isWatchMutating}
+                variant="secondary"
+                onClick={() => {
+                  if (watchRuntime?.running) {
+                    void stopWatch();
+                    return;
+                  }
+                  void startWatch();
+                }}
+              >
+                {watchRuntime?.running ? '停止监听' : '启动监听'}
+              </Button>
+              <SessionChip />
+              <RefreshChip refreshState={refreshState} />
+              <WatchChip watchRuntime={watchRuntime} />
+            </div>
+            <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+              <ControlMetricCard
+                label="会话流"
+                value={String(notifications.length)}
+                detail="当前页面会话通知"
+              />
+              <ControlMetricCard
+                label="命中结果"
+                value={String(filteredNotifications.length)}
+                detail="当前筛选后结果"
+              />
+              <ControlMetricCard
+                label="传输模式"
+                value={transportLabel.toUpperCase()}
+                detail={watchStatusLabel}
+              />
+              <ControlMetricCard
+                label="策略"
+                value={activeStrategyLabel}
+                detail={
+                  isStrategyPresetEnabled(filters.strategyPreset)
+                    ? `Triggered ${laohuangSummary.triggered}`
+                    : 'Disabled'
+                }
+              />
+            </div>
+            {refreshSummary ? (
+              <p className="rounded-[16px] border border-border/70 bg-[rgba(14,18,27,0.92)] px-3 py-2 text-xs leading-5 text-muted-foreground">
+                {refreshSummary}
+              </p>
+            ) : null}
           </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <Button
-              className="rounded-full"
-              disabled={isRefreshing}
-              onClick={() => {
-                void syncNotifications();
-              }}
-            >
-              {isRefreshing ? (
-                <LoaderCircle className="size-4 animate-spin" />
-              ) : (
-                <RefreshCw className="size-4" />
-              )}
-              同步通知
-            </Button>
-            <SessionChip />
-            <RefreshChip refreshState={refreshState} />
-            <WatchChip watchRuntime={watchRuntime} />
-          </div>
-          {refreshSummary ? (
-            <p className="text-xs leading-6 text-muted-foreground">{refreshSummary}</p>
-          ) : null}
         </header>
 
-        <div className="mt-6 grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
-          <aside className="space-y-6 xl:sticky xl:top-6 xl:self-start">
-            <Card className="overflow-hidden">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-xl">
-                  <Filter className="size-5 text-[color:var(--color-accent)]" />
-                  Dashboard Filters
-                </CardTitle>
-                <CardDescription>
-                  这些筛选只影响当前页面展示，不会写入浏览器缓存，也不会写到 Node 端。
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-5">
-                <FieldGroup label="快速搜索">
-                  <div className="relative">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      className="pl-10"
-                      placeholder="代币、来源、Twitter 用户名"
-                      value={filters.search}
-                      onChange={event => updateFilter('search', event.target.value)}
-                    />
-                  </div>
-                </FieldGroup>
-
-                <FieldGroup label="观察名单关键词">
-                  <Textarea
-                    placeholder="支持逗号或换行，例如：ansem, base, hype"
-                    value={filters.watchTerms}
-                    onChange={event => updateFilter('watchTerms', event.target.value)}
-                  />
-                </FieldGroup>
-
-                <FieldGroup label="监听模式">
-                  <SelectField
-                    options={['auto', 'ws', 'http']}
-                    value={filters.watchTransport}
-                    onChange={value =>
-                      updateFilter('watchTransport', value as DashboardFilters['watchTransport'])
-                    }
-                  />
-                </FieldGroup>
-
-                <FieldGroup label="WS 订阅">
-                  <SubscriptionMultiSelect
-                    selectedSubscriptions={filters.watchSubscriptions}
-                    onToggle={subscription =>
-                      updateFilter(
-                        'watchSubscriptions',
-                        toggleWatchSubscription(
-                          filters.watchSubscriptions,
-                          subscription,
-                        ),
-                      )
-                    }
-                  />
-                  <p className="text-xs leading-6 text-muted-foreground">
-                    只有选中的 DexScreener feed 会被订阅；未选中的不会连接。
+        <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(560px,0.92fr)_minmax(0,1.08fr)]">
+          <Card className="overflow-hidden xl:sticky xl:top-4 xl:self-start">
+            <CardHeader className="border-b border-border/70 bg-[rgba(11,14,21,0.92)]">
+              <CardTitle className="flex items-center gap-2 text-xl">
+                <Filter className="size-5 text-[color:var(--color-accent)]" />
+                扫链控制台
+              </CardTitle>
+              <CardDescription>
+                左侧按功能分组切换，右侧结果直接浏览，不再强压一屏。
+              </CardDescription>
+              <div className="mt-4 rounded-[20px] border border-border/70 bg-[rgba(14,18,27,0.92)] p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                    高频操作
                   </p>
-                </FieldGroup>
-
-                <FieldGroup label="KOL 名单">
-                  <Textarea
-                    placeholder="当前停用 XXYY，KOL 筛选暂不可用"
-                    value={filters.kolNames}
-                    onChange={event => updateFilter('kolNames', event.target.value)}
-                  />
-                </FieldGroup>
-
-                <FieldGroup label="关注地址">
-                  <Textarea
-                    placeholder="当前停用 XXYY，关注地址筛选暂不可用"
-                    value={filters.followAddresses}
-                    onChange={event =>
-                      updateFilter('followAddresses', event.target.value)
-                    }
-                  />
-                </FieldGroup>
-
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-1">
-                  <FieldGroup label="链路">
+                  <p className="text-xs text-muted-foreground">
+                    更多参数继续在下方分组里细调。
+                  </p>
+                </div>
+                <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(0,1.45fr)_repeat(2,minmax(0,0.85fr))]">
+                  <FieldGroup label="快速搜索">
+                    <div className="relative">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        className="pl-10"
+                        placeholder="代币、来源、Twitter 用户名"
+                        value={filters.search}
+                        onChange={event => updateFilter('search', event.target.value)}
+                      />
+                    </div>
+                  </FieldGroup>
+                  <FieldGroup label="监听模式">
                     <SelectField
-                      options={['all', ...chainOptions]}
-                      value={filters.chain}
-                      onChange={value => updateFilter('chain', value)}
+                      options={['auto', 'ws', 'http']}
+                      value={filters.watchTransport}
+                      onChange={value =>
+                        updateFilter(
+                          'watchTransport',
+                          value as DashboardFilters['watchTransport'],
+                        )
+                      }
                     />
                   </FieldGroup>
-                  <FieldGroup label="来源">
+                  <FieldGroup label="策略预设">
                     <SelectField
-                      options={['all', ...sourceOptions]}
-                      value={filters.source}
-                      onChange={value => updateFilter('source', value)}
-                    />
-                  </FieldGroup>
-                  <FieldGroup label="最少持币人数">
-                    <Input
-                      inputMode="numeric"
-                      placeholder="100"
-                      value={filters.minHolders}
-                      onChange={event => updateFilter('minHolders', event.target.value)}
-                    />
-                  </FieldGroup>
-                  <FieldGroup label="最多持币人数">
-                    <Input
-                      inputMode="numeric"
-                      placeholder="5000"
-                      value={filters.maxHolders}
-                      onChange={event => updateFilter('maxHolders', event.target.value)}
-                    />
-                  </FieldGroup>
-                  <FieldGroup label="最高市值">
-                    <Input
-                      inputMode="numeric"
-                      placeholder="3000000"
-                      value={filters.maxMarketCap}
-                      onChange={event => updateFilter('maxMarketCap', event.target.value)}
-                    />
-                  </FieldGroup>
-                  <FieldGroup label="最少社区人数">
-                    <Input
-                      inputMode="numeric"
-                      placeholder="5000"
-                      value={filters.minCommunityCount}
-                      onChange={event =>
-                        updateFilter('minCommunityCount', event.target.value)
+                      options={STRATEGY_PRESET_OPTIONS.map(option => ({
+                        label: option.label,
+                        value: option.value,
+                      }))}
+                      value={filters.strategyPreset}
+                      onChange={value =>
+                        applySelectedStrategyPreset(
+                          value as DashboardFilters['strategyPreset'],
+                        )
                       }
                     />
                   </FieldGroup>
                 </div>
-
+              </div>
+              <div className="flex flex-wrap gap-2 pt-1">
+                {controlTabs.map(tab => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    className={cn(
+                      'rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors',
+                      activeControlTab === tab.id
+                        ? 'border-[color:var(--color-accent)] bg-[rgba(91,132,255,0.12)] text-foreground'
+                        : 'border-border bg-[rgba(14,18,27,0.92)] text-muted-foreground hover:text-foreground',
+                    )}
+                    onClick={() => {
+                      setActiveControlTab(tab.id);
+                    }}
+                  >
+                    <span className="flex items-center gap-2">
+                      {tab.label}
+                      {tab.count ? (
+                        <span className="rounded-full border border-white/[0.08] bg-black/20 px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground">
+                          {tab.count}
+                        </span>
+                      ) : null}
+                    </span>
+                  </button>
+                ))}
                 <button
                   type="button"
                   className={cn(
-                    'flex w-full items-center justify-between rounded-3xl border px-4 py-3 text-left transition-colors',
-                    filters.paidOnly
-                      ? 'border-[color:var(--color-accent)] bg-[color:var(--color-accent)]/8'
-                      : 'border-border bg-[color:var(--color-panel-soft)]',
+                    'rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors',
+                    activeAdvancedCount > 0
+                      ? 'border-[color:var(--color-accent)] bg-[rgba(91,132,255,0.12)] text-foreground'
+                      : 'border-border bg-[rgba(14,18,27,0.92)] text-muted-foreground hover:text-foreground',
                   )}
-                  onClick={() => updateFilter('paidOnly', !filters.paidOnly)}
+                  onClick={() => setAdvancedOpen(true)}
                 >
-                  <div>
-                    <p className="text-sm font-semibold text-foreground">
-                      仅看 Paid Dex 通知
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      对应 `dexscreener.paid = true`
+                  <span className="flex items-center gap-2">
+                    <SlidersHorizontal className="size-3" />
+                    高级
+                    {activeAdvancedCount > 0 ? (
+                      <span className="rounded-full border border-white/[0.08] bg-black/20 px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground">
+                        {activeAdvancedCount}
+                      </span>
+                    ) : null}
+                  </span>
+                </button>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-4">
+              <p className="mb-4 text-xs leading-6 text-muted-foreground">
+                当前分组：{activeControlTabMeta.label}。{activeControlTabMeta.hint}
+              </p>
+              {activeControlTab === 'basic' ? (
+                <ControlSection title="基础筛选">
+                  <p className="text-xs leading-6 text-muted-foreground">
+                    上方快捷区负责搜索、监听模式和策略预设；这里继续控制结果范围和会话动作。
+                  </p>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <FieldGroup label="链路">
+                      <SelectField
+                        options={['all', ...chainOptions]}
+                        value={filters.chain}
+                        onChange={value => updateFilter('chain', value)}
+                      />
+                    </FieldGroup>
+                    <FieldGroup label="来源">
+                      <SelectField
+                        options={['all', ...sourceOptions]}
+                        value={filters.source}
+                        onChange={value => updateFilter('source', value)}
+                      />
+                    </FieldGroup>
+                  </div>
+                  <button
+                    type="button"
+                    className={cn(
+                      'flex w-full items-center justify-between rounded-[18px] border px-4 py-3 text-left transition-colors',
+                      filters.paidOnly
+                        ? 'border-[color:var(--color-accent)] bg-[rgba(91,132,255,0.12)] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
+                        : 'border-border bg-[color:var(--color-panel-soft)]',
+                    )}
+                    onClick={() => updateFilter('paidOnly', !filters.paidOnly)}
+                  >
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">
+                        仅看 Paid Dex 通知
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        对应 `dexscreener.paid = true`
+                      </p>
+                    </div>
+                    <Badge variant={filters.paidOnly ? 'success' : 'secondary'}>
+                      {filters.paidOnly ? 'ON' : 'OFF'}
+                    </Badge>
+                  </button>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Button className="w-full rounded-full" variant="outline" onClick={resetFilters}>
+                      重置
+                    </Button>
+                    <Button
+                      className="w-full rounded-full"
+                      disabled={isWatchMutating}
+                      variant="secondary"
+                      onClick={() => {
+                        void startWatch();
+                      }}
+                    >
+                      {watchRuntime?.running ? '重启监听' : '启动监听'}
+                    </Button>
+                    <Button
+                      className="w-full rounded-full"
+                      disabled={isWatchMutating || !watchRuntime?.running}
+                      variant="outline"
+                      onClick={() => {
+                        void stopWatch();
+                      }}
+                    >
+                      停止监听
+                    </Button>
+                    <Button
+                      className="w-full rounded-full"
+                      disabled={isDiagnosing}
+                      variant="outline"
+                      onClick={() => {
+                        void runDiagnostics();
+                      }}
+                    >
+                      {isDiagnosing ? (
+                        <LoaderCircle className="size-4 animate-spin" />
+                      ) : (
+                        <Target className="size-4" />
+                      )}
+                      诊断
+                    </Button>
+                  </div>
+                </ControlSection>
+              ) : null}
+
+              {activeControlTab === 'watch' ? (
+                <ControlSection title="监听设置">
+                  <FieldGroup label="观察名单关键词">
+                    <Textarea
+                      className="min-h-[72px]"
+                      placeholder="支持逗号或换行，例如：ansem, base, hype"
+                      value={filters.watchTerms}
+                      onChange={event => updateFilter('watchTerms', event.target.value)}
+                    />
+                  </FieldGroup>
+                  <div className="space-y-2.5">
+                    <Label>WS 订阅</Label>
+                    <SubscriptionMultiSelect
+                      selectedSubscriptions={filters.watchSubscriptions}
+                      onToggle={subscription =>
+                        updateFilter(
+                          'watchSubscriptions',
+                          toggleWatchSubscription(
+                            filters.watchSubscriptions,
+                            subscription,
+                          ),
+                        )
+                      }
+                    />
+                    <p className="text-xs leading-6 text-muted-foreground">
+                      只有选中的 DexScreener feed 会被订阅；未选中的不会连接。
                     </p>
                   </div>
-                  <Badge variant={filters.paidOnly ? 'success' : 'secondary'}>
-                    {filters.paidOnly ? 'ON' : 'OFF'}
-                  </Badge>
-                </button>
+                  <WatchStatusPanel watchRuntime={watchRuntime} />
+                </ControlSection>
+              ) : null}
 
-                <div className="flex flex-wrap gap-3">
-                  <Button className="w-full rounded-full" variant="outline" onClick={resetFilters}>
-                    重置
-                  </Button>
-                </div>
-
-                <div className="flex flex-wrap gap-3">
-                  <Button
-                    className="flex-1 rounded-full"
-                    disabled={isWatchMutating}
-                    variant="secondary"
-                    onClick={() => {
-                      void startWatch();
-                    }}
-                  >
-                    {watchRuntime?.running ? '重启监听' : '启动监听'}
-                  </Button>
-                  <Button
-                    className="rounded-full"
-                    disabled={isWatchMutating || !watchRuntime?.running}
-                    variant="outline"
-                    onClick={() => {
-                      void stopWatch();
-                    }}
-                  >
-                    停止监听
-                  </Button>
-                </div>
-                <Button
-                  className="w-full rounded-full"
-                  disabled={isDiagnosing}
-                  variant="outline"
-                  onClick={() => {
-                    void runDiagnostics();
-                  }}
+              {activeControlTab === 'strategy' && isStrategyPresetEnabled(filters.strategyPreset) ? (
+                <ControlSection
+                  title="laohuang 策略参数"
+                  trailing={
+                    <Badge variant="outline" className="normal-case tracking-normal">
+                      {activeStrategyLabel}
+                    </Badge>
+                  }
                 >
-                  {isDiagnosing ? (
-                    <LoaderCircle className="size-4 animate-spin" />
-                  ) : (
-                    <Target className="size-4" />
-                  )}
-                  运行网络诊断
-                </Button>
-                <p className="text-xs leading-6 text-muted-foreground">
+                  <p className="text-xs leading-6 text-muted-foreground">
+                    会话内跟踪 {laohuangSummary.visible} 个 token，命中异常{' '}
+                    {laohuangSummary.triggered} 个，首推超{' '}
+                    {formatUsd(laohuangConfig.maxFirstSeenFdv)} 被隐藏{' '}
+                    {laohuangSummary.blacklisted} 个。
+                  </p>
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    <FieldGroup label="策略状态">
+                      <SelectField
+                        options={['all', 'tracking', 'drop', 'rebound', 'growth', 'triggered']}
+                        value={filters.strategyStatus}
+                        onChange={value =>
+                          updateFilter(
+                            'strategyStatus',
+                            value as DashboardFilters['strategyStatus'],
+                          )
+                        }
+                      />
+                    </FieldGroup>
+                    <FieldGroup label="种子订阅">
+                      <SelectField
+                        options={DEX_WATCH_SUBSCRIPTION_OPTIONS.map(option => ({
+                          label: option.label,
+                          value: option.id,
+                        }))}
+                        value={filters.strategySeedSubscription}
+                        onChange={value =>
+                          updateStrategyFilter('strategySeedSubscription', value)
+                        }
+                      />
+                    </FieldGroup>
+                    <FieldGroup label="种子链">
+                      <Input
+                        placeholder="solana"
+                        value={filters.strategySeedChain}
+                        onChange={event =>
+                          updateStrategyFilter('strategySeedChain', event.target.value)
+                        }
+                      />
+                    </FieldGroup>
+                    <FieldGroup label="首推 FDV 上限">
+                      <Input
+                        inputMode="decimal"
+                        placeholder="80000"
+                        value={filters.strategyMaxFirstSeenFdv}
+                        onChange={event =>
+                          updateStrategyFilter(
+                            'strategyMaxFirstSeenFdv',
+                            event.target.value,
+                          )
+                        }
+                      />
+                    </FieldGroup>
+                    <FieldGroup label="跟踪窗口小时">
+                      <Input
+                        inputMode="decimal"
+                        placeholder="12"
+                        value={filters.strategyTrackHours}
+                        onChange={event =>
+                          updateStrategyFilter('strategyTrackHours', event.target.value)
+                        }
+                      />
+                    </FieldGroup>
+                    <FieldGroup label="下跌比例">
+                      <Input
+                        inputMode="decimal"
+                        placeholder="0.5"
+                        value={filters.strategyDropRatio}
+                        onChange={event =>
+                          updateStrategyFilter('strategyDropRatio', event.target.value)
+                        }
+                      />
+                    </FieldGroup>
+                    <FieldGroup label="回调倍数">
+                      <Input
+                        inputMode="decimal"
+                        placeholder="1.2"
+                        value={filters.strategyReboundRatio}
+                        onChange={event =>
+                          updateStrategyFilter('strategyReboundRatio', event.target.value)
+                        }
+                      />
+                    </FieldGroup>
+                    <FieldGroup label="回调延迟秒数">
+                      <Input
+                        inputMode="decimal"
+                        placeholder="6"
+                        value={filters.strategyReboundDelaySec}
+                        onChange={event =>
+                          updateStrategyFilter(
+                            'strategyReboundDelaySec',
+                            event.target.value,
+                          )
+                        }
+                      />
+                    </FieldGroup>
+                    <FieldGroup label="涨幅阈值 %">
+                      <Input
+                        inputMode="decimal"
+                        placeholder="20"
+                        value={filters.strategyGrowthPercent}
+                        onChange={event =>
+                          updateStrategyFilter(
+                            'strategyGrowthPercent',
+                            event.target.value,
+                          )
+                        }
+                      />
+                    </FieldGroup>
+                  </div>
+                  <button
+                    type="button"
+                    className={cn(
+                      'flex w-full items-center justify-between rounded-[18px] border px-4 py-3 text-left transition-colors',
+                      filters.strategyRequirePaid
+                        ? 'border-[color:var(--color-accent)] bg-[rgba(91,132,255,0.12)] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
+                        : 'border-border bg-[color:var(--color-panel-soft)]',
+                    )}
+                    onClick={() =>
+                      updateStrategyFilter(
+                        'strategyRequirePaid',
+                        !filters.strategyRequirePaid,
+                      )
+                    }
+                  >
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">
+                        种子必须是 Paid
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        关闭后，只按订阅 + 链来当作策略种子。
+                      </p>
+                    </div>
+                    <Badge variant={filters.strategyRequirePaid ? 'success' : 'secondary'}>
+                      {filters.strategyRequirePaid ? 'ON' : 'OFF'}
+                    </Badge>
+                  </button>
+                  <p className="text-xs leading-6 text-muted-foreground">
+                    策略直接消费当前页面收到的通知流，支持上面的 `ws / http / auto`
+                    监听模式；切换预设会一键覆盖这些参数，手动改动后会自动进入“自定义”。
+                  </p>
+                </ControlSection>
+              ) : null}
+
+            </CardContent>
+          </Card>
+
+          <Dialog
+            open={advancedOpen}
+            title="高级筛选"
+            onClose={() => setAdvancedOpen(false)}
+          >
+            <div className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <FieldGroup label="最少持币人数">
+                  <Input
+                    inputMode="numeric"
+                    placeholder="100"
+                    value={filters.minHolders}
+                    onChange={event => updateFilter('minHolders', event.target.value)}
+                  />
+                </FieldGroup>
+                <FieldGroup label="最多持币人数">
+                  <Input
+                    inputMode="numeric"
+                    placeholder="5000"
+                    value={filters.maxHolders}
+                    onChange={event => updateFilter('maxHolders', event.target.value)}
+                  />
+                </FieldGroup>
+                <FieldGroup label="最高市值">
+                  <Input
+                    inputMode="numeric"
+                    placeholder="3000000"
+                    value={filters.maxMarketCap}
+                    onChange={event => updateFilter('maxMarketCap', event.target.value)}
+                  />
+                </FieldGroup>
+                <FieldGroup label="最少社区人数">
+                  <Input
+                    inputMode="numeric"
+                    placeholder="5000"
+                    value={filters.minCommunityCount}
+                    onChange={event => updateFilter('minCommunityCount', event.target.value)}
+                  />
+                </FieldGroup>
+              </div>
+              <FieldGroup label="KOL 名单">
+                <Textarea
+                  className="min-h-[84px]"
+                  placeholder="当前停用 XXYY，KOL 筛选暂不可用"
+                  value={filters.kolNames}
+                  onChange={event => updateFilter('kolNames', event.target.value)}
+                />
+              </FieldGroup>
+              <FieldGroup label="关注地址">
+                <Textarea
+                  className="min-h-[84px]"
+                  placeholder="当前停用 XXYY，关注地址筛选暂不可用"
+                  value={filters.followAddresses}
+                  onChange={event => updateFilter('followAddresses', event.target.value)}
+                />
+              </FieldGroup>
+              <div className="rounded-[14px] border border-border bg-[rgba(14,18,27,0.92)] px-4 py-4 text-xs leading-6 text-muted-foreground">
+                <p>
                   当前页面直接控制 `auto / ws / http`。`ws` 由浏览器直连，`http`
                   由浏览器定时请求刷新接口；通知只保留在当前页面内存，不写浏览器缓存，也不写 Node 存储。
                 </p>
-                <p className="text-xs leading-6 text-muted-foreground">
+                <p className="mt-2">
                   当前已停用 XXYY 富化，通知卡片优先直接展示 DexScreener feed 自带字段。
                 </p>
-                <p className="text-xs leading-6 text-muted-foreground">
+                <p className="mt-2">
                   `KOL 名单` 与 `关注地址` 仍保留在表单里，但当前不会参与过滤。
                 </p>
-                <WatchStatusPanel watchRuntime={watchRuntime} />
-                <DiagnosticsPanel
-                  diagnostics={diagnostics}
-                  diagnosticsError={diagnosticsError}
-                />
-              </CardContent>
-            </Card>
-          </aside>
-
-          <section className="overflow-hidden rounded-[32px] border border-white/50 bg-white/72 shadow-[0_24px_90px_rgba(53,42,33,0.08)] backdrop-blur">
-            <div className="border-b border-border/70 px-5 py-5 sm:px-6">
-              <div className="flex items-center gap-2 text-xl font-semibold text-foreground">
-                <Layers className="size-5 text-[color:var(--color-accent)]" />
-                Notification Stream
               </div>
-              <p className="mt-2 text-sm text-muted-foreground">
-                当前页面会话累计记录 {notifications.length} 条通知，筛选后显示{' '}
-                {filteredNotifications.length} 条。
-              </p>
+              <DiagnosticsPanel
+                diagnostics={diagnostics}
+                diagnosticsError={diagnosticsError}
+              />
             </div>
-            <div className="p-0">
-                {filteredNotifications.length > 0 ? (
-                  <ol className="divide-y divide-border">
-                    {filteredNotifications.map(record => (
-                      <NotificationListItem
-                        key={record.id}
-                        currentTimeMs={relativeNow}
-                        record={record}
-                      />
+          </Dialog>
+
+          <section className="overflow-hidden rounded-[24px] border border-border bg-[linear-gradient(180deg,rgba(10,12,19,0.98),rgba(8,10,16,0.98))] shadow-[0_18px_56px_rgba(0,0,0,0.24)]">
+            <div className="border-b border-border/70 bg-[rgba(11,14,21,0.92)] px-5 py-4 sm:px-6">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2 text-xl font-semibold text-foreground">
+                    <Layers className="size-5 text-[color:var(--color-accent)]" />
+                    扫链结果
+                  </div>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    当前页面会话累计记录 {notifications.length} 条通知，筛选后显示{' '}
+                    {filteredNotifications.length} 条。
+                    {isStrategyPresetEnabled(filters.strategyPreset)
+                      ? ` 当前按 token 去重，并使用策略状态机过滤。`
+                      : ''}
+                  </p>
+                  {activeFilterChips.length > 0 ? (
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      {activeFilterChips.map(chip => (
+                        <button
+                          key={chip.id}
+                          type="button"
+                          className="inline-flex items-center gap-1 rounded-full border border-border bg-[rgba(14,18,27,0.92)] px-3 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                          onClick={() => {
+                            clearFilterChip(chip.id);
+                          }}
+                        >
+                          {chip.label}
+                          <span className="text-foreground/70">x</span>
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        className="inline-flex items-center rounded-full border border-[color:var(--color-accent)] bg-[rgba(91,132,255,0.12)] px-3 py-1 text-xs text-foreground"
+                        onClick={resetFilters}
+                      >
+                        清空筛选
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="mt-3 text-xs text-muted-foreground">
+                      当前没有额外筛选，结果按最新通知时间排序。
+                    </p>
+                  )}
+                </div>
+                {isStrategyPresetEnabled(filters.strategyPreset) ? (
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      ['all', '全部', strategyStatusCounts.all],
+                      ['tracking', '跟踪', strategyStatusCounts.tracking],
+                      ['drop', '下跌', strategyStatusCounts.drop],
+                      ['rebound', '回调', strategyStatusCounts.rebound],
+                      ['growth', '上涨', strategyStatusCounts.growth],
+                      ['triggered', '触发', strategyStatusCounts.triggered],
+                    ].map(([value, label, count]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        className={cn(
+                          'inline-flex items-center rounded-full border px-3 py-1 text-xs transition-colors',
+                          filters.strategyStatus === value
+                            ? 'border-[color:var(--color-accent)] bg-[rgba(91,132,255,0.12)] text-foreground'
+                            : 'border-border bg-[rgba(14,18,27,0.92)] text-muted-foreground hover:text-foreground',
+                        )}
+                        onClick={() => {
+                          updateFilter(
+                            'strategyStatus',
+                            value as DashboardFilters['strategyStatus'],
+                          );
+                        }}
+                      >
+                        {label} {count}
+                      </button>
                     ))}
-                  </ol>
-                ) : (
-                  <EmptyState />
-                )}
+                    <Badge variant="outline" className="normal-case tracking-normal">
+                      hidden {laohuangSummary.blacklisted}
+                    </Badge>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+            <div className="p-3 sm:p-4">
+              {filteredNotifications.length > 0 ? (
+                <ol className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  {filteredNotifications.map(record => (
+                    <NotificationListItem
+                      key={record.id}
+                      currentTimeMs={relativeNow}
+                      record={record}
+                      strategyPreset={filters.strategyPreset}
+                      strategyState={getLaohuangStateForRecord(laohuangStates, record)}
+                    />
+                  ))}
+                </ol>
+              ) : (
+                <EmptyState
+                  activeFilterCount={activeFilterChips.length}
+                  isWatchRunning={Boolean(watchRuntime?.running)}
+                  onOpenWatchTab={() => {
+                    setActiveControlTab(activeFilterChips.length > 0 ? 'basic' : 'watch');
+                  }}
+                  onResetFilters={resetFilters}
+                  onStartWatch={() => {
+                    void startWatch();
+                  }}
+                  onSync={() => {
+                    void syncNotifications();
+                  }}
+                />
+              )}
             </div>
           </section>
         </div>
@@ -1210,7 +1921,10 @@ export function SignalTradeDashboard({
 
 function SessionChip(): JSX.Element {
   return (
-    <Badge variant="secondary" className="px-3 py-1.5 normal-case tracking-normal">
+    <Badge
+      variant="secondary"
+      className="border border-border px-3 py-1.5 normal-case tracking-normal"
+    >
       仅当前页面会话
     </Badge>
   );
@@ -1294,6 +2008,28 @@ function WatchChip({
   );
 }
 
+function ControlMetricCard({
+  detail,
+  label,
+  value,
+}: {
+  detail: string;
+  label: string;
+  value: string;
+}): JSX.Element {
+  return (
+    <div className="rounded-[16px] border border-border bg-[rgba(15,18,27,0.92)] px-3 py-2">
+      <p className="font-mono text-[11px] uppercase tracking-[0.24em] text-muted-foreground">
+        {label}
+      </p>
+      <p className="mt-1 truncate text-base font-semibold tracking-[-0.04em] text-foreground">
+        {value}
+      </p>
+      <p className="mt-0.5 text-[10px] text-muted-foreground">{detail}</p>
+    </div>
+  );
+}
+
 function WatchStatusPanel({
   watchRuntime,
 }: {
@@ -1306,11 +2042,11 @@ function WatchStatusPanel({
   const detail = watchRuntime.lastError ?? watchRuntime.lastStatusDetail;
   const toneClass =
     hasWatchConnectionIssue(watchRuntime)
-      ? 'border-red-200/80 bg-red-50/80 text-red-700'
-      : 'border-border bg-[color:var(--color-panel-soft)] text-muted-foreground';
+      ? 'border-red-500/30 bg-[rgba(86,23,28,0.72)] text-red-200'
+      : 'border-border bg-[rgba(14,18,27,0.92)] text-muted-foreground';
 
   return (
-    <div className={cn('rounded-3xl border px-4 py-3 text-xs leading-6', toneClass)}>
+    <div className={cn('rounded-[18px] border px-4 py-3 text-xs leading-6', toneClass)}>
       <p>
         watcher 状态：{formatWatchStatus(watchRuntime)}，模式 {watchRuntime.transport}
       </p>
@@ -1337,10 +2073,10 @@ function DiagnosticsPanel({
   }
 
   return (
-    <div className="rounded-3xl border border-border bg-[color:var(--color-panel-soft)] px-4 py-3 text-xs leading-6 text-muted-foreground">
+    <div className="rounded-[18px] border border-border bg-[rgba(14,18,27,0.92)] px-4 py-3 text-xs leading-6 text-muted-foreground">
       <p className="font-semibold text-foreground">网络诊断</p>
       {diagnosticsError ? (
-        <p className="mt-2 break-all text-red-700">执行失败：{diagnosticsError}</p>
+        <p className="mt-2 break-all text-red-300">执行失败：{diagnosticsError}</p>
       ) : null}
       {diagnostics ? (
         <>
@@ -1369,9 +2105,13 @@ function DiagnosticsPanel({
 function NotificationListItem({
   currentTimeMs,
   record,
+  strategyPreset,
+  strategyState,
 }: {
   currentTimeMs: number;
   record: NotificationRecord;
+  strategyPreset: DashboardFilters['strategyPreset'];
+  strategyState: LaohuangTokenState | null;
 }): JSX.Element {
   const sourceKey = `${record.event.source}.${record.event.subtype}`;
   const displayAddress =
@@ -1395,11 +2135,31 @@ function NotificationListItem({
   const rawTotalAmount = asOptionalNumber(record.event.metrics?.totalAmount);
   const rawActiveBoosts = asOptionalNumber(record.event.metrics?.activeBoosts);
   const twitterProfileUrl = record.context.twitter?.profile_url ?? null;
+  const strategyEnabled =
+    isStrategyPresetEnabled(strategyPreset) && strategyState !== null;
+  const currentMarketCap = strategyEnabled
+    ? strategyState.currentMarketCap
+    : record.summary.marketCap;
+  const currentPriceUsd = strategyEnabled
+    ? strategyState.currentPriceUsd
+    : record.summary.priceUsd;
+  const currentFdv = strategyEnabled
+    ? strategyState.currentFdv
+    : asOptionalNumber(record.context.dexscreener?.fdv);
+  const strategyChangePercent = strategyEnabled
+    ? getLaohuangChangePercent(strategyState)
+    : null;
+  const strategyBadges = strategyEnabled ? getLaohuangBadges(strategyState) : [];
 
   return (
-    <li className="px-5 py-4 transition-colors hover:bg-white/50 sm:px-6">
-      <div className="flex flex-col gap-3">
-        <div className="flex items-start justify-between gap-4">
+    <li
+      className={cn(
+        'flex h-full flex-col rounded-[18px] border border-border bg-[linear-gradient(180deg,rgba(12,15,23,0.98),rgba(9,12,18,0.98))] p-3 shadow-[0_10px_24px_rgba(0,0,0,0.16)] transition-colors hover:border-white/[0.12] hover:bg-[linear-gradient(180deg,rgba(15,19,29,0.98),rgba(10,13,20,0.98))]',
+        strategyEnabled ? getLaohuangToneClass(strategyState) : '',
+      )}
+    >
+      <div className="flex h-full flex-col gap-2.5">
+        <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-start gap-3">
             <TokenAvatar
               imageUrl={record.summary.imageUrl}
@@ -1413,7 +2173,23 @@ function NotificationListItem({
                 <Badge variant={record.summary.paid ? 'success' : 'secondary'}>
                   {record.summary.paid ? 'paid' : 'organic'}
                 </Badge>
-                <span className="rounded-full bg-[color:var(--color-panel-soft)] px-2.5 py-1 font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                {strategyEnabled ? (
+                  <Badge variant="outline" className="tracking-[0.12em]">
+                    strategy
+                  </Badge>
+                ) : null}
+                {strategyEnabled
+                  ? strategyBadges.map(badge => (
+                      <Badge
+                        key={badge.label}
+                        className={badge.className}
+                        variant={badge.variant}
+                      >
+                        {badge.label}
+                      </Badge>
+                    ))
+                  : null}
+                <span className="rounded-full border border-border/60 bg-[rgba(14,18,27,0.92)] px-2.5 py-1 font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
                   {record.event.chain || 'n/a'}
                 </span>
               </div>
@@ -1448,21 +2224,40 @@ function NotificationListItem({
           ) : null}
         </div>
 
-        <div className="grid gap-2 text-sm sm:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
-          <p className="min-w-0 truncate text-muted-foreground">{displayText}</p>
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-right sm:grid-cols-3">
-            <MetricPair label="市值" value={formatUsd(record.summary.marketCap)} />
+        {strategyEnabled ? (
+          <div className="flex flex-wrap gap-2">
+            <InfoPill
+              icon={Layers}
+              label={`首推 FDV ${formatUsd(strategyState.firstSeenFdv)}`}
+            />
+            <InfoPill
+              icon={Target}
+              label={`首推 ${formatAbsoluteTime(strategyState.firstSeenAt)}`}
+            />
+            <InfoPill
+              icon={Activity}
+              label={`相对首推 ${formatSignedPercent(strategyChangePercent)}`}
+            />
+          </div>
+        ) : null}
+
+        <div className="grid gap-2.5 text-sm">
+          <p className="min-w-0 max-h-12 overflow-hidden text-[13px] leading-5 text-muted-foreground">
+            {displayText}
+          </p>
+          <dl className="grid grid-cols-2 gap-2 text-right sm:grid-cols-3">
+            <MetricPair label="市值" value={formatUsd(currentMarketCap)} />
             <MetricPair
               label="流动性"
               value={formatUsd(record.summary.liquidityUsd)}
             />
             <MetricPair
               label="价格"
-              value={formatPriceUsd(record.summary.priceUsd)}
+              value={formatPriceUsd(currentPriceUsd)}
             />
             <MetricPair
               label="FDV"
-              value={formatUsd(record.context.dexscreener?.fdv ?? null)}
+              value={formatUsd(currentFdv)}
             />
             <MetricPair
               label="单次金额"
@@ -1475,14 +2270,16 @@ function NotificationListItem({
           </dl>
         </div>
 
-        <p className="text-[11px] text-muted-foreground">
-          当前卡片直接展示 DexScreener feed 字段；不再请求 XXYY 富化。
+        <p className="text-[10px] leading-5 text-muted-foreground">
+          {strategyEnabled
+            ? '当前卡片附带策略会话状态：首推基准、跌幅、回调、涨幅都在前端会话内维护。'
+            : '当前卡片直接展示 DexScreener feed 字段；不再请求 XXYY 富化。'}
         </p>
 
-        <div className="flex flex-wrap gap-2">
+        <div className="mt-auto flex flex-wrap gap-2">
           {record.summary.twitterUsername && twitterProfileUrl ? (
             <a
-              className="inline-flex items-center gap-1 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-[color:var(--color-panel-soft)]"
+              className="inline-flex items-center gap-1 rounded-full border border-border bg-[rgba(14,18,27,0.92)] px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-[color:var(--color-panel-soft)]"
               href={twitterProfileUrl}
               rel="noreferrer"
               target="_blank"
@@ -1493,7 +2290,7 @@ function NotificationListItem({
           ) : null}
           {record.summary.dexscreenerUrl ? (
             <a
-              className="inline-flex items-center gap-1 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-[color:var(--color-panel-soft)]"
+              className="inline-flex items-center gap-1 rounded-full border border-border bg-[rgba(14,18,27,0.92)] px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-[color:var(--color-panel-soft)]"
               href={record.summary.dexscreenerUrl}
               rel="noreferrer"
               target="_blank"
@@ -1504,7 +2301,7 @@ function NotificationListItem({
           ) : null}
           {record.summary.telegramUrl ? (
             <a
-              className="inline-flex items-center gap-1 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-[color:var(--color-panel-soft)]"
+              className="inline-flex items-center gap-1 rounded-full border border-border bg-[rgba(14,18,27,0.92)] px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-[color:var(--color-panel-soft)]"
               href={record.summary.telegramUrl}
               rel="noreferrer"
               target="_blank"
@@ -1533,7 +2330,7 @@ function TokenAvatar({
     return (
       <img
         alt={symbol}
-        className="size-12 rounded-2xl border border-border/80 bg-[color:var(--color-panel-soft)] object-cover"
+        className="size-12 rounded-[16px] border border-border/80 bg-[rgba(14,18,27,0.92)] object-cover"
         height={48}
         loading="lazy"
         src={imageUrl}
@@ -1546,26 +2343,56 @@ function TokenAvatar({
   }
 
   return (
-    <div className="flex size-12 items-center justify-center rounded-2xl border border-border/80 bg-[color:var(--color-panel-soft)] text-sm font-semibold text-foreground">
+    <div className="flex size-12 items-center justify-center rounded-[16px] border border-border/80 bg-[rgba(14,18,27,0.92)] text-sm font-semibold text-foreground">
       {label}
     </div>
   );
 }
 
-function EmptyState(): JSX.Element {
+function EmptyState({
+  activeFilterCount,
+  isWatchRunning,
+  onOpenWatchTab,
+  onResetFilters,
+  onStartWatch,
+  onSync,
+}: {
+  activeFilterCount: number;
+  isWatchRunning: boolean;
+  onOpenWatchTab: () => void;
+  onResetFilters: () => void;
+  onStartWatch: () => void;
+  onSync: () => void;
+}): JSX.Element {
   return (
     <div className="px-6 py-10">
-      <div className="flex min-h-[280px] flex-col items-center justify-center rounded-[32px] border border-dashed border-border bg-[color:var(--color-panel-soft)] px-6 py-10 text-center">
-        <div className="rounded-full bg-[color:var(--color-accent)]/10 p-4 text-[color:var(--color-accent)]">
+      <div className="flex min-h-[280px] flex-col items-center justify-center rounded-[22px] border border-dashed border-border bg-[rgba(14,18,27,0.92)] px-6 py-10 text-center">
+        <div className="rounded-full bg-[rgba(91,132,255,0.12)] p-4 text-[color:var(--color-accent)]">
           <BellRing className="size-8" />
         </div>
         <h3 className="mt-5 text-2xl font-semibold tracking-[-0.04em] text-foreground">
           当前没有符合筛选条件的通知
         </h3>
         <p className="mt-3 max-w-md text-sm leading-6 text-muted-foreground">
-          你可以降低前端筛选阈值，点击上方“同步通知”，或者直接启动 `ws / http`
-          监听，把新通知写入当前页面会话。
+          {activeFilterCount > 0
+            ? `当前还有 ${activeFilterCount} 个生效筛选。你可以先清掉筛选，或者切回左侧面板调整条件。`
+            : '你可以直接同步一次通知，或者启动 `ws / http` 监听，把新通知写入当前页面会话。'}
         </p>
+        <div className="mt-5 flex flex-wrap justify-center gap-3">
+          <Button className="rounded-full" onClick={onSync}>
+            同步通知
+          </Button>
+          <Button
+            className="rounded-full"
+            variant="secondary"
+            onClick={isWatchRunning ? onOpenWatchTab : onStartWatch}
+          >
+            {isWatchRunning ? '查看监听设置' : '启动监听'}
+          </Button>
+          <Button className="rounded-full" variant="outline" onClick={onResetFilters}>
+            清空筛选
+          </Button>
+        </div>
       </div>
     </div>
   );
@@ -1579,11 +2406,11 @@ function MetricPair({
   value: string;
 }): JSX.Element {
   return (
-    <div>
-      <dt className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+    <div className="rounded-[14px] border border-border/70 bg-[rgba(14,18,27,0.92)] px-3 py-2">
+      <dt className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
         {label}
       </dt>
-      <dd className="mt-1 font-semibold text-foreground">{value}</dd>
+      <dd className="mt-1 text-sm font-semibold text-foreground">{value}</dd>
     </div>
   );
 }
@@ -1596,7 +2423,7 @@ function InfoPill({
   label: string;
 }): JSX.Element {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full bg-[color:var(--color-panel-soft)] px-3 py-1.5 text-[11px] font-medium text-muted-foreground">
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-[rgba(14,18,27,0.92)] px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
       <Icon className="size-3.5" />
       {label}
     </span>
@@ -1618,25 +2445,48 @@ function FieldGroup({
   );
 }
 
+function ControlSection({
+  children,
+  title,
+  trailing,
+}: {
+  children: ReactNode;
+  title: string;
+  trailing?: ReactNode;
+}): JSX.Element {
+  return (
+    <section className="space-y-3 rounded-[18px] border border-border bg-[rgba(13,16,24,0.92)] p-4">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm font-semibold text-foreground">{title}</p>
+        {trailing}
+      </div>
+      {children}
+    </section>
+  );
+}
+
 function SelectField({
   onChange,
   options,
   value,
 }: {
   onChange: (value: string) => void;
-  options: string[];
+  options: Array<string | { label: string; value: string }>;
   value: string;
 }): JSX.Element {
   return (
     <div className="relative">
       <select
-        className="h-11 w-full appearance-none rounded-2xl border border-border bg-[color:var(--color-panel-soft)] px-4 py-2 text-sm text-foreground outline-none transition-colors focus:border-[color:var(--color-accent)] focus:bg-white"
+        className="h-10 w-full appearance-none rounded-xl border border-border bg-[rgba(9,11,17,0.92)] px-3.5 py-2 text-sm text-foreground outline-none transition-colors shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] focus:border-[color:var(--color-accent)] focus:bg-[rgba(13,16,24,0.98)]"
         onChange={event => onChange(event.target.value)}
         value={value}
       >
         {options.map(option => (
-          <option key={option} value={option}>
-            {option}
+          <option
+            key={typeof option === 'string' ? option : option.value}
+            value={typeof option === 'string' ? option : option.value}
+          >
+            {typeof option === 'string' ? option : option.label}
           </option>
         ))}
       </select>
@@ -1662,9 +2512,9 @@ function SubscriptionMultiSelect({
             key={option.id}
             type="button"
             className={cn(
-              'flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition-colors',
+              'flex w-full items-center justify-between rounded-[18px] border px-4 py-3 text-left transition-colors',
               selected
-                ? 'border-[color:var(--color-accent)] bg-[color:var(--color-accent)]/8'
+                ? 'border-[color:var(--color-accent)] bg-[rgba(91,132,255,0.12)] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
                 : 'border-border bg-[color:var(--color-panel-soft)]',
             )}
             onClick={() => onToggle(option.id)}
@@ -1678,6 +2528,441 @@ function SubscriptionMultiSelect({
       })}
     </div>
   );
+}
+
+function buildLaohuangState(
+  records: NotificationRecord[],
+  config: LaohuangStrategyConfig,
+): Record<string, LaohuangTokenState> {
+  return reduceLaohuangState({}, records, config);
+}
+
+function appendLaohuangHistory(
+  current: NotificationRecord[],
+  incoming: NotificationRecord[],
+): NotificationRecord[] {
+  return [...current, ...incoming].slice(-MAX_LAOHUANG_HISTORY);
+}
+
+function buildLaohuangConfig(
+  filters: DashboardFilters,
+): LaohuangStrategyConfig {
+  const maxFirstSeenFdv = parseNumericFilter(filters.strategyMaxFirstSeenFdv);
+  const dropRatio = parseNumericFilter(filters.strategyDropRatio);
+  const reboundRatio = parseNumericFilter(filters.strategyReboundRatio);
+  const reboundDelaySec = parseNumericFilter(filters.strategyReboundDelaySec);
+  const growthPercent = parseNumericFilter(filters.strategyGrowthPercent);
+  const trackHours = parseNumericFilter(filters.strategyTrackHours);
+  const normalizedSeedChain =
+    normalizeStrategyValue(filters.strategySeedChain)?.toLowerCase() ?? 'solana';
+  const seedSubscription =
+    normalizeStrategyValue(filters.strategySeedSubscription) ?? 'token_profiles_latest';
+
+  return {
+    chain: normalizedSeedChain,
+    dropRatio: dropRatio !== null && dropRatio > 0 ? dropRatio : LAOHUANG_DROP_RATIO,
+    growthPercent:
+      growthPercent !== null ? growthPercent : LAOHUANG_GROWTH_PERCENT,
+    maxFirstSeenFdv:
+      maxFirstSeenFdv !== null && maxFirstSeenFdv > 0
+        ? maxFirstSeenFdv
+        : LAOHUANG_MAX_FIRST_SEEN_FDV,
+    reboundDelayMs:
+      reboundDelaySec !== null && reboundDelaySec >= 0
+        ? reboundDelaySec * 1000
+        : LAOHUANG_REBOUND_DELAY_MS,
+    reboundRatio:
+      reboundRatio !== null && reboundRatio > 0
+        ? reboundRatio
+        : LAOHUANG_REBOUND_RATIO,
+    requirePaid: filters.strategyRequirePaid,
+    seedSourceKey: seedSubscription.includes('.')
+      ? seedSubscription
+      : seedSubscription
+        ? `dexscreener.${seedSubscription}`
+        : LAOHUANG_SOURCE_KEY,
+    trackWindowMs:
+      trackHours !== null && trackHours > 0
+        ? trackHours * 60 * 60 * 1000
+        : LAOHUANG_MAX_TRACK_MS,
+  };
+}
+
+function reduceLaohuangState(
+  current: Record<string, LaohuangTokenState>,
+  incoming: NotificationRecord[],
+  config: LaohuangStrategyConfig,
+): Record<string, LaohuangTokenState> {
+  const next = { ...current };
+  const ordered = [...incoming].sort(
+    (left, right) =>
+      new Date(left.notifiedAt).getTime() - new Date(right.notifiedAt).getTime(),
+  );
+
+  for (const record of ordered) {
+    const tokenKey = getNotificationTokenKey(record);
+    const address =
+      normalizeStrategyValue(record.context.token?.address) ??
+      normalizeStrategyValue(record.event.token.address);
+    const chain = normalizeStrategyValue(record.event.chain)?.toLowerCase() ?? 'unknown';
+    const sourceKey = `${record.event.source}.${record.event.subtype}`;
+    const notifiedAtMs = new Date(record.notifiedAt).getTime();
+    const fdv = readLaohuangFdv(record);
+    const marketCap = asOptionalNumber(record.summary.marketCap);
+    const priceUsd =
+      asOptionalNumber(record.summary.priceUsd) ??
+      asOptionalNumber(record.context.dexscreener?.priceUsd);
+    const isSeedRecord = isLaohuangSeedRecord(record, config);
+
+    if (!tokenKey || !address) {
+      continue;
+    }
+
+    let state = next[tokenKey];
+    if (!state) {
+      if (!isSeedRecord) {
+        continue;
+      }
+
+      state = {
+        address,
+        blacklisted: false,
+        chain,
+        currentFdv: fdv,
+        currentMarketCap: marketCap,
+        currentPriceUsd: priceUsd,
+        dropAtMs: null,
+        dropTriggered: false,
+        firstSeenAt: record.notifiedAt,
+        firstSeenAtMs: notifiedAtMs,
+        firstSeenFdv: fdv,
+        growthTriggered: false,
+        latestNotifiedAt: record.notifiedAt,
+        latestNotifiedAtMs: notifiedAtMs,
+        latestSourceKey: sourceKey,
+        minFdv: null,
+        reboundAtMs: null,
+        reboundTriggered: false,
+        stage: 'tracking',
+      };
+      next[tokenKey] = state;
+    } else {
+      state = { ...state };
+      next[tokenKey] = state;
+    }
+
+    if (isSeedRecord && notifiedAtMs < state.firstSeenAtMs) {
+      state.firstSeenAt = record.notifiedAt;
+      state.firstSeenAtMs = notifiedAtMs;
+      state.firstSeenFdv = fdv;
+    } else if (isSeedRecord && state.firstSeenFdv === null && fdv !== null) {
+      state.firstSeenFdv = fdv;
+    }
+
+    if (isSeedRecord && state.firstSeenFdv !== null) {
+      state.blacklisted = state.firstSeenFdv > config.maxFirstSeenFdv;
+    }
+
+    if (notifiedAtMs >= state.latestNotifiedAtMs) {
+      state.latestNotifiedAt = record.notifiedAt;
+      state.latestNotifiedAtMs = notifiedAtMs;
+      state.latestSourceKey = sourceKey;
+      if (fdv !== null) {
+        state.currentFdv = fdv;
+      }
+      if (marketCap !== null) {
+        state.currentMarketCap = marketCap;
+      }
+      if (priceUsd !== null) {
+        state.currentPriceUsd = priceUsd;
+      }
+    } else {
+      if (state.currentFdv === null && fdv !== null) {
+        state.currentFdv = fdv;
+      }
+      if (state.currentMarketCap === null && marketCap !== null) {
+        state.currentMarketCap = marketCap;
+      }
+      if (state.currentPriceUsd === null && priceUsd !== null) {
+        state.currentPriceUsd = priceUsd;
+      }
+    }
+
+    if (
+      state.blacklisted ||
+      fdv === null ||
+      state.firstSeenFdv === null ||
+      state.firstSeenFdv <= 0
+    ) {
+      continue;
+    }
+
+    let triggeredThisRecord = false;
+    const dropFdv = state.firstSeenFdv * config.dropRatio;
+
+    if (state.stage === 'tracking' && fdv <= dropFdv) {
+      state.dropTriggered = true;
+      state.stage = 'dropped';
+      state.dropAtMs = notifiedAtMs;
+      state.minFdv = fdv;
+      triggeredThisRecord = true;
+    } else if (state.stage === 'dropped') {
+      if (state.minFdv === null || fdv < state.minFdv) {
+        state.minFdv = fdv;
+      } else if (
+        !state.reboundTriggered &&
+        state.dropAtMs !== null &&
+        state.minFdv > 0 &&
+        notifiedAtMs >= state.dropAtMs + config.reboundDelayMs &&
+        fdv >= state.minFdv * config.reboundRatio
+      ) {
+        state.reboundTriggered = true;
+        state.stage = 'rebounded';
+        state.reboundAtMs = notifiedAtMs;
+        triggeredThisRecord = true;
+      }
+    }
+
+    const changePercent = ((fdv - state.firstSeenFdv) / state.firstSeenFdv) * 100;
+    if (!triggeredThisRecord && !state.growthTriggered && changePercent >= config.growthPercent) {
+      state.growthTriggered = true;
+    }
+  }
+
+  return next;
+}
+
+function summarizeLaohuangStates(
+  states: Record<string, LaohuangTokenState>,
+  nowMs: number,
+  config: LaohuangStrategyConfig,
+): LaohuangSummary {
+  const values = Object.values(states);
+  const visible = values.filter(state =>
+    isVisibleLaohuangState(state, nowMs, config),
+  );
+  const triggered = visible.filter(state =>
+    matchesLaohuangStatus(state, 'triggered'),
+  );
+
+  return {
+    blacklisted: values.filter(state => state.blacklisted).length,
+    total: values.length,
+    triggered: triggered.length,
+    visible: visible.length,
+  };
+}
+
+function buildLatestLaohuangRecords(
+  notifications: NotificationRecord[],
+  states: Record<string, LaohuangTokenState>,
+): NotificationRecord[] {
+  const latestByToken = new Map<string, NotificationRecord>();
+
+  for (const record of notifications) {
+    const tokenKey = getNotificationTokenKey(record);
+    if (!tokenKey || !states[tokenKey]) {
+      continue;
+    }
+
+    const existing = latestByToken.get(tokenKey);
+    if (!existing) {
+      latestByToken.set(tokenKey, record);
+      continue;
+    }
+
+    if (
+      new Date(record.notifiedAt).getTime() >
+      new Date(existing.notifiedAt).getTime()
+    ) {
+      latestByToken.set(tokenKey, record);
+    }
+  }
+
+  return Array.from(latestByToken.values());
+}
+
+function getLaohuangStateForRecord(
+  states: Record<string, LaohuangTokenState>,
+  record: NotificationRecord,
+): LaohuangTokenState | null {
+  const tokenKey = getNotificationTokenKey(record);
+  if (!tokenKey) {
+    return null;
+  }
+
+  return states[tokenKey] ?? null;
+}
+
+function getNotificationTokenKey(record: NotificationRecord): string | null {
+  const chain = normalizeStrategyValue(record.event.chain)?.toLowerCase();
+  const address =
+    normalizeStrategyValue(record.context.token?.address) ??
+    normalizeStrategyValue(record.event.token.address);
+
+  if (!chain || !address) {
+    return null;
+  }
+
+  return `${chain}:${address.toLowerCase()}`;
+}
+
+function isLaohuangSeedRecord(
+  record: NotificationRecord,
+  config: LaohuangStrategyConfig,
+): boolean {
+  const chain = normalizeStrategyValue(record.event.chain)?.toLowerCase();
+  return (
+    chain === config.chain &&
+    `${record.event.source}.${record.event.subtype}` === config.seedSourceKey &&
+    (!config.requirePaid || record.summary.paid)
+  );
+}
+
+function isVisibleLaohuangState(
+  state: LaohuangTokenState,
+  nowMs: number,
+  config: LaohuangStrategyConfig,
+): boolean {
+  return (
+    !state.blacklisted &&
+    nowMs - state.firstSeenAtMs <= config.trackWindowMs
+  );
+}
+
+function matchesLaohuangStatus(
+  state: LaohuangTokenState,
+  status: DashboardFilters['strategyStatus'],
+): boolean {
+  if (status === 'all') {
+    return true;
+  }
+
+  if (status === 'tracking') {
+    return !state.dropTriggered && !state.reboundTriggered && !state.growthTriggered;
+  }
+
+  if (status === 'drop') {
+    return state.dropTriggered;
+  }
+
+  if (status === 'rebound') {
+    return state.reboundTriggered;
+  }
+
+  if (status === 'growth') {
+    return state.growthTriggered;
+  }
+
+  return state.dropTriggered || state.reboundTriggered || state.growthTriggered;
+}
+
+function readLaohuangFdv(record: NotificationRecord): number | null {
+  return (
+    asOptionalNumber(record.context.dexscreener?.fdv) ??
+    asOptionalNumber(record.context.dexscreener?.marketCap) ??
+    asOptionalNumber(record.summary.marketCap)
+  );
+}
+
+function getLaohuangChangePercent(
+  state: LaohuangTokenState | null,
+): number | null {
+  if (!state || state.firstSeenFdv === null || state.firstSeenFdv <= 0) {
+    return null;
+  }
+
+  if (state.currentFdv === null) {
+    return null;
+  }
+
+  return ((state.currentFdv - state.firstSeenFdv) / state.firstSeenFdv) * 100;
+}
+
+function formatSignedPercent(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) {
+    return 'n/a';
+  }
+
+  return `${value > 0 ? '+' : ''}${value.toFixed(1)}%`;
+}
+
+function getLaohuangBadges(
+  state: LaohuangTokenState | null,
+): Array<{
+  className?: string;
+  label: string;
+  variant: 'default' | 'secondary' | 'outline' | 'success';
+}> {
+  if (!state) {
+    return [];
+  }
+
+  const badges: Array<{
+    className?: string;
+    label: string;
+    variant: 'default' | 'secondary' | 'outline' | 'success';
+  }> = [];
+
+  if (state.reboundTriggered) {
+    badges.push({
+      className:
+        'border border-amber-400/30 bg-[rgba(99,61,14,0.55)] text-amber-200 tracking-[0.12em]',
+      label: 'rebound',
+      variant: 'outline',
+    });
+  } else if (state.dropTriggered) {
+    badges.push({
+      className:
+        'border border-red-400/30 bg-[rgba(87,21,29,0.56)] text-red-200 tracking-[0.12em]',
+      label: 'drop',
+      variant: 'outline',
+    });
+  }
+
+  if (state.growthTriggered) {
+    badges.push({
+      className: 'tracking-[0.12em]',
+      label: 'growth',
+      variant: 'success',
+    });
+  }
+
+  if (badges.length === 0) {
+    badges.push({
+      className: 'tracking-[0.12em]',
+      label: 'tracking',
+      variant: 'secondary',
+    });
+  }
+
+  return badges;
+}
+
+function getLaohuangToneClass(
+  state: LaohuangTokenState | null,
+): string {
+  if (!state) {
+    return '';
+  }
+
+  if (state.reboundTriggered) {
+    return 'bg-[linear-gradient(90deg,rgba(245,158,11,0.10),transparent_42%)]';
+  }
+
+  if (state.dropTriggered) {
+    return 'bg-[linear-gradient(90deg,rgba(248,113,113,0.10),transparent_42%)]';
+  }
+
+  if (state.growthTriggered) {
+    return 'bg-[linear-gradient(90deg,rgba(52,211,153,0.10),transparent_42%)]';
+  }
+
+  return '';
+}
+
+function normalizeStrategyValue(value: string | null | undefined): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
 function uniqueValues(values: string[]): string[] {
@@ -2034,8 +3319,27 @@ function trimTrailingZeros(value: string): string {
   return value.replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
 }
 
+function areStringArraysEqual(
+  left: readonly string[],
+  right: readonly string[],
+): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((value, index) => value === right[index]);
+}
+
 function padNumber(value: number): string {
   return value.toString().padStart(2, '0');
+}
+
+function truncateText(value: string, maxLength: number): string {
+  if (value.length <= maxLength) {
+    return value;
+  }
+
+  return `${value.slice(0, Math.max(0, maxLength - 1))}…`;
 }
 
 function truncateMiddle(
