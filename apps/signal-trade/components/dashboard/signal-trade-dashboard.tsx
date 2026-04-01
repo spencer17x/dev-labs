@@ -2178,11 +2178,13 @@ function NotificationListItem({
   const displayName =
     record.context.token?.name || record.event.token.name || null;
   const [addressCopied, setAddressCopied] = useState(false);
-  const displayText =
+  const rawDisplayText =
     record.context.dexscreener?.description ||
     record.context.dexscreener?.header ||
     record.event.text ||
     record.message;
+  // Filter out raw URLs (CDN/image links) that aren't useful as descriptions
+  const displayText = rawDisplayText?.startsWith('http') ? null : rawDisplayText;
   const rawAmount = asOptionalNumber(record.event.metrics?.amount);
   const rawTotalAmount = asOptionalNumber(record.event.metrics?.totalAmount);
   const rawActiveBoosts = asOptionalNumber(record.event.metrics?.activeBoosts);
@@ -2311,16 +2313,18 @@ function NotificationListItem({
         ) : null}
 
         <div className="grid gap-2.5 text-sm">
-          <p className="min-w-0 max-h-12 overflow-hidden text-[13px] leading-5 text-muted-foreground">
-            {displayText}
-          </p>
+          {displayText ? (
+            <p className="line-clamp-2 text-[13px] leading-5 text-muted-foreground">
+              {displayText}
+            </p>
+          ) : null}
           {(currentMarketCap !== null ||
             enrichedLiquidityUsd !== null ||
             currentPriceUsd !== null ||
             currentFdv !== null ||
             rawAmount !== null ||
             rawTotalAmount !== null) ? (
-            <dl className="grid grid-cols-2 gap-2 text-right sm:grid-cols-3">
+            <dl className="grid grid-cols-2 gap-2 text-right">
               <MetricPair label="市值" value={formatUsd(currentMarketCap)} />
               <MetricPair
                 label="流动性"
@@ -2487,7 +2491,7 @@ function MetricPair({
       <dt className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
         {label}
       </dt>
-      <dd className="mt-1 break-all text-sm font-semibold text-foreground">{value}</dd>
+      <dd className="mt-1 break-words font-mono text-xs font-semibold text-foreground">{value}</dd>
     </div>
   );
 }
