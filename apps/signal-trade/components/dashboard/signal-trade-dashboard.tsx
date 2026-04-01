@@ -1368,20 +1368,9 @@ export function SignalTradeDashboard({
                 )}
                 同步通知
               </Button>
-              <RefreshChip refreshState={refreshState} />
               <WatchChip watchRuntime={watchRuntime} />
             </div>
-            <div className="grid gap-2 md:grid-cols-3">
-              <ControlMetricCard
-                label="会话流"
-                value={String(notifications.length)}
-                detail="当前页面会话通知"
-              />
-              <ControlMetricCard
-                label="命中结果"
-                value={String(filteredNotifications.length)}
-                detail="当前筛选后结果"
-              />
+            <div className="grid gap-2">
               <ControlMetricCard
                 label="策略"
                 value={activeStrategyLabel}
@@ -1392,11 +1381,7 @@ export function SignalTradeDashboard({
                 }
               />
             </div>
-            {refreshSummary ? (
-              <p className="rounded-[16px] border border-border/70 bg-[rgba(14,18,27,0.92)] px-3 py-2 text-xs leading-5 text-muted-foreground">
-                {refreshSummary}
-              </p>
-            ) : null}
+
           </div>
         </header>
 
@@ -2223,15 +2208,6 @@ function NotificationListItem({
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {record.event.author?.display_name ? (
-            <InfoPill icon={Target} label={record.event.author.display_name} />
-          ) : null}
-          {rawActiveBoosts !== null ? (
-            <InfoPill icon={Layers} label={`active boosts ${formatPlainMetric(rawActiveBoosts)}`} />
-          ) : null}
-          {record.channels.length > 0 ? (
-            <InfoPill icon={BellRing} label={record.channels.join(', ')} />
-          ) : null}
         </div>
 
         {strategyEnabled ? (
@@ -2241,10 +2217,6 @@ function NotificationListItem({
               label={`首推 FDV ${formatUsd(strategyState.firstSeenFdv)}`}
             />
             <InfoPill
-              icon={Target}
-              label={`首推 ${formatAbsoluteTime(strategyState.firstSeenAt)}`}
-            />
-            <InfoPill
               icon={Activity}
               label={`相对首推 ${formatSignedPercent(strategyChangePercent)}`}
             />
@@ -2252,11 +2224,6 @@ function NotificationListItem({
         ) : null}
 
         <div className="grid gap-2.5 text-sm">
-          {displayText ? (
-            <p className="text-[13px] leading-5 text-muted-foreground">
-              {displayText}
-            </p>
-          ) : null}
           {(currentMarketCap !== null ||
             enrichedLiquidityUsd !== null ||
             currentPriceUsd !== null ||
@@ -2305,17 +2272,7 @@ function NotificationListItem({
               <ArrowUpRight className="size-3" />
             </a>
           ) : null}
-          {record.summary.telegramUrl ? (
-            <a
-              className="inline-flex items-center gap-1 rounded-full border border-border bg-[rgba(14,18,27,0.92)] px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-[color:var(--color-panel-soft)]"
-              href={record.summary.telegramUrl}
-              rel="noreferrer"
-              target="_blank"
-            >
-              Telegram
-              <ArrowUpRight className="size-3" />
-            </a>
-          ) : null}
+
         </div>
       </div>
     </li>
