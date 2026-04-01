@@ -1907,15 +1907,7 @@ export function SignalTradeDashboard({
               ) : (
                 <EmptyState
                   activeFilterCount={activeFilterChips.length}
-                  isWatchRunning={Boolean(watchRuntime?.running)}
-                  onOpenWatchTab={() => {
-                    setFilterDialogTab(activeFilterChips.length > 0 ? 'basic' : 'watch');
-                    setAdvancedOpen(true);
-                  }}
                   onResetFilters={resetFilters}
-                  onStartWatch={() => {
-                    void startWatch();
-                  }}
                   onSync={() => {
                     void syncNotifications();
                   }}
@@ -2373,17 +2365,11 @@ function TokenAvatar({
 
 function EmptyState({
   activeFilterCount,
-  isWatchRunning,
-  onOpenWatchTab,
   onResetFilters,
-  onStartWatch,
   onSync,
 }: {
   activeFilterCount: number;
-  isWatchRunning: boolean;
-  onOpenWatchTab: () => void;
   onResetFilters: () => void;
-  onStartWatch: () => void;
   onSync: () => void;
 }): JSX.Element {
   return (
@@ -2403,13 +2389,6 @@ function EmptyState({
         <div className="mt-5 flex flex-wrap justify-center gap-3">
           <Button className="rounded-full" onClick={onSync}>
             同步通知
-          </Button>
-          <Button
-            className="rounded-full"
-            variant="secondary"
-            onClick={isWatchRunning ? onOpenWatchTab : onStartWatch}
-          >
-            {isWatchRunning ? '查看监听设置' : '启动监听'}
           </Button>
           <Button className="rounded-full" variant="outline" onClick={onResetFilters}>
             清空筛选
