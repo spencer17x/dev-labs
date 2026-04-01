@@ -1469,9 +1469,6 @@ export function SignalTradeDashboard({
             </CardHeader>
             <CardContent className="pt-4 space-y-4">
               <div className="grid gap-3 sm:grid-cols-2">
-                <Button className="w-full rounded-full" variant="outline" onClick={resetFilters}>
-                  重置筛选
-                </Button>
                 <Button
                   className="w-full rounded-full"
                   disabled={isWatchMutating}
@@ -1812,13 +1809,11 @@ export function SignalTradeDashboard({
                     <Layers className="size-5 text-[color:var(--color-accent)]" />
                     扫链结果
                   </div>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    当前页面会话累计记录 {notifications.length} 条通知，筛选后显示{' '}
-                    {filteredNotifications.length} 条。
-                    {isStrategyPresetEnabled(filters.strategyPreset)
-                      ? ` 当前按 token 去重，并使用策略状态机过滤。`
-                      : ''}
-                  </p>
+                  {isStrategyPresetEnabled(filters.strategyPreset) ? (
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      当前按 token 去重，并使用策略状态机过滤。
+                    </p>
+                  ) : null}
                   {activeFilterChips.length > 0 ? (
                     <div className="mt-3 flex flex-wrap items-center gap-2">
                       {activeFilterChips.map(chip => (
