@@ -113,8 +113,6 @@ type ActiveFilterChip = {
     | 'watchTransport';
   label: string;
 };
-type FilterDialogTab = 'basic' | 'advanced' | 'strategy';
-
 interface TokenMarketData {
   priceUsd: number | null;
   marketCap: number | null;
@@ -171,7 +169,6 @@ export function SignalTradeDashboard({
   );
   const [diagnosticsError, setDiagnosticsError] = useState('');
   const [watchRuntime, setWatchRuntime] = useState<WatchRuntimeState | null>(null);
-  const [filterDialogTab, setFilterDialogTab] = useState<FilterDialogTab>('basic');
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const browserConnectTimersRef = useRef(new Map<string, number>());
   const browserReconnectTimersRef = useRef(new Map<string, number>());
@@ -281,24 +278,11 @@ export function SignalTradeDashboard({
       ).length,
     };
   }, [laohuangConfig, laohuangStates, relativeNow]);
-  const activeBasicCount =
-    Number(filters.search.trim().length > 0) +
-    Number(filters.paidOnly) +
-    Number(filters.watchTransport !== 'auto') +
-    Number(filters.chain !== 'all') +
-    Number(filters.source !== 'all');
   const activeWatchCount =
     Number(watchTermsList.length > 0) +
     Number(
       !areStringArraysEqual(selectedWatchSubscriptions, DEFAULT_DEX_WATCH_SUBSCRIPTIONS),
     );
-  const activeAdvancedCount =
-    Number(filters.minHolders.trim().length > 0) +
-    Number(filters.maxHolders.trim().length > 0) +
-    Number(filters.maxMarketCap.trim().length > 0) +
-    Number(filters.minCommunityCount.trim().length > 0) +
-    Number(filters.kolNames.trim().length > 0) +
-    Number(filters.followAddresses.trim().length > 0);
   const activeFilterChips = useMemo(() => {
     const chips: ActiveFilterChip[] = [];
 
@@ -1403,9 +1387,15 @@ export function SignalTradeDashboard({
       ?.label ?? filters.strategyPreset;
   const transportLabel = watchRuntime?.transport ?? filters.watchTransport;
   const watchStatusLabel = watchRuntime ? formatWatchStatus(watchRuntime) : '待机';
-  const activeStrategyAppliedCount = Number(isStrategyPresetEnabled(filters.strategyPreset));
   const activeDialogCount =
-    activeBasicCount + activeAdvancedCount + activeStrategyAppliedCount;
+    Number(filters.paidOnly) +
+    Number(filters.chain !== 'all') +
+    Number(filters.source !== 'all') +
+    Number(filters.minHolders.trim().length > 0) +
+    Number(filters.maxHolders.trim().length > 0) +
+    Number(filters.maxMarketCap.trim().length > 0) +
+    Number(filters.minCommunityCount.trim().length > 0) +
+    Number(isStrategyPresetEnabled(filters.strategyPreset));
 
   return (
     <div className="relative overflow-hidden">
@@ -1557,232 +1547,186 @@ export function SignalTradeDashboard({
             title="筛选设置"
             onClose={() => setAdvancedOpen(false)}
           >
-            {/* Tab bar */}
-            <div className="mb-4 flex flex-wrap gap-2 border-b border-border/60 pb-3">
-              {(
-                [
-                  { id: 'basic', label: '基础', count: activeBasicCount },
-                  { id: 'advanced', label: '高级', count: activeAdvancedCount },
-                  { id: 'strategy', label: '策略', count: Number(isStrategyPresetEnabled(pendingFilters.strategyPreset)) },
-                ] as Array<{ id: FilterDialogTab; label: string; count: number }>
-              ).map(tab => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  className={cn(
-                    'rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors',
-                    filterDialogTab === tab.id
-                      ? 'border-[color:var(--color-accent)] bg-[rgba(91,132,255,0.12)] text-foreground'
-                      : 'border-border bg-[rgba(14,18,27,0.92)] text-muted-foreground hover:text-foreground',
-                  )}
-                  onClick={() => setFilterDialogTab(tab.id)}
-                >
-                  <span className="flex items-center gap-2">
-                    {tab.label}
-                    {tab.count > 0 ? (
-                      <span className="rounded-full border border-white/[0.08] bg-black/20 px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground">
-                        {tab.count}
-                      </span>
-                    ) : null}
-                  </span>
-                </button>
-              ))}
-            </div>
-
-            {/* 基础 tab */}
-            {filterDialogTab === 'basic' ? (
-              <div className="space-y-4">
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <FieldGroup label="链路">
-                    <SelectField
-                      options={['all', ...chainOptions]}
-                      value={pendingFilters.chain}
-                      onChange={value => updatePendingFilter('chain', value)}
-                    />
-                  </FieldGroup>
-                  <FieldGroup label="来源">
-                    <SelectField
-                      options={['all', ...sourceOptions]}
-                      value={pendingFilters.source}
-                      onChange={value => updatePendingFilter('source', value)}
-                    />
-                  </FieldGroup>
-                </div>
-                <button
-                  type="button"
-                  className={cn(
-                    'flex w-full items-center justify-between rounded-[18px] border px-4 py-3 text-left transition-colors',
-                    pendingFilters.paidOnly
-                      ? 'border-[color:var(--color-accent)] bg-[rgba(91,132,255,0.12)] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
-                      : 'border-border bg-[color:var(--color-panel-soft)]',
-                  )}
-                  onClick={() => updatePendingFilter('paidOnly', !pendingFilters.paidOnly)}
-                >
-                  <div>
-                    <p className="text-sm font-semibold text-foreground">
-                      仅看 Paid Dex 通知
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      对应 `dexscreener.paid = true`
-                    </p>
-                  </div>
-                  <Badge variant={pendingFilters.paidOnly ? 'success' : 'secondary'}>
-                    {pendingFilters.paidOnly ? 'ON' : 'OFF'}
-                  </Badge>
-                </button>
-              </div>
-            ) : null}
-
-            {/* 监听 tab */}
-
-
-            {/* 高级 tab */}
-            {filterDialogTab === 'advanced' ? (
-              <div className="space-y-4">
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <FieldGroup label="最少持币人数">
-                    <Input
-                      inputMode="numeric"
-                      placeholder="100"
-                      value={pendingFilters.minHolders}
-                      onChange={event => updatePendingFilter('minHolders', event.target.value)}
-                    />
-                  </FieldGroup>
-                  <FieldGroup label="最多持币人数">
-                    <Input
-                      inputMode="numeric"
-                      placeholder="5000"
-                      value={pendingFilters.maxHolders}
-                      onChange={event => updatePendingFilter('maxHolders', event.target.value)}
-                    />
-                  </FieldGroup>
-                  <FieldGroup label="最高市值">
-                    <Input
-                      inputMode="numeric"
-                      placeholder="3000000"
-                      value={pendingFilters.maxMarketCap}
-                      onChange={event => updatePendingFilter('maxMarketCap', event.target.value)}
-                    />
-                  </FieldGroup>
-                  <FieldGroup label="最少社区人数">
-                    <Input
-                      inputMode="numeric"
-                      placeholder="5000"
-                      value={pendingFilters.minCommunityCount}
-                      onChange={event => updatePendingFilter('minCommunityCount', event.target.value)}
-                    />
-                  </FieldGroup>
-                </div>
-
-              </div>
-            ) : null}
-
-            {/* 策略 tab */}
-            {filterDialogTab === 'strategy' ? (
-              <div className="space-y-4">
-                <FieldGroup label="策略预设">
+            <div className="space-y-4 overflow-y-auto max-h-[60vh]">
+              {/* 链路 + 来源 */}
+              <div className="grid gap-3 sm:grid-cols-2">
+                <FieldGroup label="链路">
                   <SelectField
-                    options={STRATEGY_PRESET_OPTIONS.map(option => ({
-                      label: option.label,
-                      value: option.value,
-                    }))}
-                    value={pendingFilters.strategyPreset}
-                    onChange={value =>
-                      setPendingFilters(current => ({
-                        ...current,
-                        strategyPreset: value as DashboardFilters['strategyPreset'],
-                      }))
-                    }
+                    options={['all', ...chainOptions]}
+                    value={pendingFilters.chain}
+                    onChange={value => updatePendingFilter('chain', value)}
                   />
                 </FieldGroup>
-                {isStrategyPresetEnabled(pendingFilters.strategyPreset) ? (
-                  <div className="space-y-3">
-                    <div className="grid grid-cols-2 gap-2">
-                      <FieldGroup label="种子订阅">
-                        <SelectField
-                          options={DEX_WATCH_SUBSCRIPTION_OPTIONS.map(option => ({
-                            label: option.label,
-                            value: option.id,
-                          }))}
-                          value={pendingFilters.strategySeedSubscription}
-                          onChange={value => updatePendingStrategyFilter('strategySeedSubscription', value)}
-                        />
-                      </FieldGroup>
-                      <FieldGroup label="种子链">
-                        <Input
-                          placeholder="solana"
-                          value={pendingFilters.strategySeedChain}
-                          onChange={event => updatePendingStrategyFilter('strategySeedChain', event.target.value)}
-                        />
-                      </FieldGroup>
-                      <FieldGroup label="首推 FDV 上限">
-                        <Input
-                          inputMode="decimal"
-                          placeholder="80000"
-                          value={pendingFilters.strategyMaxFirstSeenFdv}
-                          onChange={event => updatePendingStrategyFilter('strategyMaxFirstSeenFdv', event.target.value)}
-                        />
-                      </FieldGroup>
-                      <FieldGroup label="跟踪窗口(h)">
-                        <Input
-                          inputMode="decimal"
-                          placeholder="12"
-                          value={pendingFilters.strategyTrackHours}
-                          onChange={event => updatePendingStrategyFilter('strategyTrackHours', event.target.value)}
-                        />
-                      </FieldGroup>
-                      <FieldGroup label="下跌比例">
-                        <Input
-                          inputMode="decimal"
-                          placeholder="0.5"
-                          value={pendingFilters.strategyDropRatio}
-                          onChange={event => updatePendingStrategyFilter('strategyDropRatio', event.target.value)}
-                        />
-                      </FieldGroup>
-                      <FieldGroup label="回调倍数">
-                        <Input
-                          inputMode="decimal"
-                          placeholder="1.2"
-                          value={pendingFilters.strategyReboundRatio}
-                          onChange={event => updatePendingStrategyFilter('strategyReboundRatio', event.target.value)}
-                        />
-                      </FieldGroup>
-                      <FieldGroup label="回调延迟(s)">
-                        <Input
-                          inputMode="decimal"
-                          placeholder="6"
-                          value={pendingFilters.strategyReboundDelaySec}
-                          onChange={event => updatePendingStrategyFilter('strategyReboundDelaySec', event.target.value)}
-                        />
-                      </FieldGroup>
-                      <FieldGroup label="涨幅阈值 %">
-                        <Input
-                          inputMode="decimal"
-                          placeholder="20"
-                          value={pendingFilters.strategyGrowthPercent}
-                          onChange={event => updatePendingStrategyFilter('strategyGrowthPercent', event.target.value)}
-                        />
-                      </FieldGroup>
-                    </div>
-                    <button
-                      type="button"
-                      className={cn(
-                        'flex w-full items-center justify-between rounded-[14px] border px-3 py-2.5 text-left transition-colors',
-                        pendingFilters.strategyRequirePaid
-                          ? 'border-[color:var(--color-accent)] bg-[rgba(91,132,255,0.12)]'
-                          : 'border-border bg-[color:var(--color-panel-soft)]',
-                      )}
-                      onClick={() => updatePendingStrategyFilter('strategyRequirePaid', !pendingFilters.strategyRequirePaid)}
-                    >
-                      <p className="text-xs font-semibold text-foreground">种子必须是 Paid</p>
-                      <Badge variant={pendingFilters.strategyRequirePaid ? 'success' : 'secondary'}>
-                        {pendingFilters.strategyRequirePaid ? 'ON' : 'OFF'}
-                      </Badge>
-                    </button>
-                  </div>
-                ) : null}
+                <FieldGroup label="来源">
+                  <SelectField
+                    options={['all', ...sourceOptions]}
+                    value={pendingFilters.source}
+                    onChange={value => updatePendingFilter('source', value)}
+                  />
+                </FieldGroup>
               </div>
-            ) : null}
+
+              {/* 持币 + 市值 + 社区 */}
+              <div className="grid gap-3 sm:grid-cols-2">
+                <FieldGroup label="最少持币人数">
+                  <Input
+                    inputMode="numeric"
+                    placeholder="100"
+                    value={pendingFilters.minHolders}
+                    onChange={event => updatePendingFilter('minHolders', event.target.value)}
+                  />
+                </FieldGroup>
+                <FieldGroup label="最多持币人数">
+                  <Input
+                    inputMode="numeric"
+                    placeholder="5000"
+                    value={pendingFilters.maxHolders}
+                    onChange={event => updatePendingFilter('maxHolders', event.target.value)}
+                  />
+                </FieldGroup>
+                <FieldGroup label="最高市值">
+                  <Input
+                    inputMode="numeric"
+                    placeholder="3000000"
+                    value={pendingFilters.maxMarketCap}
+                    onChange={event => updatePendingFilter('maxMarketCap', event.target.value)}
+                  />
+                </FieldGroup>
+                <FieldGroup label="最少社区人数">
+                  <Input
+                    inputMode="numeric"
+                    placeholder="5000"
+                    value={pendingFilters.minCommunityCount}
+                    onChange={event => updatePendingFilter('minCommunityCount', event.target.value)}
+                  />
+                </FieldGroup>
+              </div>
+
+              {/* 策略预设 */}
+              <FieldGroup label="策略预设">
+                <SelectField
+                  options={STRATEGY_PRESET_OPTIONS.map(option => ({
+                    label: option.label,
+                    value: option.value,
+                  }))}
+                  value={pendingFilters.strategyPreset}
+                  onChange={value =>
+                    setPendingFilters(current => ({
+                      ...current,
+                      strategyPreset: value as DashboardFilters['strategyPreset'],
+                    }))
+                  }
+                />
+              </FieldGroup>
+
+              {/* 策略详细参数 */}
+              {isStrategyPresetEnabled(pendingFilters.strategyPreset) ? (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-2">
+                    <FieldGroup label="种子订阅">
+                      <SelectField
+                        options={DEX_WATCH_SUBSCRIPTION_OPTIONS.map(option => ({
+                          label: option.label,
+                          value: option.id,
+                        }))}
+                        value={pendingFilters.strategySeedSubscription}
+                        onChange={value => updatePendingStrategyFilter('strategySeedSubscription', value)}
+                      />
+                    </FieldGroup>
+                    <FieldGroup label="种子链">
+                      <Input
+                        placeholder="solana"
+                        value={pendingFilters.strategySeedChain}
+                        onChange={event => updatePendingStrategyFilter('strategySeedChain', event.target.value)}
+                      />
+                    </FieldGroup>
+                    <FieldGroup label="首推 FDV 上限">
+                      <Input
+                        inputMode="decimal"
+                        placeholder="80000"
+                        value={pendingFilters.strategyMaxFirstSeenFdv}
+                        onChange={event => updatePendingStrategyFilter('strategyMaxFirstSeenFdv', event.target.value)}
+                      />
+                    </FieldGroup>
+                    <FieldGroup label="跟踪窗口(h)">
+                      <Input
+                        inputMode="decimal"
+                        placeholder="12"
+                        value={pendingFilters.strategyTrackHours}
+                        onChange={event => updatePendingStrategyFilter('strategyTrackHours', event.target.value)}
+                      />
+                    </FieldGroup>
+                    <FieldGroup label="下跌比例">
+                      <Input
+                        inputMode="decimal"
+                        placeholder="0.5"
+                        value={pendingFilters.strategyDropRatio}
+                        onChange={event => updatePendingStrategyFilter('strategyDropRatio', event.target.value)}
+                      />
+                    </FieldGroup>
+                    <FieldGroup label="回调倍数">
+                      <Input
+                        inputMode="decimal"
+                        placeholder="1.2"
+                        value={pendingFilters.strategyReboundRatio}
+                        onChange={event => updatePendingStrategyFilter('strategyReboundRatio', event.target.value)}
+                      />
+                    </FieldGroup>
+                    <FieldGroup label="回调延迟(s)">
+                      <Input
+                        inputMode="decimal"
+                        placeholder="6"
+                        value={pendingFilters.strategyReboundDelaySec}
+                        onChange={event => updatePendingStrategyFilter('strategyReboundDelaySec', event.target.value)}
+                      />
+                    </FieldGroup>
+                    <FieldGroup label="涨幅阈值 %">
+                      <Input
+                        inputMode="decimal"
+                        placeholder="20"
+                        value={pendingFilters.strategyGrowthPercent}
+                        onChange={event => updatePendingStrategyFilter('strategyGrowthPercent', event.target.value)}
+                      />
+                    </FieldGroup>
+                  </div>
+                  <button
+                    type="button"
+                    className={cn(
+                      'flex w-full items-center justify-between rounded-[14px] border px-3 py-2.5 text-left transition-colors',
+                      pendingFilters.strategyRequirePaid
+                        ? 'border-[color:var(--color-accent)] bg-[rgba(91,132,255,0.12)]'
+                        : 'border-border bg-[color:var(--color-panel-soft)]',
+                    )}
+                    onClick={() => updatePendingStrategyFilter('strategyRequirePaid', !pendingFilters.strategyRequirePaid)}
+                  >
+                    <p className="text-xs font-semibold text-foreground">种子必须是 Paid</p>
+                    <Badge variant={pendingFilters.strategyRequirePaid ? 'success' : 'secondary'}>
+                      {pendingFilters.strategyRequirePaid ? 'ON' : 'OFF'}
+                    </Badge>
+                  </button>
+                </div>
+              ) : null}
+
+              {/* 仅看 Paid */}
+              <button
+                type="button"
+                className={cn(
+                  'flex w-full items-center justify-between rounded-[18px] border px-4 py-3 text-left transition-colors',
+                  pendingFilters.paidOnly
+                    ? 'border-[color:var(--color-accent)] bg-[rgba(91,132,255,0.12)] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
+                    : 'border-border bg-[color:var(--color-panel-soft)]',
+                )}
+                onClick={() => updatePendingFilter('paidOnly', !pendingFilters.paidOnly)}
+              >
+                <div>
+                  <p className="text-sm font-semibold text-foreground">仅看 Paid Dex 通知</p>
+                  <p className="text-xs text-muted-foreground">对应 `dexscreener.paid = true`</p>
+                </div>
+                <Badge variant={pendingFilters.paidOnly ? 'success' : 'secondary'}>
+                  {pendingFilters.paidOnly ? 'ON' : 'OFF'}
+                </Badge>
+              </button>
+            </div>
 
             {/* Footer */}
             <div className="mt-6 flex items-center justify-end gap-3 border-t border-border/60 pt-4">
