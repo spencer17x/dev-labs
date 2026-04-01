@@ -114,6 +114,13 @@ type ActiveFilterChip = {
   label: string;
 };
 type FilterDialogTab = 'basic' | 'watch' | 'strategy' | 'advanced';
+
+interface TokenMarketData {
+  priceUsd: number | null;
+  marketCap: number | null;
+  fdv: number | null;
+  liquidityUsd: number | null;
+}
 type LaohuangStrategyConfig = {
   chain: string;
   dropRatio: number;
@@ -173,6 +180,10 @@ export function SignalTradeDashboard({
   const browserSessionRef = useRef(0);
   const browserSocketsRef = useRef(new Map<string, WebSocket>());
   const watchRuntimeRef = useRef<WatchRuntimeState | null>(null);
+  // Market-data enrichment cache: "chain:address" → data fetched from DexScreener
+  const marketDataCacheRef = useRef(new Map<string, TokenMarketData>());
+  const enrichingRef = useRef(new Set<string>());
+  const [marketDataVersion, setMarketDataVersion] = useState(0);
 
   const deferredSearch = useDeferredValue(filters.search);
   const deferredWatchTerms = useDeferredValue(filters.watchTerms);
@@ -465,6 +476,95 @@ export function SignalTradeDashboard({
     relativeNow,
     strategyBaseRecords,
   ]);
+
+  // Enrich notifications missing market data via DexScreener /tokens/v1 API
+  useEffect(() => {
+    const toEnrich = new Map<string, string[]>(); // chain → addresses
+
+    for (const record of notifications) {
+      const chain = record.event.chain ?? record.context.token?.chain ?? null;
+      const address =
+        record.context.token?.address ?? record.event.token.address ?? null;
+      if (!chain || !address) continue;
+
+      const key = `${chain}:${address}`;
+      if (marketDataCacheRef.current.has(key)) continue;
+      if (enrichingRef.current.has(key)) continue;
+
+      // Only enrich when both price and market cap are missing
+      if (record.summary.priceUsd !== null || record.summary.marketCap !== null) {
+        continue;
+      }
+
+      enrichingRef.current.add(key);
+      if (!toEnrich.has(chain)) toEnrich.set(chain, []);
+      toEnrich.get(chain)!.push(address);
+    }
+
+    if (toEnrich.size === 0) return;
+
+    let pendingUpdates = 0;
+
+    for (const [chain, addresses] of toEnrich) {
+      // Batch into groups of 30 (API limit)
+      for (let i = 0; i < addresses.length; i += 30) {
+        const batch = addresses.slice(i, i + 30);
+        pendingUpdates++;
+        void fetch(
+          `https://api.dexscreener.com/tokens/v1/${chain}/${batch.join(',')}`,
+        )
+          .then(r => r.json())
+          .then((pairs: unknown) => {
+            if (!Array.isArray(pairs)) return;
+            for (const pair of pairs) {
+              if (!pair || typeof pair !== 'object') continue;
+              const p = pair as Record<string, unknown>;
+              const baseToken = p['baseToken'] as Record<string, unknown> | undefined;
+              const addr =
+                typeof baseToken?.['address'] === 'string'
+                  ? baseToken['address']
+                  : null;
+              if (!addr) continue;
+              const key = `${chain}:${addr}`;
+              const liquidity = p['liquidity'] as Record<string, unknown> | undefined;
+              const data: TokenMarketData = {
+                priceUsd:
+                  typeof p['priceUsd'] === 'string'
+                    ? Number(p['priceUsd'])
+                    : typeof p['priceUsd'] === 'number'
+                      ? p['priceUsd']
+                      : null,
+                marketCap:
+                  typeof p['marketCap'] === 'number' ? p['marketCap'] : null,
+                fdv: typeof p['fdv'] === 'number' ? p['fdv'] : null,
+                liquidityUsd:
+                  typeof liquidity?.['usd'] === 'number' ? liquidity['usd'] : null,
+              };
+              // Prefer pairs with actual market data (highest liquidity wins)
+              const existing = marketDataCacheRef.current.get(key);
+              if (
+                !existing ||
+                (data.liquidityUsd ?? 0) > (existing.liquidityUsd ?? 0)
+              ) {
+                marketDataCacheRef.current.set(key, data);
+              }
+            }
+          })
+          .catch(() => {
+            for (const addr of batch) {
+              enrichingRef.current.delete(`${chain}:${addr}`);
+            }
+          })
+          .finally(() => {
+            pendingUpdates--;
+            if (pendingUpdates === 0) {
+              setMarketDataVersion(v => v + 1);
+            }
+          });
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notifications]);
 
   function appendNotifications(nextNotifications: NotificationRecord[]): void {
     if (nextNotifications.length === 0) {
@@ -1846,6 +1946,13 @@ export function SignalTradeDashboard({
                     <NotificationListItem
                       key={record.id}
                       currentTimeMs={relativeNow}
+                      marketDataVersion={marketDataVersion}
+                      enrichedMarketData={(() => {
+                        const chain = record.event.chain ?? record.context.token?.chain ?? null;
+                        const address = record.context.token?.address ?? record.event.token.address ?? null;
+                        if (!chain || !address) return null;
+                        return marketDataCacheRef.current.get(`${chain}:${address}`) ?? null;
+                      })()}
                       record={record}
                       strategyPreset={filters.strategyPreset}
                       strategyState={getLaohuangStateForRecord(laohuangStates, record)}
@@ -2062,11 +2169,15 @@ function DiagnosticsPanel({
 
 function NotificationListItem({
   currentTimeMs,
+  enrichedMarketData,
+  marketDataVersion: _marketDataVersion,
   record,
   strategyPreset,
   strategyState,
 }: {
   currentTimeMs: number;
+  enrichedMarketData: TokenMarketData | null;
+  marketDataVersion: number;
   record: NotificationRecord;
   strategyPreset: DashboardFilters['strategyPreset'];
   strategyState: LaohuangTokenState | null;
@@ -2093,14 +2204,16 @@ function NotificationListItem({
   const strategyEnabled =
     isStrategyPresetEnabled(strategyPreset) && strategyState !== null;
   const currentMarketCap = strategyEnabled
-    ? strategyState.currentMarketCap
-    : record.summary.marketCap;
+    ? (strategyState.currentMarketCap ?? enrichedMarketData?.marketCap ?? null)
+    : (record.summary.marketCap ?? enrichedMarketData?.marketCap ?? null);
   const currentPriceUsd = strategyEnabled
-    ? strategyState.currentPriceUsd
-    : record.summary.priceUsd;
+    ? (strategyState.currentPriceUsd ?? enrichedMarketData?.priceUsd ?? null)
+    : (record.summary.priceUsd ?? enrichedMarketData?.priceUsd ?? null);
   const currentFdv = strategyEnabled
-    ? strategyState.currentFdv
-    : asOptionalNumber(record.context.dexscreener?.fdv);
+    ? (strategyState.currentFdv ?? enrichedMarketData?.fdv ?? null)
+    : (asOptionalNumber(record.context.dexscreener?.fdv) ?? enrichedMarketData?.fdv ?? null);
+  const enrichedLiquidityUsd =
+    record.summary.liquidityUsd ?? enrichedMarketData?.liquidityUsd ?? null;
   const strategyChangePercent = strategyEnabled
     ? getLaohuangChangePercent(strategyState)
     : null;
@@ -2216,7 +2329,7 @@ function NotificationListItem({
             {displayText}
           </p>
           {(currentMarketCap !== null ||
-            record.summary.liquidityUsd !== null ||
+            enrichedLiquidityUsd !== null ||
             currentPriceUsd !== null ||
             currentFdv !== null ||
             rawAmount !== null ||
@@ -2225,7 +2338,7 @@ function NotificationListItem({
               <MetricPair label="市值" value={formatUsd(currentMarketCap)} />
               <MetricPair
                 label="流动性"
-                value={formatUsd(record.summary.liquidityUsd)}
+                value={formatUsd(enrichedLiquidityUsd)}
               />
               <MetricPair
                 label="价格"
