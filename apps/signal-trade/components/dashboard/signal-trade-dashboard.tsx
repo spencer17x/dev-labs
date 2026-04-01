@@ -111,7 +111,7 @@ type ActiveFilterChip = {
     | 'watchTransport';
   label: string;
 };
-type ControlTab = 'basic' | 'strategy' | 'watch';
+type FilterDialogTab = 'basic' | 'watch' | 'strategy' | 'advanced';
 type LaohuangStrategyConfig = {
   chain: string;
   dropRatio: number;
@@ -161,7 +161,7 @@ export function SignalTradeDashboard({
   );
   const [diagnosticsError, setDiagnosticsError] = useState('');
   const [watchRuntime, setWatchRuntime] = useState<WatchRuntimeState | null>(null);
-  const [activeControlTab, setActiveControlTab] = useState<ControlTab>('basic');
+  const [filterDialogTab, setFilterDialogTab] = useState<FilterDialogTab>('basic');
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const browserConnectTimersRef = useRef(new Map<string, number>());
   const browserReconnectTimersRef = useRef(new Map<string, number>());
@@ -174,12 +174,6 @@ export function SignalTradeDashboard({
 
   const deferredSearch = useDeferredValue(filters.search);
   const deferredWatchTerms = useDeferredValue(filters.watchTerms);
-
-  useEffect(() => {
-    if (!isStrategyPresetEnabled(filters.strategyPreset) && activeControlTab === 'strategy') {
-      setActiveControlTab('basic');
-    }
-  }, [activeControlTab, filters.strategyPreset]);
 
   useEffect(() => {
     setRelativeNow(Date.now());
@@ -1239,20 +1233,8 @@ export function SignalTradeDashboard({
       ?.label ?? filters.strategyPreset;
   const transportLabel = watchRuntime?.transport ?? filters.watchTransport;
   const watchStatusLabel = watchRuntime ? formatWatchStatus(watchRuntime) : '待机';
-  const controlTabs: Array<{ count?: number; hint: string; id: ControlTab; label: string }> = [
-    { count: activeBasicCount, hint: '链路、来源与会话开关', id: 'basic', label: '基础' },
-    { count: activeWatchCount, hint: '关键词、WS 订阅与连接状态', id: 'watch', label: '监听' },
-    ...(isStrategyPresetEnabled(filters.strategyPreset)
-      ? [{
-          count: strategyStatusCounts.triggered,
-          hint: 'laohuang 状态机参数',
-          id: 'strategy' as ControlTab,
-          label: '策略',
-        }]
-      : []),
-  ];
-  const activeControlTabMeta =
-    controlTabs.find(tab => tab.id === activeControlTab) ?? controlTabs[0];
+  const activeDialogCount =
+    activeBasicCount + activeWatchCount + activeAdvancedCount;
 
   return (
     <div className="relative overflow-hidden">
@@ -1346,460 +1328,433 @@ export function SignalTradeDashboard({
         <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(560px,0.92fr)_minmax(0,1.08fr)]">
           <Card className="overflow-hidden xl:sticky xl:top-4 xl:self-start">
             <CardHeader className="border-b border-border/70 bg-[rgba(11,14,21,0.92)]">
-              <CardTitle className="flex items-center gap-2 text-xl">
-                <Filter className="size-5 text-[color:var(--color-accent)]" />
-                扫链控制台
-              </CardTitle>
-              <CardDescription>
-                左侧按功能分组切换，右侧结果直接浏览，不再强压一屏。
-              </CardDescription>
-              <div className="mt-4 rounded-[20px] border border-border/70 bg-[rgba(14,18,27,0.92)] p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                    高频操作
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    更多参数继续在下方分组里细调。
-                  </p>
-                </div>
-                <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(0,1.45fr)_repeat(2,minmax(0,0.85fr))]">
-                  <FieldGroup label="快速搜索">
-                    <div className="relative">
-                      <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                      <Input
-                        className="pl-10"
-                        placeholder="代币、来源、Twitter 用户名"
-                        value={filters.search}
-                        onChange={event => updateFilter('search', event.target.value)}
-                      />
-                    </div>
-                  </FieldGroup>
-                  <FieldGroup label="监听模式">
-                    <SelectField
-                      options={['auto', 'ws', 'http']}
-                      value={filters.watchTransport}
-                      onChange={value =>
-                        updateFilter(
-                          'watchTransport',
-                          value as DashboardFilters['watchTransport'],
-                        )
-                      }
-                    />
-                  </FieldGroup>
-                  <FieldGroup label="策略预设">
-                    <SelectField
-                      options={STRATEGY_PRESET_OPTIONS.map(option => ({
-                        label: option.label,
-                        value: option.value,
-                      }))}
-                      value={filters.strategyPreset}
-                      onChange={value =>
-                        applySelectedStrategyPreset(
-                          value as DashboardFilters['strategyPreset'],
-                        )
-                      }
-                    />
-                  </FieldGroup>
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-2 pt-1">
-                {controlTabs.map(tab => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    className={cn(
-                      'rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors',
-                      activeControlTab === tab.id
-                        ? 'border-[color:var(--color-accent)] bg-[rgba(91,132,255,0.12)] text-foreground'
-                        : 'border-border bg-[rgba(14,18,27,0.92)] text-muted-foreground hover:text-foreground',
-                    )}
-                    onClick={() => {
-                      setActiveControlTab(tab.id);
-                    }}
-                  >
-                    <span className="flex items-center gap-2">
-                      {tab.label}
-                      {tab.count ? (
-                        <span className="rounded-full border border-white/[0.08] bg-black/20 px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground">
-                          {tab.count}
-                        </span>
-                      ) : null}
-                    </span>
-                  </button>
-                ))}
+              <div className="flex items-center justify-between gap-3">
+                <CardTitle className="flex items-center gap-2 text-xl">
+                  <Filter className="size-5 text-[color:var(--color-accent)]" />
+                  扫链控制台
+                </CardTitle>
                 <button
                   type="button"
                   className={cn(
-                    'rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors',
-                    activeAdvancedCount > 0
+                    'flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors',
+                    activeDialogCount > 0
                       ? 'border-[color:var(--color-accent)] bg-[rgba(91,132,255,0.12)] text-foreground'
                       : 'border-border bg-[rgba(14,18,27,0.92)] text-muted-foreground hover:text-foreground',
                   )}
                   onClick={() => setAdvancedOpen(true)}
                 >
-                  <span className="flex items-center gap-2">
-                    <SlidersHorizontal className="size-3" />
-                    高级
-                    {activeAdvancedCount > 0 ? (
-                      <span className="rounded-full border border-white/[0.08] bg-black/20 px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground">
-                        {activeAdvancedCount}
-                      </span>
-                    ) : null}
-                  </span>
+                  <SlidersHorizontal className="size-3" />
+                  筛选
+                  {activeDialogCount > 0 ? (
+                    <span className="rounded-full border border-white/[0.08] bg-black/20 px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground">
+                      {activeDialogCount}
+                    </span>
+                  ) : null}
                 </button>
               </div>
-            </CardHeader>
-            <CardContent className="pt-4">
-              <p className="mb-4 text-xs leading-6 text-muted-foreground">
-                当前分组：{activeControlTabMeta.label}。{activeControlTabMeta.hint}
-              </p>
-              {activeControlTab === 'basic' ? (
-                <ControlSection title="基础筛选">
-                  <p className="text-xs leading-6 text-muted-foreground">
-                    上方快捷区负责搜索、监听模式和策略预设；这里继续控制结果范围和会话动作。
-                  </p>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <FieldGroup label="链路">
-                      <SelectField
-                        options={['all', ...chainOptions]}
-                        value={filters.chain}
-                        onChange={value => updateFilter('chain', value)}
-                      />
-                    </FieldGroup>
-                    <FieldGroup label="来源">
-                      <SelectField
-                        options={['all', ...sourceOptions]}
-                        value={filters.source}
-                        onChange={value => updateFilter('source', value)}
-                      />
-                    </FieldGroup>
-                  </div>
-                  <button
-                    type="button"
-                    className={cn(
-                      'flex w-full items-center justify-between rounded-[18px] border px-4 py-3 text-left transition-colors',
-                      filters.paidOnly
-                        ? 'border-[color:var(--color-accent)] bg-[rgba(91,132,255,0.12)] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
-                        : 'border-border bg-[color:var(--color-panel-soft)]',
-                    )}
-                    onClick={() => updateFilter('paidOnly', !filters.paidOnly)}
-                  >
-                    <div>
-                      <p className="text-sm font-semibold text-foreground">
-                        仅看 Paid Dex 通知
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        对应 `dexscreener.paid = true`
-                      </p>
-                    </div>
-                    <Badge variant={filters.paidOnly ? 'success' : 'secondary'}>
-                      {filters.paidOnly ? 'ON' : 'OFF'}
-                    </Badge>
-                  </button>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <Button className="w-full rounded-full" variant="outline" onClick={resetFilters}>
-                      重置
-                    </Button>
-                    <Button
-                      className="w-full rounded-full"
-                      disabled={isWatchMutating}
-                      variant="secondary"
-                      onClick={() => {
-                        void startWatch();
-                      }}
-                    >
-                      {watchRuntime?.running ? '重启监听' : '启动监听'}
-                    </Button>
-                    <Button
-                      className="w-full rounded-full"
-                      disabled={isWatchMutating || !watchRuntime?.running}
-                      variant="outline"
-                      onClick={() => {
-                        void stopWatch();
-                      }}
-                    >
-                      停止监听
-                    </Button>
-                    <Button
-                      className="w-full rounded-full"
-                      disabled={isDiagnosing}
-                      variant="outline"
-                      onClick={() => {
-                        void runDiagnostics();
-                      }}
-                    >
-                      {isDiagnosing ? (
-                        <LoaderCircle className="size-4 animate-spin" />
-                      ) : (
-                        <Target className="size-4" />
-                      )}
-                      诊断
-                    </Button>
-                  </div>
-                </ControlSection>
-              ) : null}
-
-              {activeControlTab === 'watch' ? (
-                <ControlSection title="监听设置">
-                  <FieldGroup label="观察名单关键词">
-                    <Textarea
-                      className="min-h-[72px]"
-                      placeholder="支持逗号或换行，例如：ansem, base, hype"
-                      value={filters.watchTerms}
-                      onChange={event => updateFilter('watchTerms', event.target.value)}
+              <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(0,1.45fr)_repeat(2,minmax(0,0.85fr))]">
+                <FieldGroup label="快速搜索">
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      className="pl-10"
+                      placeholder="代币、来源、Twitter 用户名"
+                      value={filters.search}
+                      onChange={event => updateFilter('search', event.target.value)}
                     />
-                  </FieldGroup>
-                  <div className="space-y-2.5">
-                    <Label>WS 订阅</Label>
-                    <SubscriptionMultiSelect
-                      selectedSubscriptions={filters.watchSubscriptions}
-                      onToggle={subscription =>
-                        updateFilter(
-                          'watchSubscriptions',
-                          toggleWatchSubscription(
-                            filters.watchSubscriptions,
-                            subscription,
-                          ),
-                        )
-                      }
-                    />
-                    <p className="text-xs leading-6 text-muted-foreground">
-                      只有选中的 DexScreener feed 会被订阅；未选中的不会连接。
-                    </p>
                   </div>
-                  <WatchStatusPanel watchRuntime={watchRuntime} />
-                </ControlSection>
-              ) : null}
-
-              {activeControlTab === 'strategy' && isStrategyPresetEnabled(filters.strategyPreset) ? (
-                <ControlSection
-                  title="laohuang 策略参数"
-                  trailing={
-                    <Badge variant="outline" className="normal-case tracking-normal">
-                      {activeStrategyLabel}
-                    </Badge>
-                  }
-                >
-                  <p className="text-xs leading-6 text-muted-foreground">
-                    会话内跟踪 {laohuangSummary.visible} 个 token，命中异常{' '}
-                    {laohuangSummary.triggered} 个，首推超{' '}
-                    {formatUsd(laohuangConfig.maxFirstSeenFdv)} 被隐藏{' '}
-                    {laohuangSummary.blacklisted} 个。
-                  </p>
-                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                    <FieldGroup label="策略状态">
-                      <SelectField
-                        options={['all', 'tracking', 'drop', 'rebound', 'growth', 'triggered']}
-                        value={filters.strategyStatus}
-                        onChange={value =>
-                          updateFilter(
-                            'strategyStatus',
-                            value as DashboardFilters['strategyStatus'],
-                          )
-                        }
-                      />
-                    </FieldGroup>
-                    <FieldGroup label="种子订阅">
-                      <SelectField
-                        options={DEX_WATCH_SUBSCRIPTION_OPTIONS.map(option => ({
-                          label: option.label,
-                          value: option.id,
-                        }))}
-                        value={filters.strategySeedSubscription}
-                        onChange={value =>
-                          updateStrategyFilter('strategySeedSubscription', value)
-                        }
-                      />
-                    </FieldGroup>
-                    <FieldGroup label="种子链">
-                      <Input
-                        placeholder="solana"
-                        value={filters.strategySeedChain}
-                        onChange={event =>
-                          updateStrategyFilter('strategySeedChain', event.target.value)
-                        }
-                      />
-                    </FieldGroup>
-                    <FieldGroup label="首推 FDV 上限">
-                      <Input
-                        inputMode="decimal"
-                        placeholder="80000"
-                        value={filters.strategyMaxFirstSeenFdv}
-                        onChange={event =>
-                          updateStrategyFilter(
-                            'strategyMaxFirstSeenFdv',
-                            event.target.value,
-                          )
-                        }
-                      />
-                    </FieldGroup>
-                    <FieldGroup label="跟踪窗口小时">
-                      <Input
-                        inputMode="decimal"
-                        placeholder="12"
-                        value={filters.strategyTrackHours}
-                        onChange={event =>
-                          updateStrategyFilter('strategyTrackHours', event.target.value)
-                        }
-                      />
-                    </FieldGroup>
-                    <FieldGroup label="下跌比例">
-                      <Input
-                        inputMode="decimal"
-                        placeholder="0.5"
-                        value={filters.strategyDropRatio}
-                        onChange={event =>
-                          updateStrategyFilter('strategyDropRatio', event.target.value)
-                        }
-                      />
-                    </FieldGroup>
-                    <FieldGroup label="回调倍数">
-                      <Input
-                        inputMode="decimal"
-                        placeholder="1.2"
-                        value={filters.strategyReboundRatio}
-                        onChange={event =>
-                          updateStrategyFilter('strategyReboundRatio', event.target.value)
-                        }
-                      />
-                    </FieldGroup>
-                    <FieldGroup label="回调延迟秒数">
-                      <Input
-                        inputMode="decimal"
-                        placeholder="6"
-                        value={filters.strategyReboundDelaySec}
-                        onChange={event =>
-                          updateStrategyFilter(
-                            'strategyReboundDelaySec',
-                            event.target.value,
-                          )
-                        }
-                      />
-                    </FieldGroup>
-                    <FieldGroup label="涨幅阈值 %">
-                      <Input
-                        inputMode="decimal"
-                        placeholder="20"
-                        value={filters.strategyGrowthPercent}
-                        onChange={event =>
-                          updateStrategyFilter(
-                            'strategyGrowthPercent',
-                            event.target.value,
-                          )
-                        }
-                      />
-                    </FieldGroup>
-                  </div>
-                  <button
-                    type="button"
-                    className={cn(
-                      'flex w-full items-center justify-between rounded-[18px] border px-4 py-3 text-left transition-colors',
-                      filters.strategyRequirePaid
-                        ? 'border-[color:var(--color-accent)] bg-[rgba(91,132,255,0.12)] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
-                        : 'border-border bg-[color:var(--color-panel-soft)]',
-                    )}
-                    onClick={() =>
-                      updateStrategyFilter(
-                        'strategyRequirePaid',
-                        !filters.strategyRequirePaid,
+                </FieldGroup>
+                <FieldGroup label="监听模式">
+                  <SelectField
+                    options={['auto', 'ws', 'http']}
+                    value={filters.watchTransport}
+                    onChange={value =>
+                      updateFilter(
+                        'watchTransport',
+                        value as DashboardFilters['watchTransport'],
                       )
                     }
-                  >
-                    <div>
-                      <p className="text-sm font-semibold text-foreground">
-                        种子必须是 Paid
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        关闭后，只按订阅 + 链来当作策略种子。
-                      </p>
-                    </div>
-                    <Badge variant={filters.strategyRequirePaid ? 'success' : 'secondary'}>
-                      {filters.strategyRequirePaid ? 'ON' : 'OFF'}
-                    </Badge>
-                  </button>
-                  <p className="text-xs leading-6 text-muted-foreground">
-                    策略直接消费当前页面收到的通知流，支持上面的 `ws / http / auto`
-                    监听模式；切换预设会一键覆盖这些参数，手动改动后会自动进入“自定义”。
-                  </p>
-                </ControlSection>
-              ) : null}
-
+                  />
+                </FieldGroup>
+                <FieldGroup label="策略预设">
+                  <SelectField
+                    options={STRATEGY_PRESET_OPTIONS.map(option => ({
+                      label: option.label,
+                      value: option.value,
+                    }))}
+                    value={filters.strategyPreset}
+                    onChange={value =>
+                      applySelectedStrategyPreset(
+                        value as DashboardFilters['strategyPreset'],
+                      )
+                    }
+                  />
+                </FieldGroup>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-4 space-y-4">
+              <WatchStatusPanel watchRuntime={watchRuntime} />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Button className="w-full rounded-full" variant="outline" onClick={resetFilters}>
+                  重置筛选
+                </Button>
+                <Button
+                  className="w-full rounded-full"
+                  disabled={isWatchMutating}
+                  variant="secondary"
+                  onClick={() => {
+                    void startWatch();
+                  }}
+                >
+                  {watchRuntime?.running ? '重启监听' : '启动监听'}
+                </Button>
+                <Button
+                  className="w-full rounded-full"
+                  disabled={isWatchMutating || !watchRuntime?.running}
+                  variant="outline"
+                  onClick={() => {
+                    void stopWatch();
+                  }}
+                >
+                  停止监听
+                </Button>
+                <Button
+                  className="w-full rounded-full"
+                  disabled={isDiagnosing}
+                  variant="outline"
+                  onClick={() => {
+                    void runDiagnostics();
+                  }}
+                >
+                  {isDiagnosing ? (
+                    <LoaderCircle className="size-4 animate-spin" />
+                  ) : (
+                    <Target className="size-4" />
+                  )}
+                  诊断
+                </Button>
+              </div>
             </CardContent>
           </Card>
 
           <Dialog
             open={advancedOpen}
-            title="高级筛选"
+            title="筛选设置"
             onClose={() => setAdvancedOpen(false)}
           >
-            <div className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <FieldGroup label="最少持币人数">
-                  <Input
-                    inputMode="numeric"
-                    placeholder="100"
-                    value={filters.minHolders}
-                    onChange={event => updateFilter('minHolders', event.target.value)}
-                  />
-                </FieldGroup>
-                <FieldGroup label="最多持币人数">
-                  <Input
-                    inputMode="numeric"
-                    placeholder="5000"
-                    value={filters.maxHolders}
-                    onChange={event => updateFilter('maxHolders', event.target.value)}
-                  />
-                </FieldGroup>
-                <FieldGroup label="最高市值">
-                  <Input
-                    inputMode="numeric"
-                    placeholder="3000000"
-                    value={filters.maxMarketCap}
-                    onChange={event => updateFilter('maxMarketCap', event.target.value)}
-                  />
-                </FieldGroup>
-                <FieldGroup label="最少社区人数">
-                  <Input
-                    inputMode="numeric"
-                    placeholder="5000"
-                    value={filters.minCommunityCount}
-                    onChange={event => updateFilter('minCommunityCount', event.target.value)}
-                  />
-                </FieldGroup>
-              </div>
-              <FieldGroup label="KOL 名单">
-                <Textarea
-                  className="min-h-[84px]"
-                  placeholder="当前停用 XXYY，KOL 筛选暂不可用"
-                  value={filters.kolNames}
-                  onChange={event => updateFilter('kolNames', event.target.value)}
-                />
-              </FieldGroup>
-              <FieldGroup label="关注地址">
-                <Textarea
-                  className="min-h-[84px]"
-                  placeholder="当前停用 XXYY，关注地址筛选暂不可用"
-                  value={filters.followAddresses}
-                  onChange={event => updateFilter('followAddresses', event.target.value)}
-                />
-              </FieldGroup>
-              <div className="rounded-[14px] border border-border bg-[rgba(14,18,27,0.92)] px-4 py-4 text-xs leading-6 text-muted-foreground">
-                <p>
-                  当前页面直接控制 `auto / ws / http`。`ws` 由浏览器直连，`http`
-                  由浏览器定时请求刷新接口；通知只保留在当前页面内存，不写浏览器缓存，也不写 Node 存储。
-                </p>
-                <p className="mt-2">
-                  当前已停用 XXYY 富化，通知卡片优先直接展示 DexScreener feed 自带字段。
-                </p>
-                <p className="mt-2">
-                  `KOL 名单` 与 `关注地址` 仍保留在表单里，但当前不会参与过滤。
-                </p>
-              </div>
-              <DiagnosticsPanel
-                diagnostics={diagnostics}
-                diagnosticsError={diagnosticsError}
-              />
+            {/* Tab bar */}
+            <div className="mb-4 flex flex-wrap gap-2 border-b border-border/60 pb-3">
+              {(
+                [
+                  { id: 'basic', label: '基础', count: activeBasicCount },
+                  { id: 'watch', label: '监听', count: activeWatchCount },
+                  ...(isStrategyPresetEnabled(filters.strategyPreset)
+                    ? [{ id: 'strategy', label: '策略', count: strategyStatusCounts.triggered }]
+                    : []),
+                  { id: 'advanced', label: '高级', count: activeAdvancedCount },
+                ] as Array<{ id: FilterDialogTab; label: string; count: number }>
+              ).map(tab => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  className={cn(
+                    'rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors',
+                    filterDialogTab === tab.id
+                      ? 'border-[color:var(--color-accent)] bg-[rgba(91,132,255,0.12)] text-foreground'
+                      : 'border-border bg-[rgba(14,18,27,0.92)] text-muted-foreground hover:text-foreground',
+                  )}
+                  onClick={() => setFilterDialogTab(tab.id)}
+                >
+                  <span className="flex items-center gap-2">
+                    {tab.label}
+                    {tab.count > 0 ? (
+                      <span className="rounded-full border border-white/[0.08] bg-black/20 px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground">
+                        {tab.count}
+                      </span>
+                    ) : null}
+                  </span>
+                </button>
+              ))}
             </div>
+
+            {/* 基础 tab */}
+            {filterDialogTab === 'basic' ? (
+              <div className="space-y-4">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <FieldGroup label="链路">
+                    <SelectField
+                      options={['all', ...chainOptions]}
+                      value={filters.chain}
+                      onChange={value => updateFilter('chain', value)}
+                    />
+                  </FieldGroup>
+                  <FieldGroup label="来源">
+                    <SelectField
+                      options={['all', ...sourceOptions]}
+                      value={filters.source}
+                      onChange={value => updateFilter('source', value)}
+                    />
+                  </FieldGroup>
+                </div>
+                <button
+                  type="button"
+                  className={cn(
+                    'flex w-full items-center justify-between rounded-[18px] border px-4 py-3 text-left transition-colors',
+                    filters.paidOnly
+                      ? 'border-[color:var(--color-accent)] bg-[rgba(91,132,255,0.12)] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
+                      : 'border-border bg-[color:var(--color-panel-soft)]',
+                  )}
+                  onClick={() => updateFilter('paidOnly', !filters.paidOnly)}
+                >
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">
+                      仅看 Paid Dex 通知
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      对应 `dexscreener.paid = true`
+                    </p>
+                  </div>
+                  <Badge variant={filters.paidOnly ? 'success' : 'secondary'}>
+                    {filters.paidOnly ? 'ON' : 'OFF'}
+                  </Badge>
+                </button>
+              </div>
+            ) : null}
+
+            {/* 监听 tab */}
+            {filterDialogTab === 'watch' ? (
+              <div className="space-y-4">
+                <FieldGroup label="观察名单关键词">
+                  <Textarea
+                    className="min-h-[72px]"
+                    placeholder="支持逗号或换行，例如：ansem, base, hype"
+                    value={filters.watchTerms}
+                    onChange={event => updateFilter('watchTerms', event.target.value)}
+                  />
+                </FieldGroup>
+                <div className="space-y-2.5">
+                  <Label>WS 订阅</Label>
+                  <SubscriptionMultiSelect
+                    selectedSubscriptions={filters.watchSubscriptions}
+                    onToggle={subscription =>
+                      updateFilter(
+                        'watchSubscriptions',
+                        toggleWatchSubscription(
+                          filters.watchSubscriptions,
+                          subscription,
+                        ),
+                      )
+                    }
+                  />
+                  <p className="text-xs leading-6 text-muted-foreground">
+                    只有选中的 DexScreener feed 会被订阅；未选中的不会连接。
+                  </p>
+                </div>
+              </div>
+            ) : null}
+
+            {/* 策略 tab */}
+            {filterDialogTab === 'strategy' && isStrategyPresetEnabled(filters.strategyPreset) ? (
+              <div className="space-y-4">
+                <p className="text-xs leading-6 text-muted-foreground">
+                  会话内跟踪 {laohuangSummary.visible} 个 token，命中异常{' '}
+                  {laohuangSummary.triggered} 个，首推超{' '}
+                  {formatUsd(laohuangConfig.maxFirstSeenFdv)} 被隐藏{' '}
+                  {laohuangSummary.blacklisted} 个。
+                </p>
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  <FieldGroup label="种子订阅">
+                    <SelectField
+                      options={DEX_WATCH_SUBSCRIPTION_OPTIONS.map(option => ({
+                        label: option.label,
+                        value: option.id,
+                      }))}
+                      value={filters.strategySeedSubscription}
+                      onChange={value =>
+                        updateStrategyFilter('strategySeedSubscription', value)
+                      }
+                    />
+                  </FieldGroup>
+                  <FieldGroup label="种子链">
+                    <Input
+                      placeholder="solana"
+                      value={filters.strategySeedChain}
+                      onChange={event =>
+                        updateStrategyFilter('strategySeedChain', event.target.value)
+                      }
+                    />
+                  </FieldGroup>
+                  <FieldGroup label="首推 FDV 上限">
+                    <Input
+                      inputMode="decimal"
+                      placeholder="80000"
+                      value={filters.strategyMaxFirstSeenFdv}
+                      onChange={event =>
+                        updateStrategyFilter(
+                          'strategyMaxFirstSeenFdv',
+                          event.target.value,
+                        )
+                      }
+                    />
+                  </FieldGroup>
+                  <FieldGroup label="跟踪窗口小时">
+                    <Input
+                      inputMode="decimal"
+                      placeholder="12"
+                      value={filters.strategyTrackHours}
+                      onChange={event =>
+                        updateStrategyFilter('strategyTrackHours', event.target.value)
+                      }
+                    />
+                  </FieldGroup>
+                  <FieldGroup label="下跌比例">
+                    <Input
+                      inputMode="decimal"
+                      placeholder="0.5"
+                      value={filters.strategyDropRatio}
+                      onChange={event =>
+                        updateStrategyFilter('strategyDropRatio', event.target.value)
+                      }
+                    />
+                  </FieldGroup>
+                  <FieldGroup label="回调倍数">
+                    <Input
+                      inputMode="decimal"
+                      placeholder="1.2"
+                      value={filters.strategyReboundRatio}
+                      onChange={event =>
+                        updateStrategyFilter('strategyReboundRatio', event.target.value)
+                      }
+                    />
+                  </FieldGroup>
+                  <FieldGroup label="回调延迟秒数">
+                    <Input
+                      inputMode="decimal"
+                      placeholder="6"
+                      value={filters.strategyReboundDelaySec}
+                      onChange={event =>
+                        updateStrategyFilter(
+                          'strategyReboundDelaySec',
+                          event.target.value,
+                        )
+                      }
+                    />
+                  </FieldGroup>
+                  <FieldGroup label="涨幅阈值 %">
+                    <Input
+                      inputMode="decimal"
+                      placeholder="20"
+                      value={filters.strategyGrowthPercent}
+                      onChange={event =>
+                        updateStrategyFilter(
+                          'strategyGrowthPercent',
+                          event.target.value,
+                        )
+                      }
+                    />
+                  </FieldGroup>
+                </div>
+                <button
+                  type="button"
+                  className={cn(
+                    'flex w-full items-center justify-between rounded-[18px] border px-4 py-3 text-left transition-colors',
+                    filters.strategyRequirePaid
+                      ? 'border-[color:var(--color-accent)] bg-[rgba(91,132,255,0.12)] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
+                      : 'border-border bg-[color:var(--color-panel-soft)]',
+                  )}
+                  onClick={() =>
+                    updateStrategyFilter(
+                      'strategyRequirePaid',
+                      !filters.strategyRequirePaid,
+                    )
+                  }
+                >
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">
+                      种子必须是 Paid
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      关闭后，只按订阅 + 链来当作策略种子。
+                    </p>
+                  </div>
+                  <Badge variant={filters.strategyRequirePaid ? 'success' : 'secondary'}>
+                    {filters.strategyRequirePaid ? 'ON' : 'OFF'}
+                  </Badge>
+                </button>
+              </div>
+            ) : null}
+
+            {/* 高级 tab */}
+            {filterDialogTab === 'advanced' ? (
+              <div className="space-y-4">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <FieldGroup label="最少持币人数">
+                    <Input
+                      inputMode="numeric"
+                      placeholder="100"
+                      value={filters.minHolders}
+                      onChange={event => updateFilter('minHolders', event.target.value)}
+                    />
+                  </FieldGroup>
+                  <FieldGroup label="最多持币人数">
+                    <Input
+                      inputMode="numeric"
+                      placeholder="5000"
+                      value={filters.maxHolders}
+                      onChange={event => updateFilter('maxHolders', event.target.value)}
+                    />
+                  </FieldGroup>
+                  <FieldGroup label="最高市值">
+                    <Input
+                      inputMode="numeric"
+                      placeholder="3000000"
+                      value={filters.maxMarketCap}
+                      onChange={event => updateFilter('maxMarketCap', event.target.value)}
+                    />
+                  </FieldGroup>
+                  <FieldGroup label="最少社区人数">
+                    <Input
+                      inputMode="numeric"
+                      placeholder="5000"
+                      value={filters.minCommunityCount}
+                      onChange={event => updateFilter('minCommunityCount', event.target.value)}
+                    />
+                  </FieldGroup>
+                </div>
+                <FieldGroup label="KOL 名单">
+                  <Textarea
+                    className="min-h-[84px]"
+                    placeholder="当前停用 XXYY，KOL 筛选暂不可用"
+                    value={filters.kolNames}
+                    onChange={event => updateFilter('kolNames', event.target.value)}
+                  />
+                </FieldGroup>
+                <FieldGroup label="关注地址">
+                  <Textarea
+                    className="min-h-[84px]"
+                    placeholder="当前停用 XXYY，关注地址筛选暂不可用"
+                    value={filters.followAddresses}
+                    onChange={event => updateFilter('followAddresses', event.target.value)}
+                  />
+                </FieldGroup>
+                <div className="rounded-[14px] border border-border bg-[rgba(14,18,27,0.92)] px-4 py-4 text-xs leading-6 text-muted-foreground">
+                  <p>
+                    当前页面直接控制 `auto / ws / http`。`ws` 由浏览器直连，`http`
+                    由浏览器定时请求刷新接口；通知只保留在当前页面内存，不写浏览器缓存，也不写 Node 存储。
+                  </p>
+                  <p className="mt-2">
+                    当前已停用 XXYY 富化，通知卡片优先直接展示 DexScreener feed 自带字段。
+                  </p>
+                  <p className="mt-2">
+                    `KOL 名单` 与 `关注地址` 仍保留在表单里，但当前不会参与过滤。
+                  </p>
+                </div>
+                <DiagnosticsPanel
+                  diagnostics={diagnostics}
+                  diagnosticsError={diagnosticsError}
+                />
+              </div>
+            ) : null}
           </Dialog>
 
           <section className="overflow-hidden rounded-[24px] border border-border bg-[linear-gradient(180deg,rgba(10,12,19,0.98),rgba(8,10,16,0.98))] shadow-[0_18px_56px_rgba(0,0,0,0.24)]">
@@ -1900,7 +1855,8 @@ export function SignalTradeDashboard({
                   activeFilterCount={activeFilterChips.length}
                   isWatchRunning={Boolean(watchRuntime?.running)}
                   onOpenWatchTab={() => {
-                    setActiveControlTab(activeFilterChips.length > 0 ? 'basic' : 'watch');
+                    setFilterDialogTab(activeFilterChips.length > 0 ? 'basic' : 'watch');
+                    setAdvancedOpen(true);
                   }}
                   onResetFilters={resetFilters}
                   onStartWatch={() => {
