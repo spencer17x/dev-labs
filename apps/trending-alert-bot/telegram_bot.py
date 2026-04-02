@@ -15,6 +15,10 @@ class TelegramNotifier:
         self.app = None
         self.bot_thread = None
         self.bot_loop = None
+        self._report_generator = None
+
+    def set_report_generator(self, fn):
+        self._report_generator = fn
 
     def _setup_application(self):
         self.app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
@@ -22,6 +26,7 @@ class TelegramNotifier:
         self.app.add_handler(CommandHandler("status", self._cmd_status))
         self.app.add_handler(CommandHandler("mode", self._cmd_mode))
         self.app.add_handler(CommandHandler("setmode", self._cmd_setmode))
+        self.app.add_handler(CommandHandler("report", self._cmd_report))
         self.app.add_handler(CommandHandler("help", self._cmd_help))
         self.app.add_handler(MessageHandler(filters.ALL, self._handle_any_message))
 
@@ -146,12 +151,26 @@ class TelegramNotifier:
 
         await update.message.reply_text(msg)
 
+    async def _cmd_report(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        chat = update.effective_chat
+        if not chat:
+            return
+        if not self._report_generator:
+            await update.message.reply_text("❌ 报告功能暂不可用")
+            return
+        try:
+            msg = self._report_generator(chat.id)
+            await update.message.reply_text(msg, parse_mode='HTML', disable_web_page_preview=True)
+        except Exception as e:
+            await update.message.reply_text(f"❌ 生成报告失败: {e}")
+
     async def _cmd_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg = """🤖 可用命令:
 /start - 订阅并初始化
 /status - 查看运行状态
 /mode - 查看当前通知模式
 /setmode <all|trending|anomaly> - 切换通知模式 (管理员)
+/report - 查看今日趋势汇总报告
 /help - 查看命令说明"""
         await update.message.reply_text(msg)
 

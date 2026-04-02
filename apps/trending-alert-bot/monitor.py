@@ -107,6 +107,9 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
         print("🧪 Dry-run: 启用（仅扫描一轮，不发送消息）")
 
     _startup_telegram(chat_storage)
+    if ENABLE_TELEGRAM and not DRY_RUN:
+        from monitor_flow import get_summary_report_for_chat
+        notifier.set_report_generator(lambda chat_id: get_summary_report_for_chat(chat_id, storages))
     print()
 
     active_chats = chat_storage.get_active_chats()

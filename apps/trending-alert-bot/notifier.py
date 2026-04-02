@@ -167,7 +167,7 @@ def format_summary_report(
 ) -> str:
     current_time = format_beijing_time("%Y-%m-%d %H:%M")
 
-    msg = f"""📊 4小时趋势汇总报告
+    msg = f"""📊 今日趋势汇总报告
 
 📅 报告时间: {current_time}\n"""
 
@@ -195,11 +195,21 @@ def format_summary_report(
         pct_5x = (count_5x / trend_count * 100) if trend_count > 0 else 0
         pct_10x_plus = (count_10x_plus / trend_count * 100) if trend_count > 0 else 0
 
+        gain_dist = stats.get("gain_distribution", {})
+        gain_lines = ""
+        for label in ["20%", "30%", "50%", "80%"]:
+            cnt = gain_dist.get(label, 0)
+            pct = (cnt / trend_count * 100) if trend_count > 0 else 0
+            gain_lines += f"  • >{label}: {cnt}个 ({pct:.1f}%)\n"
+
         msg += f"""\n━━━━━━━━━━━━━━━━━━━━━━
 📊 {chain.upper()} 链统计
 ━━━━━━━━━━━━━━━━━━━━━━
 今日趋势通知: {trend_count}个
 有倍数通知: {multiplier_count}个
+
+📈 涨幅胜率:
+{gain_lines.rstrip()}
 
 📈 倍数分布:
   • 2X: {count_2x}个 ({pct_2x:.1f}%)

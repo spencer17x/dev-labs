@@ -499,6 +499,24 @@ def _fallback_contract_data(token_address: str, stored_data: dict) -> dict:
     }
 
 
+_GAIN_THRESHOLDS = [("20%", 1.2), ("30%", 1.3), ("50%", 1.5), ("80%", 1.8)]
+
+
+def _best_multiplier(token_address: str, stored_data: dict, latest_contract_map: Dict[str, dict]) -> float:
+    """返回合约当前最佳可知涨幅倍数（优先用实时价格，回退用已通知倍数）"""
+    contract_data = latest_contract_map.get(token_address)
+    if contract_data:
+        try:
+            current_price = float(contract_data.get("priceUSD", 0))
+            initial_price = float(stored_data.get("initial_price", 0))
+            if initial_price > 0 and current_price > 0:
+                return current_price / initial_price
+        except (TypeError, ValueError):
+            pass
+    notified = stored_data.get("notified_multipliers", [])
+    return max(notified) if notified else 0.0
+
+
 def _build_chain_stats(
     storage: ContractStorage,
     chain: str,
@@ -511,12 +529,19 @@ def _build_chain_stats(
         "win_count": 0,
         "top_contracts": [],
         "multiplier_distribution": {"2x": 0, "5x": 0, "10x_plus": 0},
+        "gain_distribution": {label: 0 for label, _ in _GAIN_THRESHOLDS},
     }
 
     for item in today_contracts:
         token_address = item["token_address"]
         stored_data = item["data"]
         notified_multipliers = stored_data.get("notified_multipliers", [])
+
+        best = _best_multiplier(token_address, stored_data, latest_contract_map)
+        for label, threshold in _GAIN_THRESHOLDS:
+            if best >= threshold:
+                stats["gain_distribution"][label] += 1
+
         if not notified_multipliers:
             continue
 
@@ -606,6 +631,33 @@ def send_summary_report(storages: dict):
 
         if ENABLE_TELEGRAM and not DRY_RUN:
             notifier.send_sync(msg, chat_id=chat_id)
+
+
+def get_summary_report_for_chat(chat_id: int, storages: dict) -> str:
+    """按 chat_id 生成当日汇总报告文本（用于 /report 指令）"""
+    now = beijing_now()
+    next_report_time_str = _next_report_time_str(now)
+    chain_latest_map: Dict[str, Dict[str, dict]] = {}
+    chain_stats: Dict[str, dict] = {}
+
+    for storage_key, storage in storages.items():
+        if ":" in storage_key:
+            chain, chat_id_raw = storage_key.split(":", 1)
+            if int(chat_id_raw) != chat_id:
+                continue
+        else:
+            chain = CHAINS[0] if CHAINS else "unknown"
+            if int(storage_key) != chat_id:
+                continue
+
+        if chain not in chain_latest_map:
+            chain_latest_map[chain] = _load_latest_contract_map(chain)
+        chain_stats.update(_build_chain_stats(storage, chain, chain_latest_map[chain]))
+
+    if not chain_stats:
+        return "暂无今日趋势数据"
+
+    return format_summary_report(chain_stats, next_report_time_str)
 
 
 def should_send_summary_report(last_report_hour: int) -> bool:
