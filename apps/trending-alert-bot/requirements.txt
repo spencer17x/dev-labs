@@ -1,2 +1,0 @@
-curl-cffi
-python-telegram-bot>=20,<21
