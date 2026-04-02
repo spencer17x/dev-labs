@@ -53,32 +53,9 @@ export interface SignalContextDexscreener {
   links?: Array<Record<string, unknown>>;
 }
 
-export interface SignalContextXXYY {
-  market_cap?: number | null;
-  holder_count?: number | null;
-  follow_buy_count?: number | null;
-  kol_buy_count?: number | null;
-  follow_addresses?: string[];
-  kol_names?: string[];
-  project_twitter_url?: string | null;
-  project_telegram_url?: string | null;
-  [key: string]: unknown;
-}
-
-export interface SignalContextTwitter {
-  profile_url?: string | null;
-  username?: string | null;
-  community_count?: number | null;
-  followers_count?: number | null;
-  friends_count?: number | null;
-  statuses_count?: number | null;
-}
-
 export interface SignalContext {
   token?: SignalContextToken;
   dexscreener?: SignalContextDexscreener;
-  xxyy?: SignalContextXXYY;
-  twitter?: SignalContextTwitter;
   [key: string]: unknown;
 }
 
@@ -90,8 +67,6 @@ export interface NotificationSummary {
   liquidityUsd: number | null;
   priceUsd: number | null;
   communityCount: number | null;
-  followersCount: number | null;
-  twitterUsername: string | null;
   dexscreenerUrl: string | null;
   telegramUrl: string | null;
 }
@@ -149,8 +124,6 @@ export interface DashboardFilters {
   maxHolders: string;
   maxMarketCap: string;
   minCommunityCount: string;
-  kolNames: string;
-  followAddresses: string;
   paidOnly: boolean;
 }
 

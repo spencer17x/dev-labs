@@ -5,18 +5,12 @@ import { SIGNAL_TRADE_RUNTIME_CONFIG_FILE } from '@/lib/runtime/paths';
 
 loadLocalEnv();
 
-const DEFAULT_TWITTER_BEARER_TOKEN =
-  'Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5I8xn5QHj0XuCw%3D1Zv7ttfk8qXzN8kzY5xq9uxZ3sJY8N6t4QeqA';
-
 type RuntimeConfig = {
   dexscreener: {
     pollIntervalSec: number;
     requestTimeoutSec: number;
     wsHeartbeatSec: number;
     reconnectDelaySec: number;
-  };
-  twitter: {
-    requestTimeoutSec: number;
   };
 };
 
@@ -68,23 +62,5 @@ export const signalTradeConfig = {
       1,
     ),
   },
-  twitter: {
-    requestTimeoutSec: Math.max(
-      getNestedNumber('twitter', 'requestTimeoutSec', 20),
-      1,
-    ),
-  },
-  twitterAuth: {
-    bearerToken: getStringEnv(
-      'TWITTER_BEARER_TOKEN',
-      DEFAULT_TWITTER_BEARER_TOKEN,
-    ),
-    ct0: getStringEnv('TWITTER_CT0'),
-    authToken: getStringEnv('TWITTER_AUTH_TOKEN'),
-  },
-  xxyyAuth: {
-    authorization: getStringEnv('XXYY_AUTHORIZATION'),
-    infoToken: getStringEnv('XXYY_INFO_TOKEN'),
-    cookie: getStringEnv('XXYY_COOKIE'),
-  },
+
 } as const;

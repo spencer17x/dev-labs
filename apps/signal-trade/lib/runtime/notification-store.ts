@@ -72,15 +72,6 @@ function buildRecord(signal: StoredSignal): NotificationRecord {
         'communityCount',
         'community_count',
       ),
-      followersCount: readRawNumber(
-        signal.event.raw,
-        'followersCount',
-        'followers_count',
-      ),
-      twitterUsername:
-        typeof signal.context.twitter?.username === 'string'
-          ? signal.context.twitter.username
-          : null,
       dexscreenerUrl:
         typeof signal.context.dexscreener?.url === 'string'
           ? signal.context.dexscreener.url

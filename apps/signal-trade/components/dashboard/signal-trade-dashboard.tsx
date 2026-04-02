@@ -102,7 +102,6 @@ type ActiveFilterChip = {
     | 'chain'
     | 'maxHolders'
     | 'maxMarketCap'
-    | 'minCommunityCount'
     | 'minHolders'
     | 'paidOnly'
     | 'search'
@@ -278,11 +277,6 @@ export function SignalTradeDashboard({
       ).length,
     };
   }, [laohuangConfig, laohuangStates, relativeNow]);
-  const activeWatchCount =
-    Number(watchTermsList.length > 0) +
-    Number(
-      !areStringArraysEqual(selectedWatchSubscriptions, DEFAULT_DEX_WATCH_SUBSCRIPTIONS),
-    );
   const activeFilterChips = useMemo(() => {
     const chips: ActiveFilterChip[] = [];
 
@@ -327,12 +321,6 @@ export function SignalTradeDashboard({
         label: `市值 <= ${filters.maxMarketCap.trim()}`,
       });
     }
-    if (filters.minCommunityCount.trim()) {
-      chips.push({
-        id: 'minCommunityCount',
-        label: `社区 >= ${filters.minCommunityCount.trim()}`,
-      });
-    }
     if (isStrategyPresetEnabled(filters.strategyPreset) && filters.strategyStatus !== 'all') {
       chips.push({
         id: 'strategyStatus',
@@ -345,7 +333,6 @@ export function SignalTradeDashboard({
     filters.chain,
     filters.maxHolders,
     filters.maxMarketCap,
-    filters.minCommunityCount,
     filters.minHolders,
     filters.paidOnly,
     filters.search,
@@ -379,7 +366,6 @@ export function SignalTradeDashboard({
           record.message,
           record.context.dexscreener?.header,
           record.context.dexscreener?.description,
-          record.summary.twitterUsername,
         ]
           .filter(Boolean)
           .join(' ')
@@ -416,12 +402,6 @@ export function SignalTradeDashboard({
           return false;
         }
         if (
-          minCommunityCount !== null &&
-          (record.summary.communityCount ?? Number.NEGATIVE_INFINITY) < minCommunityCount
-        ) {
-          return false;
-        }
-        if (
           watchTerms.length > 0 &&
           !watchTerms.some(term => searchHaystack.includes(term))
         ) {
@@ -449,7 +429,6 @@ export function SignalTradeDashboard({
     deferredWatchTerms,
     filters.chain,
     filters.maxMarketCap,
-    filters.minCommunityCount,
     filters.maxHolders,
     filters.minHolders,
     filters.paidOnly,
@@ -1271,7 +1250,6 @@ export function SignalTradeDashboard({
       minHolders: pendingFilters.minHolders,
       maxHolders: pendingFilters.maxHolders,
       maxMarketCap: pendingFilters.maxMarketCap,
-      minCommunityCount: pendingFilters.minCommunityCount,
       strategyPreset: pendingFilters.strategyPreset,
       strategySeedSubscription: pendingFilters.strategySeedSubscription,
       strategySeedChain: pendingFilters.strategySeedChain,
@@ -1294,7 +1272,6 @@ export function SignalTradeDashboard({
       minHolders: initialFilters.minHolders,
       maxHolders: initialFilters.maxHolders,
       maxMarketCap: initialFilters.maxMarketCap,
-      minCommunityCount: initialFilters.minCommunityCount,
       strategyPreset: initialFilters.strategyPreset,
       strategySeedSubscription: initialFilters.strategySeedSubscription,
       strategySeedChain: initialFilters.strategySeedChain,
@@ -1371,10 +1348,6 @@ export function SignalTradeDashboard({
     }
     if (id === 'maxMarketCap') {
       updateFilter('maxMarketCap', '');
-      return;
-    }
-    if (id === 'minCommunityCount') {
-      updateFilter('minCommunityCount', '');
       return;
     }
     if (id === 'strategyStatus') {
@@ -1590,14 +1563,6 @@ export function SignalTradeDashboard({
                     placeholder="3000000"
                     value={pendingFilters.maxMarketCap}
                     onChange={event => updatePendingFilter('maxMarketCap', event.target.value)}
-                  />
-                </FieldGroup>
-                <FieldGroup label="最少社区人数">
-                  <Input
-                    inputMode="numeric"
-                    placeholder="5000"
-                    value={pendingFilters.minCommunityCount}
-                    onChange={event => updatePendingFilter('minCommunityCount', event.target.value)}
                   />
                 </FieldGroup>
               </div>
@@ -2057,7 +2022,6 @@ function NotificationListItem({
   const rawAmount = asOptionalNumber(record.event.metrics?.amount);
   const rawTotalAmount = asOptionalNumber(record.event.metrics?.totalAmount);
   const rawActiveBoosts = asOptionalNumber(record.event.metrics?.activeBoosts);
-  const twitterProfileUrl = record.context.twitter?.profile_url ?? null;
   const strategyEnabled =
     isStrategyPresetEnabled(strategyPreset) && strategyState !== null;
   const currentMarketCap = strategyEnabled
@@ -2191,17 +2155,6 @@ function NotificationListItem({
         </div>
 
         <div className="mt-auto flex flex-wrap gap-2">
-          {record.summary.twitterUsername && twitterProfileUrl ? (
-            <a
-              className="inline-flex items-center gap-1 rounded-full border border-border bg-[rgba(14,18,27,0.92)] px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-[color:var(--color-panel-soft)]"
-              href={twitterProfileUrl}
-              rel="noreferrer"
-              target="_blank"
-            >
-              @{record.summary.twitterUsername}
-              <ArrowUpRight className="size-3" />
-            </a>
-          ) : null}
           {record.summary.dexscreenerUrl ? (
             <a
               className="inline-flex items-center gap-1 rounded-full border border-border bg-[rgba(14,18,27,0.92)] px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-[color:var(--color-panel-soft)]"

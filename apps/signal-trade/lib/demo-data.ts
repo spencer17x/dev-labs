@@ -23,7 +23,5 @@ export const defaultDashboardFilters: DashboardFilters = {
   maxHolders: '',
   maxMarketCap: '',
   minCommunityCount: '',
-  kolNames: '',
-  followAddresses: '',
   paidOnly: false,
 };

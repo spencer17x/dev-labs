@@ -3,10 +3,6 @@ import type {
   SignalContextDexscreener,
   SignalEvent,
 } from '@/lib/types';
-import {
-  extractTwitterUsername,
-  findSocialLink,
-} from '@/lib/runtime/twitter';
 
 export async function enrichSignalEvent(event: SignalEvent): Promise<SignalContext> {
   const raw = isObject(event.raw) ? event.raw : {};
@@ -15,9 +11,7 @@ export async function enrichSignalEvent(event: SignalEvent): Promise<SignalConte
       ? (deepGet(event.metadata, 'dexscreener', 'links') as Array<Record<string, unknown>>)
       : [],
   );
-  const twitterUrl = findSocialLink(links, ['twitter', 'x']);
-  const telegramUrl = findSocialLink(links, ['telegram']);
-  const twitterUsername = extractTwitterUsername(twitterUrl);
+  const telegramUrl = findLinkByType(links, ['telegram']);
 
   const context: SignalContext = {
     token: {
@@ -57,15 +51,6 @@ export async function enrichSignalEvent(event: SignalEvent): Promise<SignalConte
       socials: extractSocials(links),
       links,
     },
-    xxyy: {},
-    twitter: {
-      profile_url: twitterUrl,
-      username: twitterUsername,
-      community_count: null,
-      followers_count: null,
-      friends_count: null,
-      statuses_count: null,
-    },
   };
 
   if (!context.token?.symbol) {
@@ -83,10 +68,6 @@ export async function enrichSignalEvent(event: SignalEvent): Promise<SignalConte
         asString(raw.name) ??
         asString(deepGet(raw, 'token', 'name')),
     };
-  }
-
-  if (telegramUrl && context.xxyy && !context.xxyy.project_telegram_url) {
-    context.xxyy.project_telegram_url = telegramUrl;
   }
 
   return context;
@@ -138,6 +119,20 @@ function normalizeLinks(
   return value.filter(isObject);
 }
 
+function findLinkByType(
+  links: Array<Record<string, unknown>>,
+  types: string[],
+): string | null {
+  const normalizedTypes = new Set(types.map(t => t.toLowerCase()));
+  for (const link of links) {
+    const linkType = typeof link.type === 'string' ? link.type.toLowerCase() : '';
+    if (normalizedTypes.has(linkType) && typeof link.url === 'string' && link.url.trim()) {
+      return link.url.trim();
+    }
+  }
+  return null;
+}
+
 function extractWebsites(
   links: Array<Record<string, unknown>>,
 ): string[] {
@@ -163,10 +158,7 @@ function extractSocials(
     }
 
     socials.push({
-      handle:
-        platform === 'twitter' || platform === 'x'
-          ? extractTwitterUsername(url)
-          : null,
+      handle: null,
       platform,
       url,
     });

@@ -46,8 +46,6 @@ export function normalizeDashboardFilters(
     maxHolders: sanitizeNumericInput(readString(value, 'maxHolders')),
     maxMarketCap: sanitizeNumericInput(readString(value, 'maxMarketCap')),
     minCommunityCount: sanitizeNumericInput(readString(value, 'minCommunityCount')),
-    kolNames: readString(value, 'kolNames'),
-    followAddresses: readString(value, 'followAddresses'),
     paidOnly: readBoolean(value, 'paidOnly'),
   };
 }
