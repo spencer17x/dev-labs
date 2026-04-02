@@ -16,6 +16,7 @@ class TelegramNotifier:
         self.bot_thread = None
         self.bot_loop = None
         self._report_generator = None
+        self._ready_event = threading.Event()
 
     def set_report_generator(self, fn):
         self._report_generator = fn
@@ -451,6 +452,7 @@ class TelegramNotifier:
                 self.bot_loop.run_until_complete(self.app.initialize())
                 self.bot_loop.run_until_complete(self.app.start())
                 self.bot_loop.run_until_complete(self.app.updater.start_polling(allowed_updates=Update.ALL_TYPES))
+                self._ready_event.set()
                 self.bot_loop.run_forever()
             except Exception as e:
                 print(f"❌ Bot 线程错误: {e}")
@@ -470,8 +472,9 @@ class TelegramNotifier:
         self.bot_thread = threading.Thread(target=run_bot, daemon=True)
         self.bot_thread.start()
 
-        import time
-        time.sleep(1)
+        self._ready_event.wait(timeout=30)
+        if not self._ready_event.is_set():
+            print("⚠️ Bot 启动超时，可能无法发送启动通知")
 
     def stop_bot(self):
         if not self.bot_loop:
