@@ -18,12 +18,8 @@
 git clone <repo-url> dev-lab
 cd dev-lab/apps/telegram-forwarder
 
-# 使用仓库根 .python-version 固定的 Python 版本
-uv python install
-uv venv
-
-# 安装依赖
-uv pip install -r requirements.txt
+# 安装依赖并创建 .venv
+uv sync
 ```
 
 ### 配置
@@ -341,7 +337,8 @@ telegram-forwarder/
 ├── main.py                      # 程序入口
 ├── forward_rules.json           # 转发规则配置
 ├── .env                         # 环境变量
-├── requirements.txt             # 依赖列表
+├── pyproject.toml               # 依赖声明
+├── uv.lock                      # 锁定依赖版本
 ├── core/                        # 核心业务层
 │   ├── __init__.py
 │   ├── bot.py                  # Bot 主类
