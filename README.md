@@ -24,22 +24,22 @@ Dev Lab 是一个现代化的开发实验室，专注于智能代理、消息处
 
 | 项目                                                 | 技术栈      | 部署大小  | 核心功能                     |
 | ---------------------------------------------------- | ----------- | --------- | ---------------------------- |
-| **[notifier-bot](./apps/notifier-bot/)**             | TypeScript  | **1.0MB** | Webhook 消息聚合与多渠道推送 |
 | **[twitter-bot](./apps/twitter-bot/)**               | TypeScript  | **2.4MB** | Twitter 到 Telegram 消息转发 |
 | **[signal-trade](./apps/signal-trade/)**             | Next.js + TypeScript | 全栈仪表盘 | 通知代币展示与前端筛选面板   |
 | **[telegram-forwarder](./apps/telegram-forwarder/)** | Python 3.11 | uv + .venv | Telegram 智能转发机器人      |
 | **[telegram-watcher](./apps/telegram-watcher/)**     | Python 3.11 | uv + .venv | Telegram 消息监听处理        |
+| **[trending-alert-bot](./apps/trending-alert-bot/)** | Python 3.11 | uv + .venv | 多链合约趋势通知             |
 
 ## 📁 项目结构
 
 ```
 dev-lab/
 ├─ apps/                          # 实验应用
-│  ├─ notifier-bot/              # 消息聚合通知服务
 │  ├─ signal-trade/              # Signal Trade 全栈仪表盘
 │  ├─ twitter-bot/               # Twitter 转发机器人
 │  ├─ telegram-forwarder/        # Telegram 转发机器人
-│  └─ telegram-watcher/          # Telegram 消息监听
+│  ├─ telegram-watcher/          # Telegram 消息监听
+│  └─ trending-alert-bot/        # 多链合约趋势通知
 ├─ scripts/                      # 开发脚本
 │  └─ create-project.ts          # 项目生成脚本
 ├─ package.json                  # 工作区配置
@@ -72,7 +72,6 @@ git clone <repo-url> dev-lab && cd dev-lab
 pnpm install
 
 # 开发模式（热重载 + 毫秒级启动）
-pnpm --filter notifier-bot dev
 pnpm --filter twitter-bot dev
 pnpm --filter signal-trade dev
 
@@ -110,8 +109,8 @@ uv run python main.py
 | 实验场景           | 推荐组合                             | 技术价值                      |
 | ------------------ | ------------------------------------ | ----------------------------- |
 | **社交媒体自动化** | `twitter-bot` + `telegram-forwarder` | 跨平台消息流转与智能过滤      |
-| **消息处理管道**   | `notifier-bot` + `telegram-watcher`  | Webhook 聚合 → 多渠道分发实验 |
-| **智能通知系统**   | `notifier-bot` + `twitter-bot`       | 多源信息聚合与推送            |
+| **消息处理管道**   | `telegram-watcher` + `twitter-bot`   | 多源消息监听与跨平台分发      |
+| **智能通知系统**   | `trending-alert-bot` + `twitter-bot` | 多源信息聚合与推送            |
 
 ## 🏗️ 核心技术栈
 
@@ -234,11 +233,11 @@ uv run python -m flake8 src/       # 代码检查
 
 | 项目               | 技术栈      | 部署大小  | 文档链接                                      | 核心功能                 |
 | ------------------ | ----------- | --------- | --------------------------------------------- | ------------------------ |
-| **消息聚合服务**   | TypeScript  | **1.0MB** | [README](./apps/notifier-bot/README.md)       | Webhook 聚合与推送       |
 | **Twitter 机器人** | TypeScript  | **2.4MB** | [README](./apps/twitter-bot/README.md)        | Twitter 到 Telegram 转发 |
 | **Signal Trade**   | Next.js + TypeScript | 全栈仪表盘 | [README](./apps/signal-trade/README.md)       | 通知代币展示与前端筛选   |
 | **Telegram 转发**  | Python 3.11 | uv + .venv | [README](./apps/telegram-forwarder/README.md) | 智能消息转发与过滤       |
 | **Telegram 监听**  | Python 3.11 | uv + .venv | [README](./apps/telegram-watcher/README.md)   | 消息监听与处理服务       |
+| **趋势通知**       | Python 3.11 | uv + .venv | [README](./apps/trending-alert-bot/README.md) | 多链合约趋势通知         |
 
 ---
 

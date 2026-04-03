@@ -266,7 +266,9 @@ WantedBy=multi-user.target
 | twitter-openapi-typescript | Twitter API 客户端 | ^0.0.38  |
 | Telegraf                   | Telegram Bot 框架  | ^4.16.3  |
 | dayjs                      | 时间处理           | ^1.11.11 |
+| dayjs-plugin-utc           | UTC 时区插件       | ^0.1.2   |
 | axios                      | HTTP 请求          | ^1.7.2   |
+| wechaty                    | 微信集成           | ^1.20.2  |
 
 ## 🔍 故障排除
 
