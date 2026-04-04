@@ -4,10 +4,6 @@ import type { JSX } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Dialog } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import {
-  applyStrategyPreset,
-  STRATEGY_PRESET_OPTIONS,
-} from '@/lib/strategy-presets';
 import type { DashboardFilters } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
@@ -17,9 +13,7 @@ interface FilterDialogProps {
   open: boolean;
   onClose: () => void;
   pendingFilters: DashboardFilters;
-  setPendingFilters: React.Dispatch<React.SetStateAction<DashboardFilters>>;
   updatePendingFilter: <Key extends keyof DashboardFilters>(key: Key, value: DashboardFilters[Key]) => void;
-  updatePendingStrategyFilter: <Key extends keyof DashboardFilters>(key: Key, value: DashboardFilters[Key]) => void;
   applyPendingFilters: () => void;
   clearPendingFilters: () => void;
   chainOptions: string[];
@@ -30,9 +24,7 @@ export function FilterDialog({
   open,
   onClose,
   pendingFilters,
-  setPendingFilters,
   updatePendingFilter,
-  updatePendingStrategyFilter,
   applyPendingFilters,
   clearPendingFilters,
   chainOptions,
@@ -85,91 +77,6 @@ export function FilterDialog({
               onChange={event => updatePendingFilter('maxMarketCap', event.target.value)}
             />
           </FieldGroup>
-        </div>
-
-        {/* 策略预设 */}
-        <FieldGroup label="策略预设">
-          <SelectField
-            options={STRATEGY_PRESET_OPTIONS.map(option => ({
-              label: option.label,
-              value: option.value,
-            }))}
-            value={pendingFilters.strategyPreset}
-            onChange={value =>
-              setPendingFilters(current =>
-                applyStrategyPreset(current, value as DashboardFilters['strategyPreset']),
-              )
-            }
-          />
-        </FieldGroup>
-
-        {/* 策略详细参数 */}
-        <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-2">
-            <FieldGroup label="首推 FDV 上限">
-              <Input
-                inputMode="decimal"
-                placeholder="80000"
-                value={pendingFilters.strategyMaxFirstSeenFdv}
-                onChange={event => updatePendingStrategyFilter('strategyMaxFirstSeenFdv', event.target.value)}
-              />
-            </FieldGroup>
-            <FieldGroup label="跟踪窗口(h)">
-              <Input
-                inputMode="decimal"
-                placeholder="12"
-                value={pendingFilters.strategyTrackHours}
-                onChange={event => updatePendingStrategyFilter('strategyTrackHours', event.target.value)}
-              />
-            </FieldGroup>
-            <FieldGroup label="下跌比例">
-              <Input
-                inputMode="decimal"
-                placeholder="0.5"
-                value={pendingFilters.strategyDropRatio}
-                onChange={event => updatePendingStrategyFilter('strategyDropRatio', event.target.value)}
-              />
-            </FieldGroup>
-            <FieldGroup label="回调倍数">
-              <Input
-                inputMode="decimal"
-                placeholder="1.2"
-                value={pendingFilters.strategyReboundRatio}
-                onChange={event => updatePendingStrategyFilter('strategyReboundRatio', event.target.value)}
-              />
-            </FieldGroup>
-            <FieldGroup label="回调延迟(s)">
-              <Input
-                inputMode="decimal"
-                placeholder="6"
-                value={pendingFilters.strategyReboundDelaySec}
-                onChange={event => updatePendingStrategyFilter('strategyReboundDelaySec', event.target.value)}
-              />
-            </FieldGroup>
-            <FieldGroup label="涨幅阈值 %">
-              <Input
-                inputMode="decimal"
-                placeholder="20"
-                value={pendingFilters.strategyGrowthPercent}
-                onChange={event => updatePendingStrategyFilter('strategyGrowthPercent', event.target.value)}
-              />
-            </FieldGroup>
-          </div>
-          <button
-            type="button"
-            className={cn(
-              'flex w-full items-center justify-between rounded-[14px] border px-3 py-2.5 text-left transition-colors',
-              pendingFilters.strategyRequirePaid
-                ? 'border-[color:var(--color-accent)] bg-[rgba(91,132,255,0.12)]'
-                : 'border-border bg-[color:var(--color-panel-soft)]',
-            )}
-            onClick={() => updatePendingStrategyFilter('strategyRequirePaid', !pendingFilters.strategyRequirePaid)}
-          >
-            <p className="text-xs font-semibold text-foreground">种子必须是 Paid</p>
-            <Badge variant={pendingFilters.strategyRequirePaid ? 'success' : 'secondary'}>
-              {pendingFilters.strategyRequirePaid ? 'ON' : 'OFF'}
-            </Badge>
-          </button>
         </div>
 
         {/* 仅看 Paid */}

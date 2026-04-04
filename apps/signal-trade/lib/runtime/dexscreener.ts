@@ -1,21 +1,23 @@
 import crypto from 'node:crypto';
 
-import type { SignalEvent } from '@/lib/types';
-import { signalTradeConfig } from '@/lib/runtime/config';
+import {
+  DEXSCREENER_LATEST_SUBSCRIPTIONS,
+  type DexScreenerLatestItemBySubscription,
+  type DexScreenerLatestPayload,
+  type DexScreenerLatestSubscription,
+  type DexScreenerLatestWsResponse,
+  type DexScreenerLinkRaw,
+} from '../dexscreener-api-types';
+import type { SignalEvent } from '../types';
+import { signalTradeConfig } from './config';
+import { withProxyEnvDisabled } from './proxy-env';
 
 const DEXSCREENER_API_BASE = 'https://api.dexscreener.com';
 const DEXSCREENER_WS_BASE = 'wss://api.dexscreener.com';
 const MIN_STALE_TIMEOUT_MS = 15_000;
 
-export const ALL_DEX_SUBSCRIPTIONS = [
-  'token_profiles_latest',
-  'community_takeovers_latest',
-  'ads_latest',
-  'token_boosts_latest',
-  'token_boosts_top',
-] as const;
-
-export type DexScreenerSubscription = (typeof ALL_DEX_SUBSCRIPTIONS)[number];
+export const ALL_DEX_SUBSCRIPTIONS = DEXSCREENER_LATEST_SUBSCRIPTIONS;
+export type DexScreenerSubscription = DexScreenerLatestSubscription;
 
 const SUBSCRIPTION_ENDPOINTS: Record<DexScreenerSubscription, string> = {
   token_profiles_latest: '/token-profiles/latest/v1',
@@ -60,13 +62,15 @@ export async function fetchDexSubscriptionOnce(
     DEXSCREENER_API_BASE,
   );
 
-  const response = await fetch(url, {
-    headers: {
-      Accept: 'application/json',
-    },
-    next: { revalidate: 0 },
-    signal: AbortSignal.timeout(signalTradeConfig.dexscreener.requestTimeoutSec * 1000),
-  });
+  const response = await withProxyEnvDisabled(async () =>
+    fetch(url, {
+      headers: {
+        Accept: 'application/json',
+      },
+      next: { revalidate: 0 },
+      signal: AbortSignal.timeout(signalTradeConfig.dexscreener.requestTimeoutSec * 1000),
+    }),
+  );
   if (!response.ok) {
     throw new Error(`dexscreener request failed: ${response.status}`);
   }
@@ -101,10 +105,13 @@ export async function watchDexSubscriptions(
 
 export function parseDexSubscriptionPayload(
   subscription: DexScreenerSubscription,
-  payload: unknown,
+  payload: DexScreenerLatestPayload<DexScreenerSubscription> | unknown,
   limit?: number,
 ): SignalEvent[] {
-  const items = extractItems(payload).slice(0, limit && limit > 0 ? limit : undefined);
+  const items = extractItems(subscription, payload).slice(
+    0,
+    limit && limit > 0 ? limit : undefined,
+  );
   return items.map(item => buildEvent(subscription, item));
 }
 
@@ -300,13 +307,18 @@ async function openDexSubscriptionSocket(
 
 function buildEvent(
   subscription: DexScreenerSubscription,
-  item: Record<string, unknown>,
+  item: DexScreenerLatestItemBySubscription[DexScreenerSubscription],
 ): SignalEvent {
-  const chainId = coalesce(item.chainId, item.chain, item.network);
+  const looseItem = item as Record<string, unknown>;
+  const chainId = coalesce(
+    item.chainId,
+    asString(looseItem.chain),
+    asString(looseItem.network),
+  );
   const tokenAddress = coalesce(
     item.tokenAddress,
-    item.address,
-    deepGet(item, 'token', 'address'),
+    asString(looseItem.address),
+    deepGet(looseItem, 'token', 'address'),
   );
 
   return {
@@ -315,39 +327,55 @@ function buildEvent(
     subtype: subscription,
     timestamp: normalizeTimestamp(
       coalesceNumber(
-        item.paymentTimestamp,
-        item.timestamp,
-        item.createdAt,
-        item.updatedAt,
+        asNumber(looseItem.paymentTimestamp),
+        asNumber(looseItem.timestamp),
+        asNumber(looseItem.createdAt),
+        asNumber(looseItem.updatedAt),
       ),
     ),
     chain: chainId,
     token: {
-      symbol: coalesce(item.symbol, deepGet(item, 'token', 'symbol')),
-      name: coalesce(item.tokenName, item.name, deepGet(item, 'token', 'name')),
+      symbol: coalesce(
+        asString(looseItem.symbol),
+        deepGet(looseItem, 'token', 'symbol'),
+      ),
+      name: coalesce(
+        asString(looseItem.tokenName),
+        asString(looseItem.name),
+        deepGet(looseItem, 'token', 'name'),
+      ),
       address: tokenAddress,
     },
     author: buildAuthor(item),
-    text: coalesce(item.description, item.title),
+    text: coalesce(
+      typeof item.description === 'string' ? item.description : null,
+      asString(looseItem.title),
+    ),
     metrics: extractMetrics(item),
     raw: item,
     metadata: {
       subscription,
       dexscreener: {
         url: item.url,
-        icon: item.icon,
-        header: item.header,
-        description: item.description,
-        links: extractLinks(item.links),
+        icon: 'icon' in item ? normalizeOptionalString(item.icon) : null,
+        header: 'header' in item ? normalizeOptionalString(item.header) : null,
+        description:
+          'description' in item ? normalizeOptionalString(item.description) : null,
+        links: extractLinks(asLinkArray(looseItem.links)),
       },
     },
   };
 }
 
 function buildAuthor(
-  item: Record<string, unknown>,
+  item: DexScreenerLatestItemBySubscription[DexScreenerSubscription],
 ): SignalEvent['author'] {
-  const authorName = coalesce(item.author, item.projectOwner, item.project);
+  const looseItem = item as Record<string, unknown>;
+  const authorName = coalesce(
+    asString(looseItem.author),
+    asString(looseItem.projectOwner),
+    asString(looseItem.project),
+  );
   if (!authorName) {
     return null;
   }
@@ -356,12 +384,15 @@ function buildAuthor(
   };
 }
 
-function extractMetrics(item: Record<string, unknown>): Record<string, number> {
+function extractMetrics(
+  item: DexScreenerLatestItemBySubscription[DexScreenerSubscription],
+): Record<string, number> {
+  const looseItem = item as Record<string, unknown>;
   const metrics: Record<string, number> = {};
   const candidates: Record<string, unknown> = {
-    amount: item.amount,
-    totalAmount: item.totalAmount,
-    activeBoosts: deepGet(item, 'boosts', 'active'),
+    amount: 'amount' in item ? item.amount : looseItem.amount,
+    totalAmount: 'totalAmount' in item ? item.totalAmount : looseItem.totalAmount,
+    activeBoosts: deepGet(looseItem, 'boosts', 'active'),
   };
 
   for (const [key, value] of Object.entries(candidates)) {
@@ -374,26 +405,32 @@ function extractMetrics(item: Record<string, unknown>): Record<string, number> {
   return metrics;
 }
 
-function extractItems(payload: unknown): Array<Record<string, unknown>> {
+function extractItems<TSubscription extends DexScreenerSubscription>(
+  _subscription: TSubscription,
+  payload: DexScreenerLatestPayload<TSubscription> | unknown,
+): Array<DexScreenerLatestItemBySubscription[TSubscription]> {
   if (Array.isArray(payload)) {
-    return payload.filter(isObject);
+    return payload.filter(isObject) as Array<
+      DexScreenerLatestItemBySubscription[TSubscription]
+    >;
   }
 
   if (isObject(payload)) {
-    const data = payload.data;
+    const data = (payload as DexScreenerLatestWsResponse<TSubscription>).data;
     if (Array.isArray(data)) {
-      return data.filter(isObject);
+      return data.filter(isObject) as Array<
+        DexScreenerLatestItemBySubscription[TSubscription]
+      >;
     }
-    if (isObject(data)) {
-      return [data];
-    }
-    return [payload];
+    return [payload as DexScreenerLatestItemBySubscription[TSubscription]];
   }
 
   return [];
 }
 
-function extractLinks(value: unknown): Array<Record<string, string>> {
+function extractLinks(
+  value: DexScreenerLinkRaw[] | null | undefined,
+): Array<Record<string, string>> {
   if (!Array.isArray(value)) {
     return [];
   }
@@ -408,19 +445,28 @@ function extractLinks(value: unknown): Array<Record<string, string>> {
     .filter(item => item.url);
 }
 
+function asLinkArray(value: unknown): DexScreenerLinkRaw[] | null | undefined {
+  if (value === null) {
+    return null;
+  }
+
+  return Array.isArray(value) ? (value as DexScreenerLinkRaw[]) : undefined;
+}
+
 function buildEventId(
   subscription: DexScreenerSubscription,
   chainId: string | null,
   tokenAddress: string | null,
-  item: Record<string, unknown>,
+  item: DexScreenerLatestItemBySubscription[DexScreenerSubscription],
 ): string {
+  const looseItem = item as Record<string, unknown>;
   const stableBits = [
     subscription,
     chainId ?? '',
     tokenAddress ?? '',
-    String(item.amount ?? ''),
-    String(item.totalAmount ?? ''),
-    String(item.paymentTimestamp ?? ''),
+    String(looseItem.amount ?? ''),
+    String(looseItem.totalAmount ?? ''),
+    String(looseItem.paymentTimestamp ?? ''),
   ].join(':');
 
   if (stableBits.replace(/:/g, '')) {
@@ -453,9 +499,8 @@ function buildSubscriptionWsUrl(
 
 function coalesce(...values: unknown[]): string | null {
   for (const value of values) {
-    if (typeof value === 'string' && value.trim()) {
-      return value.trim();
-    }
+    const parsed = asString(value);
+    if (parsed) return parsed;
   }
   return null;
 }
@@ -493,6 +538,14 @@ function asNumber(value: unknown): number | null {
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
+}
+
+function asString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function normalizeOptionalString(value: unknown): string | null {
+  return asString(value);
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

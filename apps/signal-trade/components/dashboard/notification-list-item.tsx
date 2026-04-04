@@ -13,6 +13,11 @@ import {
 
 import { Badge } from '@/components/ui/badge';
 import {
+  buildNotificationIdentity,
+  buildNotificationSocialLinks,
+} from '@/lib/notification-display';
+import type { LaohuangTokenState } from '@/lib/laohuang-strategy';
+import {
   isStrategyPresetEnabled,
 } from '@/lib/strategy-presets';
 import type { DashboardFilters, NotificationRecord } from '@/lib/types';
@@ -24,30 +29,6 @@ import {
   formatUsd,
   truncateMiddle,
 } from '@/lib/format-utils';
-
-export type LaohuangStage = 'tracking' | 'dropped' | 'rebounded';
-
-export type LaohuangTokenState = {
-  address: string;
-  blacklisted: boolean;
-  chain: string;
-  currentFdv: number | null;
-  currentMarketCap: number | null;
-  currentPriceUsd: number | null;
-  dropAtMs: number | null;
-  dropTriggered: boolean;
-  firstSeenAt: string;
-  firstSeenAtMs: number;
-  firstSeenFdv: number | null;
-  growthTriggered: boolean;
-  latestNotifiedAt: string;
-  latestNotifiedAtMs: number;
-  latestSourceKey: string;
-  minFdv: number | null;
-  reboundAtMs: number | null;
-  reboundTriggered: boolean;
-  stage: LaohuangStage;
-};
 
 export type TokenMarketData = {
   priceUsd: number | null;
@@ -234,14 +215,11 @@ export function NotificationListItem({
   strategyState: LaohuangTokenState | null;
 }): JSX.Element {
   const sourceKey = `${record.event.source}.${record.event.subtype}`;
-  const displayAddress =
-    record.context.token?.address || record.event.token.address || null;
-  const displaySymbol =
-    record.context.token?.symbol ||
-    record.event.token.symbol ||
-    (displayAddress ? truncateMiddle(displayAddress, 6, 4).toUpperCase() : 'UNKNOWN');
-  const displayName =
-    record.context.token?.name || record.event.token.name || null;
+  const displayIdentity = buildNotificationIdentity(record);
+  const displayAddress = displayIdentity.address;
+  const displayLabel = displayIdentity.primaryLabel;
+  const displayName = displayIdentity.secondaryLabel;
+  const socialLinks = buildNotificationSocialLinks(record);
   const [addressCopied, setAddressCopied] = useState(false);
   const rawDisplayText =
     record.context.dexscreener?.description ||
@@ -282,12 +260,12 @@ export function NotificationListItem({
         <div className="flex min-w-0 items-start gap-3">
           <TokenAvatar
             imageUrl={record.summary.imageUrl}
-            symbol={displaySymbol}
+            symbol={displayLabel}
           />
           <div className="min-w-0 flex-1">
             <div className="flex items-baseline justify-between gap-2">
               <p className="truncate text-base font-semibold tracking-[-0.03em] text-foreground">
-                {displaySymbol}
+                {displayLabel}
               </p>
               <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
                 {formatRelativeTime(record.notifiedAt, currentTimeMs)}
@@ -343,8 +321,28 @@ export function NotificationListItem({
           </span>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-        </div>
+        {socialLinks.length > 0 ? (
+          <div className="rounded-[14px] border border-border/70 bg-[rgba(14,18,27,0.92)] px-3 py-2">
+            <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+              社交
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {socialLinks.map(link => (
+                <a
+                  key={link.url}
+                  className="inline-flex items-center gap-1 rounded-full border border-border bg-[rgba(10,13,20,0.96)] px-3 py-1 text-xs font-medium text-foreground transition-colors hover:bg-[color:var(--color-panel-soft)]"
+                  href={link.url}
+                  rel="noreferrer"
+                  target="_blank"
+                  title={link.url}
+                >
+                  {link.label}
+                  <ArrowUpRight className="size-3" />
+                </a>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         {strategyEnabled ? (
           <div className="flex flex-wrap gap-2">
@@ -380,7 +378,6 @@ export function NotificationListItem({
                 label="FDV"
                 value={formatUsd(currentFdv)}
               />
-
             </dl>
           ) : null}
         </div>

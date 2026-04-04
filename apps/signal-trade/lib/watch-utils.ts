@@ -141,7 +141,10 @@ export function createBrowserWatchState(
   };
 }
 
-export function buildDexSubscriptionWsUrl(subscription: string, limit: number): string {
+export function buildDexSubscriptionWsUrl(
+  subscription: string,
+  limit?: number,
+): string {
   const endpoint =
     subscription === 'community_takeovers_latest'
       ? '/community-takeovers/latest/v1'
@@ -154,7 +157,7 @@ export function buildDexSubscriptionWsUrl(subscription: string, limit: number): 
             : '/token-profiles/latest/v1';
 
   const url = new URL(endpoint, 'wss://api.dexscreener.com');
-  if (limit > 0) {
+  if (typeof limit === 'number' && limit > 0) {
     url.searchParams.set('limit', String(limit));
   }
   return url.toString();

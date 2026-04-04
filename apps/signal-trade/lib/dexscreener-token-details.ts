@@ -1,3 +1,12 @@
+import type {
+  DexScreenerPairRaw,
+  DexScreenerSocialRaw,
+  DexScreenerTokenRefRaw,
+  DexScreenerTokensByChainResponse,
+  DexScreenerWebsiteRaw,
+} from '@/lib/dexscreener-api-types';
+import { withProxyEnvDisabled } from '@/lib/runtime/proxy-env';
+
 const DEXSCREENER_API_BASE = 'https://api.dexscreener.com';
 const DEXSCREENER_TOKEN_DETAILS_TIMEOUT_MS = 12_000;
 
@@ -90,18 +99,22 @@ export async function fetchDexTokenDetailsByChain(
   const timer = setTimeout(() => controller.abort(), DEXSCREENER_TOKEN_DETAILS_TIMEOUT_MS);
 
   try {
-    const response = await fetch(url, {
-      headers: {
-        Accept: 'application/json',
-      },
-      signal: controller.signal,
-    });
+    const response = await withProxyEnvDisabled(async () =>
+      fetch(url, {
+        headers: {
+          Accept: 'application/json',
+        },
+        signal: controller.signal,
+      }),
+    );
     if (!response.ok) {
       throw new Error(`dex token detail request failed: ${response.status}`);
     }
 
-    const payload = (await response.json()) as unknown;
-    const pairs = Array.isArray(payload) ? payload.filter(isObject) : [];
+    const payload = (await response.json()) as DexScreenerTokensByChainResponse | unknown;
+    const pairs = Array.isArray(payload)
+      ? (payload.filter(isObject) as DexScreenerPairRaw[])
+      : [];
 
     const detailsByAddress: Record<string, DexTokenPairDetails | null> = {};
     for (const tokenAddress of normalizedTokenAddresses) {
@@ -115,7 +128,7 @@ export async function fetchDexTokenDetailsByChain(
 }
 
 function pickBestPairDetails(
-  pairs: Array<Record<string, unknown>>,
+  pairs: DexScreenerPairRaw[],
   tokenAddress: string,
 ): DexTokenPairDetails | null {
   const matchingPairs = pairs.filter(pair => {
@@ -134,8 +147,8 @@ function pickBestPairDetails(
 }
 
 function comparePairs(
-  left: Record<string, unknown>,
-  right: Record<string, unknown>,
+  left: DexScreenerPairRaw,
+  right: DexScreenerPairRaw,
 ): number {
   const leftLiquidity = asNumber(deepGet(left, 'liquidity', 'usd')) ?? Number.NEGATIVE_INFINITY;
   const rightLiquidity =
@@ -162,7 +175,7 @@ function comparePairs(
 }
 
 function normalizePairDetails(
-  pair: Record<string, unknown>,
+  pair: DexScreenerPairRaw,
   tokenAddress: string,
 ): DexTokenPairDetails {
   const baseAddress = normalizeString(deepGet(pair, 'baseToken', 'address'))?.toLowerCase();
@@ -197,7 +210,7 @@ function normalizePairDetails(
   };
 }
 
-function normalizeTokenRef(value: unknown): DexTokenRef {
+function normalizeTokenRef(value: DexScreenerTokenRefRaw | unknown): DexTokenRef {
   return {
     address: normalizeString(isObject(value) ? value.address : null),
     name: normalizeString(isObject(value) ? value.name : null),
@@ -205,7 +218,7 @@ function normalizeTokenRef(value: unknown): DexTokenRef {
   };
 }
 
-function normalizeWebsites(value: unknown): string[] {
+function normalizeWebsites(value: DexScreenerWebsiteRaw[] | unknown): string[] {
   if (!Array.isArray(value)) {
     return [];
   }
@@ -215,7 +228,7 @@ function normalizeWebsites(value: unknown): string[] {
     .filter((item): item is string => Boolean(item));
 }
 
-function normalizeSocials(value: unknown): DexTokenSocial[] {
+function normalizeSocials(value: DexScreenerSocialRaw[] | unknown): DexTokenSocial[] {
   if (!Array.isArray(value)) {
     return [];
   }

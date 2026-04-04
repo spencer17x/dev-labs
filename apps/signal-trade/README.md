@@ -102,7 +102,7 @@ pnpm --filter signal-trade runtime:watch -- --transport auto --subscriptions tok
 - `ws`：页面里走浏览器直连 DexScreener WebSocket，CLI 仍然是服务端直连，不做 REST 兜底
 - `auto`：页面里优先使用浏览器 WebSocket，异常时退回浏览器端 HTTP 刷新；CLI 则是服务端 WS + REST fallback
 
-页面不会再轮询服务端通知缓存。“同步通知”按钮会直接触发 `/api/notifications/refresh` 拉取一轮新数据，并合并到当前页面会话。
+页面不会再轮询服务端通知缓存。“同步通知”按钮会先由浏览器直连 DexScreener 拉一轮最新 feed，再通过 `/api/runtime/ingest` 合并到当前页面会话。
 
 页面里的 `WS 订阅` 支持这 5 个 DexScreener feed：
 
@@ -113,6 +113,127 @@ pnpm --filter signal-trade runtime:watch -- --transport auto --subscriptions tok
 - `most active boosts`
 
 未选中的 feed 不会发起订阅；如果全部取消勾选，页面不会自动回退到默认 feed。
+
+## Web APIs
+
+### DexScreener APIs
+
+#### 1. Latest Feed HTTP APIs
+
+这些接口由浏览器直接调用，主要用于页面“同步通知”和 `http` 监听模式。浏览器先拉 DexScreener 最新 feed，再把原始 payload 转发给 Next.js 的 `/api/runtime/ingest` 统一解析。
+
+- `https://api.dexscreener.com/token-profiles/latest/v1`
+  - 用途：拉取最新 `token profiles` feed
+- `https://api.dexscreener.com/community-takeovers/latest/v1`
+  - 用途：拉取最新 `community takeovers` feed
+- `https://api.dexscreener.com/ads/latest/v1`
+  - 用途：拉取最新 `ads` feed
+- `https://api.dexscreener.com/token-boosts/latest/v1`
+  - 用途：拉取最新 `boosted tokens` feed
+- `https://api.dexscreener.com/token-boosts/top/v1`
+  - 用途：拉取最新 `most active boosts` feed
+
+当前页面这条链路的入口在：
+
+- `lib/browser-refresh.ts`
+
+#### 2. Latest Feed WebSocket APIs
+
+这些接口由浏览器直接建立 WebSocket 连接，主要用于页面默认的 `ws` 监听模式。收到消息后，页面不会自己解析原始 payload，而是把消息转发到 `/api/runtime/ingest`，统一走同一套通知生成逻辑。
+
+- `wss://api.dexscreener.com/token-profiles/latest/v1`
+  - 用途：实时接收 `token profiles` feed
+- `wss://api.dexscreener.com/community-takeovers/latest/v1`
+  - 用途：实时接收 `community takeovers` feed
+- `wss://api.dexscreener.com/ads/latest/v1`
+  - 用途：实时接收 `ads` feed
+- `wss://api.dexscreener.com/token-boosts/latest/v1`
+  - 用途：实时接收 `boosted tokens` feed
+- `wss://api.dexscreener.com/token-boosts/top/v1`
+  - 用途：实时接收 `most active boosts` feed
+
+当前页面这条链路的入口在：
+
+- `hooks/use-browser-watch.ts`
+- `lib/watch-utils.ts`
+
+#### 3. Token Detail HTTP API
+
+- `https://api.dexscreener.com/tokens/v1/:chain/:addresses`
+  - 用途：批量补 token detail
+  - 主要字段：`name`、`symbol`、`fdv`、`marketCap`、`priceUsd`、`liquidityUsd`、`socials`、`websites`
+  - 当前用途分两类：
+    - 通知 detail 回填：通知先展示，detail 再按地址分批补回页面
+    - 行情补全：给部分缺失 `priceUsd / marketCap` 的通知补展示用行情字段
+
+当前页面这条链路的入口在：
+
+- `lib/dexscreener-token-details.ts`
+- `lib/browser-notification-details.ts`
+- `hooks/use-market-data-enrichment.ts`
+
+### Next.js APIs
+
+#### 1. Runtime Ingest API
+
+- `POST /api/runtime/ingest`
+  - 用途：接收 DexScreener 原始 HTTP / WS payload，统一解析成页面通知
+  - 输入：`payload` 或 `payloadText`，以及 `subscription`
+  - 输出：`notifications`、`processed`、`stored`
+  - 角色：这是 Web 端最核心的 BFF API，负责把原始 feed 变成 `NotificationRecord`
+
+当前实现入口在：
+
+- `app/api/runtime/ingest/route.ts`
+- `lib/runtime/runtime-ingest.ts`
+- `lib/runtime/refresh-feed.ts`
+
+#### 2. Runtime Diagnostics API
+
+- `POST /api/runtime/diagnostics`
+  - 用途：给页面“诊断”按钮使用，检查服务端到 DexScreener 的 HTTP / WS 连通性、代理环境和通知 store 状态
+  - 角色：辅助排查 API，不参与主通知链路
+
+当前实现入口在：
+
+- `app/api/runtime/diagnostics/route.ts`
+- `lib/runtime/diagnostics.ts`
+
+#### 3. Dashboard Filters API
+
+- `GET /api/dashboard-filters`
+  - 用途：读取 dashboard 筛选条件
+- `PUT /api/dashboard-filters`
+  - 用途：保存 dashboard 筛选条件
+
+这组接口目前仍保留，但页面首屏初始化主要是服务端直接调用 `getDashboardFilters()`，不是浏览器启动后再主动请求。
+
+当前实现入口在：
+
+- `app/api/dashboard-filters/route.ts`
+- `lib/signal-trade-data.ts`
+
+#### 4. Legacy Refresh API
+
+- `POST /api/notifications/refresh`
+  - 用途：旧版服务端刷新接口，由 Next.js 服务端直接去 DexScreener 拉 feed 后返回通知
+  - 当前状态：接口仍保留，但 Web 主链路已经改成“浏览器直连 DexScreener latest feed，再调用 `/api/runtime/ingest`”，所以页面现在基本不依赖它
+
+当前实现入口在：
+
+- `app/api/notifications/refresh/route.ts`
+
+### Web Data Flow
+
+页面当前的主链路可以概括为：
+
+```text
+DexScreener latest feed HTTP / WebSocket
+-> /api/runtime/ingest
+-> NotificationRecord[]
+-> React session state
+-> DexScreener /tokens/v1 detail backfill
+```
 
 ## Session Behavior
 

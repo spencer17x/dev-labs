@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 
+import type { DexScreenerPairRaw, DexScreenerTokensByChainResponse } from '@/lib/dexscreener-api-types';
 import type { NotificationRecord } from '@/lib/types';
 
 import type { TokenMarketData } from '../components/dashboard/notification-list-item';
@@ -54,31 +55,31 @@ export function useMarketDataEnrichment(
           `https://api.dexscreener.com/tokens/v1/${chain}/${batch.join(',')}`,
         )
           .then(r => r.json())
-          .then((pairs: unknown) => {
+          .then((pairs: DexScreenerTokensByChainResponse | unknown) => {
             if (!Array.isArray(pairs)) return;
             for (const pair of pairs) {
               if (!pair || typeof pair !== 'object') continue;
-              const p = pair as Record<string, unknown>;
-              const baseToken = p['baseToken'] as Record<string, unknown> | undefined;
+              const p = pair as DexScreenerPairRaw;
+              const baseToken = p.baseToken;
               const addr =
-                typeof baseToken?.['address'] === 'string'
-                  ? baseToken['address']
+                typeof baseToken?.address === 'string'
+                  ? baseToken.address
                   : null;
               if (!addr) continue;
               const key = `${chain}:${addr}`;
-              const liquidity = p['liquidity'] as Record<string, unknown> | undefined;
+              const liquidity = p.liquidity;
               const data: TokenMarketData = {
                 priceUsd:
-                  typeof p['priceUsd'] === 'string'
-                    ? Number(p['priceUsd'])
-                    : typeof p['priceUsd'] === 'number'
-                      ? p['priceUsd']
+                  typeof p.priceUsd === 'string'
+                    ? Number(p.priceUsd)
+                    : typeof p.priceUsd === 'number'
+                      ? p.priceUsd
                       : null,
                 marketCap:
-                  typeof p['marketCap'] === 'number' ? p['marketCap'] : null,
-                fdv: typeof p['fdv'] === 'number' ? p['fdv'] : null,
+                  typeof p.marketCap === 'number' ? p.marketCap : null,
+                fdv: typeof p.fdv === 'number' ? p.fdv : null,
                 liquidityUsd:
-                  typeof liquidity?.['usd'] === 'number' ? liquidity['usd'] : null,
+                  typeof liquidity?.usd === 'number' ? liquidity.usd : null,
               };
               // Prefer pairs with actual market data (highest liquidity wins)
               const existing = marketDataCacheRef.current.get(key);

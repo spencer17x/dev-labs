@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 
-import { SIGNAL_TRADE_ENV_FILE } from '@/lib/runtime/paths';
+import { SIGNAL_TRADE_ENV_FILE } from './paths';
 
 let envLoaded = false;
 

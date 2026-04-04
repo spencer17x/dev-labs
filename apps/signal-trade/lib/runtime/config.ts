@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 
-import { loadLocalEnv } from '@/lib/runtime/env';
-import { SIGNAL_TRADE_RUNTIME_CONFIG_FILE } from '@/lib/runtime/paths';
+import { loadLocalEnv } from './env';
+import { SIGNAL_TRADE_RUNTIME_CONFIG_FILE } from './paths';
 
 loadLocalEnv();
 

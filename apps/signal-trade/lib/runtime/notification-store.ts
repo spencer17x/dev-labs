@@ -2,7 +2,7 @@ import type {
   NotificationRecord,
   SignalContext,
   SignalEvent,
-} from '@/lib/types';
+} from '../types';
 
 export type StoredSignal = {
   context: SignalContext;

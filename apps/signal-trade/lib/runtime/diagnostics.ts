@@ -1,5 +1,6 @@
 import { signalTradeConfig } from '@/lib/runtime/config';
 import { getNotificationStoreStats } from '@/lib/runtime/notification-store';
+import { withProxyEnvDisabled } from '@/lib/runtime/proxy-env';
 import type {
   RuntimeDiagnosticsNotificationStore,
   RuntimeDiagnosticsResult,
@@ -37,13 +38,15 @@ async function runHttpCheck(): Promise<RuntimeNetworkCheck> {
   );
 
   try {
-    const response = await fetch(DEX_HTTP_TARGET, {
-      headers: {
-        Accept: 'application/json',
-      },
-      next: { revalidate: 0 },
-      signal: AbortSignal.timeout(timeoutMs),
-    });
+    const response = await withProxyEnvDisabled(async () =>
+      fetch(DEX_HTTP_TARGET, {
+        headers: {
+          Accept: 'application/json',
+        },
+        next: { revalidate: 0 },
+        signal: AbortSignal.timeout(timeoutMs),
+      }),
+    );
 
     return {
       detail: `status=${response.status}`,

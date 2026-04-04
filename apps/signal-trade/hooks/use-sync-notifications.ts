@@ -1,7 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import type { NotificationRecord, RuntimeRefreshResult } from '@/lib/types';
+import {
+  streamBackfilledNotifications,
+  shouldBackfillNotificationDetails,
+} from '@/lib/browser-notification-details';
+import { refreshDexNotificationsInBrowser } from '@/lib/browser-refresh';
+import { fetchDexTokenDetailsByChain } from '@/lib/dexscreener-token-details';
+import type { NotificationRecord } from '@/lib/types';
 import { WATCH_LIMIT } from '@/lib/watch-utils';
 
 type RefreshState = 'idle' | 'syncing' | 'synced' | 'error';
@@ -37,33 +43,14 @@ export function useSyncNotifications({
         throw new Error('请至少选择一个订阅');
       }
 
-      const response = await fetch('/api/notifications/refresh', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          limit: WATCH_LIMIT,
-          subscriptions: selectedWatchSubscriptions,
-        }),
+      const payload = await refreshDexNotificationsInBrowser({
+        limit: WATCH_LIMIT,
+        subscriptions: selectedWatchSubscriptions,
       });
-      const payload = (await response.json().catch(() => ({}))) as Partial<
-        RuntimeRefreshResult
-      > & {
-        message?: string;
-      };
-      if (!response.ok) {
-        throw new Error(
-          typeof payload.message === 'string' && payload.message.trim()
-            ? payload.message.trim()
-            : `unexpected status ${response.status}`,
-        );
-      }
-      const nextNotifications = Array.isArray(payload.notifications)
-        ? payload.notifications
-        : [];
+      const nextNotifications = payload.notifications;
 
       onNotifications(nextNotifications);
+      void backfillSyncNotificationDetails(nextNotifications, onNotifications);
       setRefreshState('synced');
       setRefreshSummary(
         `本次扫描 ${payload.processed ?? 0} 条事件，接收 ${payload.stored ?? 0} 条通知。`,
@@ -79,4 +66,27 @@ export function useSyncNotifications({
   }
 
   return { isRefreshing, refreshState, refreshSummary, syncNotifications };
+}
+
+async function backfillSyncNotificationDetails(
+  notifications: NotificationRecord[],
+  onNotifications: UseSyncNotificationsOptions['onNotifications'],
+): Promise<void> {
+  const candidates = notifications.filter(shouldBackfillNotificationDetails);
+  if (candidates.length === 0) {
+    return;
+  }
+
+  try {
+    await streamBackfilledNotifications(candidates, {
+      fetchDetailsByChain: fetchDexTokenDetailsByChain,
+      onBatch: nextNotifications => {
+        if (nextNotifications.length > 0) {
+          onNotifications(nextNotifications);
+        }
+      },
+    });
+  } catch {
+    // Keep manual refresh responsive even when client-side detail hydration fails.
+  }
 }

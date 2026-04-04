@@ -1,8 +1,14 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import {
+  streamBackfilledNotifications,
+  shouldBackfillNotificationDetails,
+} from '@/lib/browser-notification-details';
+import { refreshDexNotificationsInBrowser } from '@/lib/browser-refresh';
+import { fetchDexTokenDetailsByChain } from '@/lib/dexscreener-token-details';
 import { getDexWatchSubscriptionLabel } from '@/lib/dexscreener-subscriptions';
-import type { NotificationRecord, RuntimeRefreshResult, WatchRuntimeState } from '@/lib/types';
+import type { NotificationRecord, WatchRuntimeState } from '@/lib/types';
 import {
   BROWSER_WS_CONNECT_TIMEOUT_MS,
   BROWSER_WS_RECONNECT_DELAY_MS,
@@ -34,11 +40,15 @@ interface UseBrowserWatchResult {
   stopWatch: (subscriptions: string[], transport?: 'auto' | 'http' | 'ws') => Promise<void>;
 }
 
+const BROWSER_WS_CLOSE_CODE_STALE = 4001;
+const BROWSER_WS_CLOSE_CODE_CONNECT_TIMEOUT = 4002;
+
 export function useBrowserWatch({ onNotifications }: UseBrowserWatchOptions): UseBrowserWatchResult {
   const [watchRuntime, setWatchRuntime] = useState<WatchRuntimeState | null>(null);
   const [isWatchMutating, setIsWatchMutating] = useState(false);
 
   const browserConnectTimersRef = useRef(new Map<string, number>());
+  const browserDetailBackfillRef = useRef(new Set<string>());
   const browserReconnectTimersRef = useRef(new Map<string, number>());
   const browserStaleTimersRef = useRef(new Map<string, number>());
   const browserHttpIntervalRef = useRef<number | null>(null);
@@ -90,6 +100,7 @@ export function useBrowserWatch({ onNotifications }: UseBrowserWatchOptions): Us
     browserSessionRef.current += 1;
     clearBrowserHttpInterval();
     clearBrowserWatchTimers();
+    browserDetailBackfillRef.current.clear();
     browserProcessingRef.current = Promise.resolve();
 
     for (const socket of browserSocketsRef.current.values()) {
@@ -143,30 +154,10 @@ export function useBrowserWatch({ onNotifications }: UseBrowserWatchOptions): Us
       subscriptions: [...subscriptions],
     }));
 
-    const response = await fetch('/api/notifications/refresh', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        limit: WATCH_LIMIT,
-        subscriptions,
-      }),
+    const payload = await refreshDexNotificationsInBrowser({
+      limit: WATCH_LIMIT,
+      subscriptions,
     });
-
-    const payload = (await response.json().catch(() => ({}))) as Partial<
-      RuntimeRefreshResult
-    > & {
-      message?: string;
-    };
-
-    if (!response.ok) {
-      throw new Error(
-        typeof payload.message === 'string' && payload.message.trim()
-          ? payload.message.trim()
-          : `unexpected status ${response.status}`,
-      );
-    }
 
     if (browserSessionRef.current !== sessionId) {
       return;
@@ -333,7 +324,7 @@ export function useBrowserWatch({ onNotifications }: UseBrowserWatchOptions): Us
           socket.readyState === WebSocket.CONNECTING ||
           socket.readyState === WebSocket.OPEN
         ) {
-          socket.close(1013, 'stale');
+          socket.close(BROWSER_WS_CLOSE_CODE_STALE, 'stale');
         }
       }, BROWSER_WS_STALE_TIMEOUT_MS),
     );
@@ -351,7 +342,6 @@ export function useBrowserWatch({ onNotifications }: UseBrowserWatchOptions): Us
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        limit: WATCH_LIMIT,
         payloadText,
         subscription,
       }),
@@ -376,6 +366,7 @@ export function useBrowserWatch({ onNotifications }: UseBrowserWatchOptions): Us
       : [];
 
     onNotifications(nextNotifications);
+    void backfillBrowserNotificationDetails(sessionId, nextNotifications);
 
     setBrowserWatchState(sessionId, current => ({
       ...current,
@@ -386,6 +377,48 @@ export function useBrowserWatch({ onNotifications }: UseBrowserWatchOptions): Us
       running: true,
       subscriptions: [...subscriptions],
     }));
+  }
+
+  async function backfillBrowserNotificationDetails(
+    sessionId: number,
+    notifications: NotificationRecord[],
+  ): Promise<void> {
+    const candidates = notifications.filter(record => {
+      if (!shouldBackfillNotificationDetails(record)) {
+        return false;
+      }
+
+      if (browserDetailBackfillRef.current.has(record.id)) {
+        return false;
+      }
+
+      browserDetailBackfillRef.current.add(record.id);
+      return true;
+    });
+    if (candidates.length === 0) {
+      return;
+    }
+
+    try {
+      await streamBackfilledNotifications(candidates, {
+        fetchDetailsByChain: fetchDexTokenDetailsByChain,
+        onBatch: nextNotifications => {
+          if (browserSessionRef.current !== sessionId) {
+            return;
+          }
+
+          if (nextNotifications.length > 0) {
+            onNotifications(nextNotifications);
+          }
+        },
+      });
+    } catch {
+      // Background detail hydration is best-effort. Keep the immediate WS notification.
+    } finally {
+      for (const record of candidates) {
+        browserDetailBackfillRef.current.delete(record.id);
+      }
+    }
   }
 
   function connectBrowserWatch(
@@ -402,7 +435,7 @@ export function useBrowserWatch({ onNotifications }: UseBrowserWatchOptions): Us
     subscription: string,
     subscriptions: string[],
   ): void {
-    const endpoint = buildDexSubscriptionWsUrl(subscription, WATCH_LIMIT);
+    const endpoint = buildDexSubscriptionWsUrl(subscription);
 
     const socket = new WebSocket(endpoint);
     browserSocketsRef.current.set(subscription, socket);
@@ -441,7 +474,7 @@ export function useBrowserWatch({ onNotifications }: UseBrowserWatchOptions): Us
           socket.readyState === WebSocket.CONNECTING ||
           socket.readyState === WebSocket.OPEN
         ) {
-          socket.close(1013, 'connect_timeout');
+          socket.close(BROWSER_WS_CLOSE_CODE_CONNECT_TIMEOUT, 'connect_timeout');
         }
       }, BROWSER_WS_CONNECT_TIMEOUT_MS),
     );

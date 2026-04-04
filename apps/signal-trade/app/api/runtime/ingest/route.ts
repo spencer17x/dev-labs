@@ -1,9 +1,8 @@
 import { NextResponse } from 'next/server';
 
 import {
-  normalizeDexSubscriptions,
-  parseDexSubscriptionPayload,
-} from '@/lib/runtime/dexscreener';
+  parseRuntimeIngestInput,
+} from '@/lib/runtime/runtime-ingest';
 import { ingestSignalEvents } from '@/lib/runtime/refresh-feed';
 
 export const runtime = 'nodejs';
@@ -34,13 +33,14 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({ message: 'payload is required' }, { status: 400 });
   }
 
-  const subscription = normalizeDexSubscriptions(
-    typeof body.subscription === 'string' ? [body.subscription] : undefined,
-  )[0];
-  const limit =
-    typeof body.limit === 'number' && body.limit > 0 ? Math.trunc(body.limit) : 10;
-  const events = parseDexSubscriptionPayload(subscription, payload, limit);
-  const result = await ingestSignalEvents(events);
+  const { events, subscription } = parseRuntimeIngestInput({
+    limit: body.limit,
+    payload,
+    subscription: body.subscription,
+  });
+  const result = await ingestSignalEvents(events, {
+    dexTokenDetailsMaxWaitMs: 750,
+  });
 
   return NextResponse.json({
     subscription,
