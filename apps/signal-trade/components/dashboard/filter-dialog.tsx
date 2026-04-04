@@ -4,10 +4,16 @@ import type { JSX } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Dialog } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import {
+  ALL_DASHBOARD_CHAINS,
+  areAllDashboardChainsSelected,
+  toggleDashboardChainSelection,
+  type DashboardChain,
+} from '@/lib/dashboard-chain-filters';
 import type { DashboardFilters } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
-import { FieldGroup, SelectField } from './dashboard-widgets';
+import { FieldGroup } from './dashboard-widgets';
 
 interface FilterDialogProps {
   open: boolean;
@@ -16,8 +22,6 @@ interface FilterDialogProps {
   updatePendingFilter: <Key extends keyof DashboardFilters>(key: Key, value: DashboardFilters[Key]) => void;
   applyPendingFilters: () => void;
   clearPendingFilters: () => void;
-  chainOptions: string[];
-  sourceOptions: string[];
 }
 
 export function FilterDialog({
@@ -27,31 +31,64 @@ export function FilterDialog({
   updatePendingFilter,
   applyPendingFilters,
   clearPendingFilters,
-  chainOptions,
-  sourceOptions,
 }: FilterDialogProps): JSX.Element {
+  const allSelected = areAllDashboardChainsSelected(pendingFilters.chains);
+
   return (
     <Dialog open={open} title="筛选设置" onClose={onClose}>
-      <div className="space-y-4 overflow-y-auto max-h-[60vh]">
-        {/* 链路 + 来源 */}
-        <div className="grid gap-3 sm:grid-cols-2">
-          <FieldGroup label="链路">
-            <SelectField
-              options={['all', ...chainOptions]}
-              value={pendingFilters.chain}
-              onChange={value => updatePendingFilter('chain', value)}
-            />
-          </FieldGroup>
-          <FieldGroup label="来源">
-            <SelectField
-              options={['all', ...sourceOptions]}
-              value={pendingFilters.source}
-              onChange={value => updatePendingFilter('source', value)}
-            />
-          </FieldGroup>
-        </div>
+      <div className="max-h-[60vh] space-y-4 overflow-y-auto">
+        <FieldGroup label="链">
+          <div className="grid gap-2">
+            <button
+              type="button"
+              className={cn(
+                'flex w-full items-center justify-between rounded-[18px] border px-4 py-3 text-left transition-colors',
+                allSelected
+                  ? 'border-[color:var(--color-accent)] bg-[rgba(91,132,255,0.12)] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
+                  : 'border-border bg-[color:var(--color-panel-soft)]',
+              )}
+              onClick={() => updatePendingFilter('chains', [...ALL_DASHBOARD_CHAINS])}
+            >
+              <span className="text-sm font-semibold text-foreground">全选</span>
+              <Badge variant={allSelected ? 'success' : 'secondary'}>
+                {allSelected ? 'ON' : 'OFF'}
+              </Badge>
+            </button>
+            <div className="grid gap-2 sm:grid-cols-3">
+              {ALL_DASHBOARD_CHAINS.map(chain => {
+                const selected = pendingFilters.chains.includes(chain);
 
-        {/* 持币 + 市值 */}
+                return (
+                  <button
+                    key={chain}
+                    type="button"
+                    className={cn(
+                      'flex items-center justify-between rounded-[18px] border px-4 py-3 text-left transition-colors',
+                      selected
+                        ? 'border-[color:var(--color-accent)] bg-[rgba(91,132,255,0.12)] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
+                        : 'border-border bg-[color:var(--color-panel-soft)]',
+                    )}
+                    onClick={() =>
+                      updatePendingFilter(
+                        'chains',
+                        toggleDashboardChainSelection(
+                          pendingFilters.chains,
+                          chain as DashboardChain,
+                        ),
+                      )
+                    }
+                  >
+                    <span className="text-sm text-foreground">{chain}</span>
+                    <Badge variant={selected ? 'success' : 'secondary'}>
+                      {selected ? 'ON' : 'OFF'}
+                    </Badge>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </FieldGroup>
+
         <div className="grid gap-3 sm:grid-cols-2">
           <FieldGroup label="最少持币人数">
             <Input
@@ -79,7 +116,6 @@ export function FilterDialog({
           </FieldGroup>
         </div>
 
-        {/* 仅看 Paid */}
         <button
           type="button"
           className={cn(
@@ -100,7 +136,6 @@ export function FilterDialog({
         </button>
       </div>
 
-      {/* Footer */}
       <div className="mt-6 flex items-center justify-end gap-3 border-t border-border/60 pt-4">
         <button
           type="button"

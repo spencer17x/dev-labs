@@ -73,12 +73,24 @@ import {
   truncateText,
 } from '@/lib/format-utils';
 import {
+  ALL_DASHBOARD_CHAINS,
+  areAllDashboardChainsSelected,
+  matchesDashboardChainSelection,
+  toggleDashboardChainSelection,
+  type DashboardChain,
+} from '@/lib/dashboard-chain-filters';
+import {
   getSelectedWatchSubscriptions,
   mergeNotifications,
   parseListFilter,
   toggleWatchSubscription,
-  uniqueValues,
 } from '@/lib/notification-utils';
+import {
+  buildNotificationPagination,
+  buildPaginationItems,
+  normalizePageSizeInput,
+  NOTIFICATION_PAGE_SIZE_PRESETS,
+} from '@/lib/dashboard-pagination';
 import {
   formatDurationMs,
   formatWatchStatus,
@@ -126,7 +138,6 @@ type ActiveFilterChip = {
     | 'minHolders'
     | 'paidOnly'
     | 'search'
-    | 'source'
     | 'strategyStatus'
     | 'watchSubscriptions'
     | 'watchTerms'
@@ -135,6 +146,7 @@ type ActiveFilterChip = {
 };
 
 const MAX_LAOHUANG_HISTORY = 1_000;
+type NotificationPageSizeMode = `${(typeof NOTIFICATION_PAGE_SIZE_PRESETS)[number]}` | 'custom';
 
 export function SignalTradeDashboard({
   initialFilters,
@@ -150,6 +162,9 @@ export function SignalTradeDashboard({
   );
   const [relativeNow, setRelativeNow] = useState(initialNow);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [requestedPage, setRequestedPage] = useState(1);
+  const [pageSizeMode, setPageSizeMode] = useState<NotificationPageSizeMode>('10');
+  const [customPageSizeInput, setCustomPageSizeInput] = useState('');
 
   const { watchRuntime, isWatchMutating, startWatch, stopWatch } = useBrowserWatch({
     onNotifications: (records) => {
@@ -176,21 +191,6 @@ export function SignalTradeDashboard({
 
     return () => window.clearInterval(timer);
   }, []);
-
-  const chainOptions = useMemo(
-    () => uniqueValues(notifications.map(record => record.event.chain ?? '')),
-    [notifications],
-  );
-
-  const sourceOptions = useMemo(
-    () =>
-      uniqueValues(
-        notifications.map(
-          record => `${record.event.source}.${record.event.subtype}`,
-        ),
-      ),
-    [notifications],
-  );
 
   const selectedWatchSubscriptions = useMemo(
     () => getSelectedWatchSubscriptions(filters.watchSubscriptions),
@@ -264,11 +264,11 @@ export function SignalTradeDashboard({
     if (filters.watchTransport !== 'auto') {
       chips.push({ id: 'watchTransport', label: `传输 ${filters.watchTransport}` });
     }
-    if (filters.chain !== 'all') {
-      chips.push({ id: 'chain', label: `链 ${filters.chain}` });
-    }
-    if (filters.source !== 'all') {
-      chips.push({ id: 'source', label: `来源 ${truncateText(filters.source, 18)}` });
+    if (!areAllDashboardChainsSelected(filters.chains)) {
+      chips.push({
+        id: 'chain',
+        label: `链 ${filters.chains.join('/')}`,
+      });
     }
     if (watchTermsList.length > 0) {
       chips.push({ id: 'watchTerms', label: `关键词 ${watchTermsList.length}` });
@@ -302,13 +302,12 @@ export function SignalTradeDashboard({
 
     return chips;
   }, [
-    filters.chain,
+    filters.chains,
     filters.maxHolders,
     filters.maxMarketCap,
     filters.minHolders,
     filters.paidOnly,
     filters.search,
-    filters.source,
     filters.strategyPreset,
     filters.strategyStatus,
     filters.watchTransport,
@@ -325,7 +324,6 @@ export function SignalTradeDashboard({
     const minCommunityCount = parseNumericFilter(filters.minCommunityCount);
     return strategyBaseRecords
       .filter(record => {
-        const sourceKey = `${record.event.source}.${record.event.subtype}`;
         const laohuangState = getLaohuangStateForRecord(laohuangStates, record);
         const searchHaystack = [
           record.context.token?.symbol,
@@ -349,10 +347,7 @@ export function SignalTradeDashboard({
           .join(' ')
           .toLowerCase();
 
-        if (filters.chain !== 'all' && record.event.chain !== filters.chain) {
-          return false;
-        }
-        if (filters.source !== 'all' && sourceKey !== filters.source) {
+        if (!matchesDashboardChainSelection(record.event.chain, filters.chains)) {
           return false;
         }
         if (filters.paidOnly && !record.summary.paid) {
@@ -405,12 +400,11 @@ export function SignalTradeDashboard({
   }, [
     deferredSearch,
     deferredWatchTerms,
-    filters.chain,
+    filters.chains,
     filters.maxMarketCap,
     filters.maxHolders,
     filters.minHolders,
     filters.paidOnly,
-    filters.source,
     filters.strategyPreset,
     filters.strategyStatus,
     laohuangConfig,
@@ -418,6 +412,60 @@ export function SignalTradeDashboard({
     relativeNow,
     strategyBaseRecords,
   ]);
+
+  const pageSize = useMemo(
+    () =>
+      pageSizeMode === 'custom'
+        ? normalizePageSizeInput(customPageSizeInput)
+        : Number.parseInt(pageSizeMode, 10),
+    [customPageSizeInput, pageSizeMode],
+  );
+  const paginatedNotifications = useMemo(
+    () =>
+      buildNotificationPagination(filteredNotifications, {
+        currentPage: requestedPage,
+        pageSize,
+      }),
+    [filteredNotifications, pageSize, requestedPage],
+  );
+  const paginationItems = useMemo(
+    () =>
+      buildPaginationItems({
+        currentPage: paginatedNotifications.currentPage,
+        totalPages: paginatedNotifications.totalPages,
+      }),
+    [paginatedNotifications.currentPage, paginatedNotifications.totalPages],
+  );
+  const currentPageStart = paginatedNotifications.totalItems === 0
+    ? 0
+    : (paginatedNotifications.currentPage - 1) * paginatedNotifications.pageSize + 1;
+  const currentPageEnd = paginatedNotifications.totalItems === 0
+    ? 0
+    : Math.min(
+        paginatedNotifications.currentPage * paginatedNotifications.pageSize,
+        paginatedNotifications.totalItems,
+      );
+
+  useEffect(() => {
+    setRequestedPage(1);
+  }, [
+    deferredSearch,
+    deferredWatchTerms,
+    filters.chains,
+    filters.maxHolders,
+    filters.maxMarketCap,
+    filters.minHolders,
+    filters.paidOnly,
+    filters.strategyPreset,
+    filters.strategyStatus,
+    pageSize,
+  ]);
+
+  useEffect(() => {
+    if (requestedPage !== paginatedNotifications.currentPage) {
+      setRequestedPage(paginatedNotifications.currentPage);
+    }
+  }, [paginatedNotifications.currentPage, requestedPage]);
 
   // Enrich notifications missing market data via DexScreener /tokens/v1 API
 
@@ -450,8 +498,7 @@ export function SignalTradeDashboard({
   function applyPendingFilters(): void {
     setFilters(current => ({
       ...current,
-      chain: pendingFilters.chain,
-      source: pendingFilters.source,
+      chains: pendingFilters.chains,
       paidOnly: pendingFilters.paidOnly,
       minHolders: pendingFilters.minHolders,
       maxHolders: pendingFilters.maxHolders,
@@ -462,8 +509,7 @@ export function SignalTradeDashboard({
   function clearPendingFilters(): void {
     setPendingFilters(current => ({
       ...current,
-      chain: initialFilters.chain,
-      source: initialFilters.source,
+      chains: initialFilters.chains,
       paidOnly: initialFilters.paidOnly,
       minHolders: initialFilters.minHolders,
       maxHolders: initialFilters.maxHolders,
@@ -509,11 +555,7 @@ export function SignalTradeDashboard({
       return;
     }
     if (id === 'chain') {
-      updateFilter('chain', 'all');
-      return;
-    }
-    if (id === 'source') {
-      updateFilter('source', 'all');
+      updateFilter('chains', [...ALL_DASHBOARD_CHAINS]);
       return;
     }
     if (id === 'watchTerms') {
@@ -548,8 +590,7 @@ export function SignalTradeDashboard({
   const watchStatusLabel = watchRuntime ? formatWatchStatus(watchRuntime) : '待机';
   const activeDialogCount =
     Number(filters.paidOnly) +
-    Number(filters.chain !== 'all') +
-    Number(filters.source !== 'all') +
+    Number(!areAllDashboardChainsSelected(filters.chains)) +
     Number(filters.minHolders.trim().length > 0) +
     Number(filters.maxHolders.trim().length > 0) +
     Number(filters.maxMarketCap.trim().length > 0);
@@ -608,7 +649,7 @@ export function SignalTradeDashboard({
                     <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
                       className="pl-10"
-                      placeholder="代币、来源、Twitter 用户名"
+                      placeholder="代币、合约、Twitter 用户名"
                       value={filters.search}
                       onChange={event => updateFilter('search', event.target.value)}
                     />
@@ -706,8 +747,6 @@ export function SignalTradeDashboard({
             updatePendingFilter={updatePendingFilter}
             applyPendingFilters={applyPendingFilters}
             clearPendingFilters={clearPendingFilters}
-            chainOptions={chainOptions}
-            sourceOptions={sourceOptions}
           />
 
           <section className="overflow-hidden rounded-[24px] border border-border bg-[linear-gradient(180deg,rgba(10,12,19,0.98),rgba(8,10,16,0.98))] shadow-[0_18px_56px_rgba(0,0,0,0.24)]">
@@ -790,24 +829,144 @@ export function SignalTradeDashboard({
             </div>
             <div className="p-3 sm:p-4">
               {filteredNotifications.length > 0 ? (
-                <ol className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                  {filteredNotifications.map(record => (
-                    <NotificationListItem
-                      key={record.id}
-                      currentTimeMs={relativeNow}
-                      marketDataVersion={marketDataVersion}
-                      enrichedMarketData={(() => {
-                        const chain = record.event.chain ?? record.context.token?.chain ?? null;
-                        const address = record.context.token?.address ?? record.event.token.address ?? null;
-                        if (!chain || !address) return null;
-                        return getMarketData(chain, address);
-                      })()}
-                      record={record}
-                      strategyPreset={filters.strategyPreset}
-                      strategyState={getLaohuangStateForRecord(laohuangStates, record)}
-                    />
-                  ))}
-                </ol>
+                <div className="space-y-4">
+                  <div className="rounded-[20px] border border-border bg-[rgba(11,14,21,0.72)] p-3 sm:p-4">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium text-foreground">
+                          共 {paginatedNotifications.totalItems} 条结果
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          当前展示第 {currentPageStart}-{currentPageEnd} 条，按最新通知时间倒序排列
+                        </p>
+                      </div>
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                        <FieldGroup label="每页">
+                          <div className="w-full min-w-[124px] sm:w-[124px]">
+                            <SelectField
+                              options={[
+                                ...NOTIFICATION_PAGE_SIZE_PRESETS.map(value => ({
+                                  label: `${value} 条`,
+                                  value: String(value),
+                                })),
+                                { label: '自定义', value: 'custom' },
+                              ]}
+                              value={pageSizeMode}
+                              onChange={value => {
+                                setPageSizeMode(value as NotificationPageSizeMode);
+                              }}
+                            />
+                          </div>
+                        </FieldGroup>
+                        {pageSizeMode === 'custom' ? (
+                          <FieldGroup label="自定义">
+                            <Input
+                              className="w-full sm:w-[132px]"
+                              inputMode="numeric"
+                              min={1}
+                              placeholder="输入页数"
+                              type="number"
+                              value={customPageSizeInput}
+                              onChange={event => {
+                                setCustomPageSizeInput(event.target.value);
+                              }}
+                            />
+                          </FieldGroup>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+
+                  <ol className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                    {paginatedNotifications.items.map(record => (
+                      <NotificationListItem
+                        key={record.id}
+                        currentTimeMs={relativeNow}
+                        marketDataVersion={marketDataVersion}
+                        enrichedMarketData={(() => {
+                          const chain = record.event.chain ?? record.context.token?.chain ?? null;
+                          const address = record.context.token?.address ?? record.event.token.address ?? null;
+                          if (!chain || !address) return null;
+                          return getMarketData(chain, address);
+                        })()}
+                        record={record}
+                        strategyPreset={filters.strategyPreset}
+                        strategyState={getLaohuangStateForRecord(laohuangStates, record)}
+                      />
+                    ))}
+                  </ol>
+
+                  <div className="flex flex-col gap-3 rounded-[20px] border border-border bg-[rgba(11,14,21,0.72)] p-3 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-xs text-muted-foreground">
+                      第 {paginatedNotifications.currentPage} / {paginatedNotifications.totalPages} 页
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={paginatedNotifications.currentPage <= 1}
+                        onClick={() => { setRequestedPage(1); }}
+                      >
+                        首页
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={paginatedNotifications.currentPage <= 1}
+                        onClick={() => {
+                          setRequestedPage(paginatedNotifications.currentPage - 1);
+                        }}
+                      >
+                        上一页
+                      </Button>
+                      {paginationItems.map(item =>
+                        item.type === 'ellipsis' ? (
+                          <span
+                            key={item.id}
+                            className="px-1 text-sm text-muted-foreground"
+                          >
+                            ...
+                          </span>
+                        ) : (
+                          <Button
+                            key={item.page}
+                            size="sm"
+                            variant={item.isCurrent ? 'default' : 'outline'}
+                            onClick={() => { setRequestedPage(item.page); }}
+                          >
+                            {item.page}
+                          </Button>
+                        ),
+                      )}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={
+                          paginatedNotifications.currentPage >=
+                          paginatedNotifications.totalPages
+                        }
+                        onClick={() => {
+                          setRequestedPage(paginatedNotifications.currentPage + 1);
+                        }}
+                      >
+                        下一页
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={
+                          paginatedNotifications.currentPage >=
+                          paginatedNotifications.totalPages
+                        }
+                        onClick={() => {
+                          setRequestedPage(paginatedNotifications.totalPages);
+                        }}
+                      >
+                        尾页
+                      </Button>
+                    </div>
+                  </div>
+                </div>
               ) : (
                 <EmptyState
                   activeFilterCount={activeFilterChips.length}

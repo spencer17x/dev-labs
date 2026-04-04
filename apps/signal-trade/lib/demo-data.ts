@@ -1,3 +1,4 @@
+import { ALL_DASHBOARD_CHAINS } from '@/lib/dashboard-chain-filters';
 import { DEFAULT_DEX_WATCH_SUBSCRIPTIONS } from '@/lib/dexscreener-subscriptions';
 import type { DashboardFilters } from '@/lib/types';
 
@@ -17,8 +18,7 @@ export const defaultDashboardFilters: DashboardFilters = {
   strategyReboundDelaySec: '6',
   strategyGrowthPercent: '20',
   strategyTrackHours: '12',
-  chain: 'all',
-  source: 'all',
+  chains: [...ALL_DASHBOARD_CHAINS],
   minHolders: '',
   maxHolders: '',
   maxMarketCap: '',

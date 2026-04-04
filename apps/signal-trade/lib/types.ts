@@ -118,8 +118,7 @@ export interface DashboardFilters {
   strategyReboundDelaySec: string;
   strategyGrowthPercent: string;
   strategyTrackHours: string;
-  chain: string;
-  source: string;
+  chains: string[];
   minHolders: string;
   maxHolders: string;
   maxMarketCap: string;

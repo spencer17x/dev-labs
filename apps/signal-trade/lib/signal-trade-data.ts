@@ -1,3 +1,4 @@
+import { normalizeDashboardChains } from '@/lib/dashboard-chain-filters';
 import { normalizeDexWatchSubscriptions } from '@/lib/dexscreener-subscriptions';
 import { defaultDashboardFilters } from '@/lib/demo-data';
 import { normalizeStrategyPreset } from '@/lib/strategy-presets';
@@ -40,14 +41,34 @@ export function normalizeDashboardFilters(
     strategyTrackHours: sanitizeNumericInput(
       readString(value, 'strategyTrackHours') || '12',
     ),
-    chain: readString(value, 'chain') || 'all',
-    source: readString(value, 'source') || 'all',
+    chains: readDashboardChains(value),
     minHolders: sanitizeNumericInput(readString(value, 'minHolders')),
     maxHolders: sanitizeNumericInput(readString(value, 'maxHolders')),
     maxMarketCap: sanitizeNumericInput(readString(value, 'maxMarketCap')),
     minCommunityCount: sanitizeNumericInput(readString(value, 'minCommunityCount')),
     paidOnly: readBoolean(value, 'paidOnly'),
   };
+}
+
+function readDashboardChains(
+  value: Partial<DashboardFilters> | Record<string, unknown> | null | undefined,
+): string[] {
+  if (!value || typeof value !== 'object') {
+    return normalizeDashboardChains(undefined);
+  }
+
+  const rawValue = value as Record<string, unknown>;
+
+  if (Object.hasOwn(rawValue, 'chains')) {
+    return normalizeDashboardChains(rawValue.chains);
+  }
+
+  const legacyChain = readString(value, 'chain' as keyof DashboardFilters);
+  if (!legacyChain || legacyChain === 'all') {
+    return normalizeDashboardChains(undefined);
+  }
+
+  return normalizeDashboardChains([legacyChain]);
 }
 
 export async function getDashboardFilters(): Promise<DashboardFilters> {
