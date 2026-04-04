@@ -43,6 +43,7 @@ export function normalizeDashboardFilters(
     ),
     chains: readDashboardChains(value),
     minHolders: sanitizeNumericInput(readString(value, 'minHolders')),
+    minMarketCap: sanitizeNumericInput(readString(value, 'minMarketCap')),
     maxHolders: sanitizeNumericInput(readString(value, 'maxHolders')),
     maxMarketCap: sanitizeNumericInput(readString(value, 'maxMarketCap')),
     minCommunityCount: sanitizeNumericInput(readString(value, 'minCommunityCount')),

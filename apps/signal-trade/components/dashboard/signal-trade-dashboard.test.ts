@@ -14,6 +14,7 @@ test('dashboard source exposes pagination controls for scan results', () => {
   assert.match(source, /尾页/);
   assert.match(source, /paginatedNotifications/);
   assert.match(source, /matchesDashboardChainSelection/);
+  assert.match(source, /filters\.minMarketCap/);
   assert.match(source, /filters\.chains/);
   assert.doesNotMatch(source, /filters\.source/);
 });

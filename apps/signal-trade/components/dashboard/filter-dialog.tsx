@@ -98,6 +98,14 @@ export function FilterDialog({
               onChange={event => updatePendingFilter('minHolders', event.target.value)}
             />
           </FieldGroup>
+          <FieldGroup label="最低市值">
+            <Input
+              inputMode="numeric"
+              placeholder="100000"
+              value={pendingFilters.minMarketCap}
+              onChange={event => updatePendingFilter('minMarketCap', event.target.value)}
+            />
+          </FieldGroup>
           <FieldGroup label="最多持币人数">
             <Input
               inputMode="numeric"

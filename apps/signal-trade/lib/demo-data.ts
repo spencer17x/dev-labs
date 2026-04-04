@@ -20,6 +20,7 @@ export const defaultDashboardFilters: DashboardFilters = {
   strategyTrackHours: '12',
   chains: [...ALL_DASHBOARD_CHAINS],
   minHolders: '',
+  minMarketCap: '',
   maxHolders: '',
   maxMarketCap: '',
   minCommunityCount: '',

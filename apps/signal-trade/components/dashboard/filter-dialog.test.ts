@@ -15,6 +15,7 @@ test('filter dialog source only keeps supported filter controls', () => {
   assert.match(source, /全选/);
   assert.match(source, /ALL_DASHBOARD_CHAINS/);
   assert.match(source, /toggleDashboardChainSelection/);
+  assert.match(source, /label="最低市值"/);
   assert.match(source, /label="最少持币人数"/);
   assert.match(source, /label="最多持币人数"/);
   assert.match(source, /label="最高市值"/);

@@ -76,9 +76,8 @@ import {
   ALL_DASHBOARD_CHAINS,
   areAllDashboardChainsSelected,
   matchesDashboardChainSelection,
-  toggleDashboardChainSelection,
-  type DashboardChain,
 } from '@/lib/dashboard-chain-filters';
+import { matchesMarketCapRange } from '@/lib/dashboard-market-cap';
 import {
   getSelectedWatchSubscriptions,
   mergeNotifications,
@@ -135,6 +134,7 @@ type ActiveFilterChip = {
     | 'chain'
     | 'maxHolders'
     | 'maxMarketCap'
+    | 'minMarketCap'
     | 'minHolders'
     | 'paidOnly'
     | 'search'
@@ -284,6 +284,12 @@ export function SignalTradeDashboard({
     if (filters.minHolders.trim()) {
       chips.push({ id: 'minHolders', label: `持币 >= ${filters.minHolders.trim()}` });
     }
+    if (filters.minMarketCap.trim()) {
+      chips.push({
+        id: 'minMarketCap',
+        label: `市值 >= ${filters.minMarketCap.trim()}`,
+      });
+    }
     if (filters.maxHolders.trim()) {
       chips.push({ id: 'maxHolders', label: `持币 <= ${filters.maxHolders.trim()}` });
     }
@@ -305,6 +311,7 @@ export function SignalTradeDashboard({
     filters.chains,
     filters.maxHolders,
     filters.maxMarketCap,
+    filters.minMarketCap,
     filters.minHolders,
     filters.paidOnly,
     filters.search,
@@ -319,6 +326,7 @@ export function SignalTradeDashboard({
     const search = deferredSearch.trim().toLowerCase();
     const watchTerms = parseListFilter(deferredWatchTerms);
     const minHolders = parseNumericFilter(filters.minHolders);
+    const minMarketCap = parseNumericFilter(filters.minMarketCap);
     const maxHolders = parseNumericFilter(filters.maxHolders);
     const maxMarketCap = parseNumericFilter(filters.maxMarketCap);
     const minCommunityCount = parseNumericFilter(filters.minCommunityCount);
@@ -369,8 +377,10 @@ export function SignalTradeDashboard({
           return false;
         }
         if (
-          maxMarketCap !== null &&
-          (record.summary.marketCap ?? Number.POSITIVE_INFINITY) > maxMarketCap
+          !matchesMarketCapRange(record.summary.marketCap, {
+            min: minMarketCap,
+            max: maxMarketCap,
+          })
         ) {
           return false;
         }
@@ -403,6 +413,7 @@ export function SignalTradeDashboard({
     filters.chains,
     filters.maxMarketCap,
     filters.maxHolders,
+    filters.minMarketCap,
     filters.minHolders,
     filters.paidOnly,
     filters.strategyPreset,
@@ -454,6 +465,7 @@ export function SignalTradeDashboard({
     filters.chains,
     filters.maxHolders,
     filters.maxMarketCap,
+    filters.minMarketCap,
     filters.minHolders,
     filters.paidOnly,
     filters.strategyPreset,
@@ -501,6 +513,7 @@ export function SignalTradeDashboard({
       chains: pendingFilters.chains,
       paidOnly: pendingFilters.paidOnly,
       minHolders: pendingFilters.minHolders,
+      minMarketCap: pendingFilters.minMarketCap,
       maxHolders: pendingFilters.maxHolders,
       maxMarketCap: pendingFilters.maxMarketCap,
     }));
@@ -512,6 +525,7 @@ export function SignalTradeDashboard({
       chains: initialFilters.chains,
       paidOnly: initialFilters.paidOnly,
       minHolders: initialFilters.minHolders,
+      minMarketCap: initialFilters.minMarketCap,
       maxHolders: initialFilters.maxHolders,
       maxMarketCap: initialFilters.maxMarketCap,
     }));
@@ -570,6 +584,10 @@ export function SignalTradeDashboard({
       updateFilter('minHolders', '');
       return;
     }
+    if (id === 'minMarketCap') {
+      updateFilter('minMarketCap', '');
+      return;
+    }
     if (id === 'maxHolders') {
       updateFilter('maxHolders', '');
       return;
@@ -592,6 +610,7 @@ export function SignalTradeDashboard({
     Number(filters.paidOnly) +
     Number(!areAllDashboardChainsSelected(filters.chains)) +
     Number(filters.minHolders.trim().length > 0) +
+    Number(filters.minMarketCap.trim().length > 0) +
     Number(filters.maxHolders.trim().length > 0) +
     Number(filters.maxMarketCap.trim().length > 0);
 

@@ -120,6 +120,7 @@ export interface DashboardFilters {
   strategyTrackHours: string;
   chains: string[];
   minHolders: string;
+  minMarketCap: string;
   maxHolders: string;
   maxMarketCap: string;
   minCommunityCount: string;
