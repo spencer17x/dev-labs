@@ -2,9 +2,31 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  splitDisplayReadyNotifications,
   streamBackfilledNotifications,
   type FetchNotificationDetailsByChain,
 } from './browser-notification-details.ts';
+
+test('holds notifications missing token identity until detail backfill is ready', () => {
+  const readyNotification = buildNotification(1, {
+    detailState: 'complete',
+  });
+  const pendingNotification = buildNotification(2, {
+    detailState: 'missing_identity',
+  });
+
+  const { deferredNotifications, immediateNotifications } =
+    splitDisplayReadyNotifications([readyNotification, pendingNotification]);
+
+  assert.deepEqual(
+    immediateNotifications.map(record => record.id),
+    ['token-1'],
+  );
+  assert.deepEqual(
+    deferredNotifications.map(record => record.id),
+    ['token-2'],
+  );
+});
 
 test('streams notification detail backfill in address batches instead of swallowing the whole set', async () => {
   const notifications = Array.from({ length: 65 }, (_, index) =>
@@ -50,8 +72,14 @@ test('streams notification detail backfill in address batches instead of swallow
   assert.deepEqual(deliveredBatchSizes, [30, 30, 5]);
 });
 
-function buildNotification(index: number) {
+function buildNotification(
+  index: number,
+  options: {
+    detailState?: 'complete' | 'missing_identity';
+  } = {},
+) {
   const address = `So${String(index).padStart(40, '0')}`;
+  const detailState = options.detailState ?? 'missing_identity';
 
   return {
     id: `token-${index}`,
@@ -72,8 +100,18 @@ function buildNotification(index: number) {
       token: {
         address,
         chain: 'solana',
+        name: detailState === 'complete' ? `Token ${index}` : null,
+        symbol: detailState === 'complete' ? `T${index}` : null,
       },
-      dexscreener: {},
+      dexscreener:
+        detailState === 'complete'
+          ? {
+              fdv: 1_000,
+              liquidityUsd: 500,
+              marketCap: 900,
+              priceUsd: 0.001,
+            }
+          : {},
     },
     summary: {
       paid: false,

@@ -26,6 +26,30 @@ type StreamBackfilledNotificationsOptions = BackfillNotificationsOptions & {
   onBatch: (notifications: NotificationRecord[]) => Promise<void> | void;
 };
 
+export function splitDisplayReadyNotifications(
+  notifications: NotificationRecord[],
+): {
+  deferredNotifications: NotificationRecord[];
+  immediateNotifications: NotificationRecord[];
+} {
+  const deferredNotifications: NotificationRecord[] = [];
+  const immediateNotifications: NotificationRecord[] = [];
+
+  for (const record of notifications) {
+    if (shouldBackfillNotificationDetails(record)) {
+      deferredNotifications.push(record);
+      continue;
+    }
+
+    immediateNotifications.push(record);
+  }
+
+  return {
+    deferredNotifications,
+    immediateNotifications,
+  };
+}
+
 export function shouldBackfillNotificationDetails(record: NotificationRecord): boolean {
   const chain = record.event.chain ?? record.context.token?.chain ?? null;
   const address = record.context.token?.address ?? record.event.token.address ?? null;

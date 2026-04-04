@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import {
+  splitDisplayReadyNotifications,
   streamBackfilledNotifications,
   shouldBackfillNotificationDetails,
 } from '@/lib/browser-notification-details';
@@ -48,9 +49,13 @@ export function useSyncNotifications({
         subscriptions: selectedWatchSubscriptions,
       });
       const nextNotifications = payload.notifications;
+      const { deferredNotifications, immediateNotifications } =
+        splitDisplayReadyNotifications(nextNotifications);
 
-      onNotifications(nextNotifications);
-      void backfillSyncNotificationDetails(nextNotifications, onNotifications);
+      if (immediateNotifications.length > 0) {
+        onNotifications(immediateNotifications);
+      }
+      void backfillSyncNotificationDetails(deferredNotifications, onNotifications);
       setRefreshState('synced');
       setRefreshSummary(
         `本次扫描 ${payload.processed ?? 0} 条事件，接收 ${payload.stored ?? 0} 条通知。`,

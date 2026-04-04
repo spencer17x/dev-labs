@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import {
+  splitDisplayReadyNotifications,
   streamBackfilledNotifications,
   shouldBackfillNotificationDetails,
 } from '@/lib/browser-notification-details';
@@ -167,7 +168,13 @@ export function useBrowserWatch({ onNotifications }: UseBrowserWatchOptions): Us
       ? payload.notifications
       : [];
 
-    onNotifications(nextNotifications);
+    const { deferredNotifications, immediateNotifications } =
+      splitDisplayReadyNotifications(nextNotifications);
+
+    if (immediateNotifications.length > 0) {
+      onNotifications(immediateNotifications);
+    }
+    void backfillBrowserNotificationDetails(sessionId, deferredNotifications);
 
     setBrowserWatchState(sessionId, current => ({
       ...current,
@@ -365,8 +372,13 @@ export function useBrowserWatch({ onNotifications }: UseBrowserWatchOptions): Us
       ? payload.notifications
       : [];
 
-    onNotifications(nextNotifications);
-    void backfillBrowserNotificationDetails(sessionId, nextNotifications);
+    const { deferredNotifications, immediateNotifications } =
+      splitDisplayReadyNotifications(nextNotifications);
+
+    if (immediateNotifications.length > 0) {
+      onNotifications(immediateNotifications);
+    }
+    void backfillBrowserNotificationDetails(sessionId, deferredNotifications);
 
     setBrowserWatchState(sessionId, current => ({
       ...current,
