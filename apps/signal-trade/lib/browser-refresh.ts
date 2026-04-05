@@ -1,4 +1,8 @@
 import type { NotificationRecord } from './types.ts';
+import {
+  ingestDexPayloadText,
+  type FetchTokenDetailsByChain,
+} from './ingest/ingest-dex-payload';
 
 type BrowserRefreshFetch = (
   input: string | URL,
@@ -17,15 +21,9 @@ type BrowserRefreshResult = {
   subscriptions: string[];
 };
 
-type RuntimeIngestResult = {
-  message?: string;
-  notifications?: NotificationRecord[];
-  processed?: number;
-  stored?: number;
-};
-
 type RefreshDexNotificationsInBrowserOptions = {
   fetcher?: BrowserRefreshFetch;
+  fetchTokenDetailsByChain?: FetchTokenDetailsByChain;
   limit: number;
   subscriptions: string[];
 };
@@ -54,26 +52,12 @@ export async function refreshDexNotificationsInBrowser(
       throw new Error(`dexscreener request failed: ${latestResponse.status}`);
     }
 
-    const ingestResponse = await fetcher('/api/runtime/ingest', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        limit: options.limit,
-        payloadText,
-        subscription,
-      }),
+    const ingestPayload = await ingestDexPayloadText({
+      fetchDetailsByChain: options.fetchTokenDetailsByChain,
+      limit: options.limit,
+      payloadText,
+      subscription,
     });
-    const ingestPayload = (await ingestResponse.json().catch(() => ({}))) as RuntimeIngestResult;
-
-    if (!ingestResponse.ok) {
-      throw new Error(
-        typeof ingestPayload.message === 'string' && ingestPayload.message.trim()
-          ? ingestPayload.message.trim()
-          : `unexpected status ${ingestResponse.status}`,
-      );
-    }
 
     if (Array.isArray(ingestPayload.notifications)) {
       notifications.push(...ingestPayload.notifications);

@@ -9,6 +9,7 @@ import {
 import { refreshDexNotificationsInBrowser } from '@/lib/browser-refresh';
 import { fetchDexTokenDetailsByChain } from '@/lib/dexscreener-token-details';
 import { getDexWatchSubscriptionLabel } from '@/lib/dexscreener-subscriptions';
+import { ingestDexPayloadText } from '@/lib/ingest/ingest-dex-payload';
 import type { NotificationRecord, WatchRuntimeState } from '@/lib/types';
 import {
   BROWSER_WS_CONNECT_TIMEOUT_MS,
@@ -21,13 +22,6 @@ import {
   WATCH_INTERVAL_SEC,
   WATCH_LIMIT,
 } from '@/lib/watch-utils';
-
-type RuntimeIngestResult = {
-  message?: string;
-  notifications?: NotificationRecord[];
-  processed?: number;
-  stored?: number;
-};
 
 interface UseBrowserWatchOptions {
   onNotifications: (records: NotificationRecord[]) => void;
@@ -343,25 +337,11 @@ export function useBrowserWatch({ onNotifications }: UseBrowserWatchOptions): Us
     subscriptions: string[],
     payloadText: string,
   ): Promise<void> {
-    const response = await fetch('/api/runtime/ingest', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        payloadText,
-        subscription,
-      }),
+    const payload = await ingestDexPayloadText({
+      fetchDetailsByChain: fetchDexTokenDetailsByChain,
+      payloadText,
+      subscription,
     });
-    const payload = (await response.json().catch(() => ({}))) as RuntimeIngestResult;
-
-    if (!response.ok) {
-      throw new Error(
-        typeof payload.message === 'string' && payload.message.trim()
-          ? payload.message.trim()
-          : `unexpected status ${response.status}`,
-      );
-    }
 
     if (browserSessionRef.current !== sessionId) {
       return;

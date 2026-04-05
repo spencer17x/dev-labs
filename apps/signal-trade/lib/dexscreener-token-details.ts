@@ -4,8 +4,7 @@ import type {
   DexScreenerTokenRefRaw,
   DexScreenerTokensByChainResponse,
   DexScreenerWebsiteRaw,
-} from '@/lib/dexscreener-api-types';
-import { withProxyEnvDisabled } from '@/lib/runtime/proxy-env';
+} from './dexscreener-api-types';
 
 const DEXSCREENER_API_BASE = 'https://api.dexscreener.com';
 const DEXSCREENER_TOKEN_DETAILS_TIMEOUT_MS = 12_000;
@@ -99,14 +98,12 @@ export async function fetchDexTokenDetailsByChain(
   const timer = setTimeout(() => controller.abort(), DEXSCREENER_TOKEN_DETAILS_TIMEOUT_MS);
 
   try {
-    const response = await withProxyEnvDisabled(async () =>
-      fetch(url, {
-        headers: {
-          Accept: 'application/json',
-        },
-        signal: controller.signal,
-      }),
-    );
+    const response = await fetch(url, {
+      headers: {
+        Accept: 'application/json',
+      },
+      signal: controller.signal,
+    });
     if (!response.ok) {
       throw new Error(`dex token detail request failed: ${response.status}`);
     }

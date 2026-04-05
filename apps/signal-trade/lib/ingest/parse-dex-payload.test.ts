@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { parseDexSubscriptionPayload } from './dexscreener.ts';
+import { parseDexSubscriptionPayload } from './ingest-dex-payload.ts';
 
 test('parses token profile payload shaped like the REST docs sample', () => {
   const events = parseDexSubscriptionPayload('token_profiles_latest', {

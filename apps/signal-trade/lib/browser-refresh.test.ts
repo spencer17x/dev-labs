@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import { refreshDexNotificationsInBrowser } from './browser-refresh.ts';
 
-test('fetches Dex latest payloads in browser and ingests them into notifications', async () => {
+test('fetches Dex latest payloads in browser and ingests them locally without posting to runtime ingest', async () => {
   const fetchCalls: Array<{ input: string; init?: RequestInit }> = [];
 
   const result = await refreshDexNotificationsInBrowser({
@@ -21,58 +21,41 @@ test('fetches Dex latest payloads in browser and ingests them into notifications
       if (url === 'https://api.dexscreener.com/token-boosts/latest/v1?limit=10') {
         return createTextResponse(
           200,
-          '[{"chainId":"solana","tokenAddress":"Bo11111111111111111111111111111111111111112","amount":1}]',
+          '[{"chainId":"solana","tokenAddress":"Bo11111111111111111111111111111111111111112","amount":1,"description":"boost payload"}]',
         );
-      }
-
-      if (url === '/api/runtime/ingest') {
-        const body = JSON.parse(String(init?.body ?? '{}')) as {
-          payloadText?: string;
-          subscription?: string;
-        };
-
-        if (body.subscription === 'token_profiles_latest') {
-          assert.match(
-            body.payloadText ?? '',
-            /So11111111111111111111111111111111111111112/,
-          );
-          return createJsonResponse(200, {
-            notifications: [buildNotification('profile-1')],
-            processed: 1,
-            stored: 1,
-          });
-        }
-
-        if (body.subscription === 'token_boosts_latest') {
-          assert.match(
-            body.payloadText ?? '',
-            /Bo11111111111111111111111111111111111111112/,
-          );
-          return createJsonResponse(200, {
-            notifications: [buildNotification('boost-1')],
-            processed: 2,
-            stored: 1,
-          });
-        }
       }
 
       throw new Error(`unexpected fetch ${url}`);
     },
+    fetchTokenDetailsByChain: async () => ({}),
     limit: 10,
     subscriptions: ['token_profiles_latest', 'token_boosts_latest'],
   });
 
-  assert.equal(result.processed, 3);
+  assert.equal(result.processed, 2);
   assert.equal(result.stored, 2);
   assert.deepEqual(
-    result.notifications.map(record => record.id),
-    ['profile-1', 'boost-1'],
+    result.notifications.map(record => [
+      record.event.subtype,
+      record.event.token.address,
+      record.summary.paid,
+    ]),
+    [
+      [
+        'token_profiles_latest',
+        'So11111111111111111111111111111111111111112',
+        true,
+      ],
+      [
+        'token_boosts_latest',
+        'Bo11111111111111111111111111111111111111112',
+        false,
+      ],
+    ],
   );
   assert.deepEqual(fetchCalls.map(call => call.input), [
     'https://api.dexscreener.com/token-profiles/latest/v1?limit=10',
-    '/api/runtime/ingest',
     'https://api.dexscreener.com/token-boosts/latest/v1?limit=10',
-    '/api/runtime/ingest',
   ]);
 });
 
@@ -87,37 +70,6 @@ test('surfaces Dex latest request failures', async () => {
     /dexscreener request failed: 503/,
   );
 });
-
-function buildNotification(id: string) {
-  return {
-    id,
-    notifiedAt: '2026-04-04T00:00:00.000Z',
-    channels: [],
-    message: id,
-    event: {
-      id,
-      source: 'dexscreener',
-      subtype: 'token_profiles_latest',
-      timestamp: 1,
-      token: {
-        address: 'So11111111111111111111111111111111111111112',
-      },
-    },
-    context: {},
-    summary: {
-      paid: false,
-      imageUrl: null,
-      marketCap: null,
-      holderCount: null,
-      liquidityUsd: null,
-      priceUsd: null,
-      communityCount: null,
-      dexscreenerUrl: null,
-      telegramUrl: null,
-    },
-  };
-}
-
 function createTextResponse(status: number, body: string) {
   return {
     ok: status >= 200 && status < 300,

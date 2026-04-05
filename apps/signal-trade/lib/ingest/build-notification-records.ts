@@ -28,20 +28,6 @@ export function buildNotificationRecords(
   return records;
 }
 
-export function getNotificationStoreStats(): {
-  count: number;
-  isEmpty: boolean;
-  mode: 'none';
-  resetsOnRestart: boolean;
-} {
-  return {
-    count: 0,
-    isEmpty: true,
-    mode: 'none',
-    resetsOnRestart: false,
-  };
-}
-
 function buildRecord(signal: StoredSignal): NotificationRecord {
   return {
     id: signal.event.id,

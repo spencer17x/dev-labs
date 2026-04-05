@@ -5,7 +5,7 @@ import {
 import {
   buildNotificationRecords,
   type StoredSignal,
-} from './runtime/notification-store';
+} from './ingest/build-notification-records';
 import type { NotificationRecord } from './types';
 
 const DETAIL_BATCH_SIZE = 30;

@@ -2,7 +2,7 @@ import type {
   SignalContext,
   SignalContextDexscreener,
   SignalEvent,
-} from '@/lib/types';
+} from '../types';
 
 export async function enrichSignalEvent(event: SignalEvent): Promise<SignalContext> {
   const raw = isObject(event.raw) ? event.raw : {};
@@ -11,7 +11,6 @@ export async function enrichSignalEvent(event: SignalEvent): Promise<SignalConte
       ? (deepGet(event.metadata, 'dexscreener', 'links') as Array<Record<string, unknown>>)
       : [],
   );
-  const telegramUrl = findLinkByType(links, ['telegram']);
 
   const context: SignalContext = {
     token: {
@@ -117,20 +116,6 @@ function normalizeLinks(
   value: Array<Record<string, unknown>>,
 ): Array<Record<string, unknown>> {
   return value.filter(isObject);
-}
-
-function findLinkByType(
-  links: Array<Record<string, unknown>>,
-  types: string[],
-): string | null {
-  const normalizedTypes = new Set(types.map(t => t.toLowerCase()));
-  for (const link of links) {
-    const linkType = typeof link.type === 'string' ? link.type.toLowerCase() : '';
-    if (normalizedTypes.has(linkType) && typeof link.url === 'string' && link.url.trim()) {
-      return link.url.trim();
-    }
-  }
-  return null;
 }
 
 function extractWebsites(

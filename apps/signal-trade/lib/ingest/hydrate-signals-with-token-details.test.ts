@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { hydrateStoredSignalsWithTokenDetails } from './signal-token-hydration.ts';
+import { hydrateStoredSignalsWithTokenDetails } from './hydrate-signals-with-token-details.ts';
 
 test('falls back to original signals when token detail hydration exceeds deadline', async () => {
   const signals = [

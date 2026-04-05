@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { runBrowserRuntimeDiagnostics } from '@/lib/browser-runtime-diagnostics';
 import type { RuntimeDiagnosticsResult } from '@/lib/types';
 
 interface UseDiagnosticsResult {
@@ -20,25 +21,7 @@ export function useDiagnostics(): UseDiagnosticsResult {
     setDiagnosticsError('');
 
     try {
-      const response = await fetch('/api/runtime/diagnostics', {
-        method: 'POST',
-        cache: 'no-store',
-      });
-      const payload = (await response.json().catch(() => ({}))) as Partial<
-        RuntimeDiagnosticsResult
-      > & {
-        message?: string;
-      };
-
-      if (!response.ok) {
-        throw new Error(
-          typeof payload.message === 'string' && payload.message.trim()
-            ? payload.message.trim()
-            : `unexpected status ${response.status}`,
-        );
-      }
-
-      setDiagnostics(payload as RuntimeDiagnosticsResult);
+      setDiagnostics(await runBrowserRuntimeDiagnostics());
     } catch (error) {
       setDiagnosticsError(
         error instanceof Error ? error.message : 'Unknown diagnostics error',
