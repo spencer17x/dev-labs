@@ -65,6 +65,7 @@ import {
   formatPlainMetric,
   formatPlainNumber,
   formatPriceUsd,
+  RELATIVE_TIME_TICK_MS,
   formatRelativeTime,
   formatUsd,
   padNumber,
@@ -187,7 +188,7 @@ export function SignalTradeDashboard({
 
     const timer = window.setInterval(() => {
       setRelativeNow(Date.now());
-    }, 60_000);
+    }, RELATIVE_TIME_TICK_MS);
 
     return () => window.clearInterval(timer);
   }, []);

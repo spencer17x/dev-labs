@@ -1,3 +1,5 @@
+export const RELATIVE_TIME_TICK_MS = 1_000;
+
 export function formatUsd(value: number | null): string | null {
   if (value === null) {
     return null;
@@ -46,16 +48,26 @@ export function formatRelativeTime(value: string, currentTimeMs: number): string
   }
 
   const diffMs = date.getTime() - currentTimeMs;
-  const diffMinutes = Math.round(diffMs / 60_000);
-  if (Math.abs(diffMinutes) < 60) {
-    return `${Math.abs(diffMinutes)}m ${diffMinutes <= 0 ? 'ago' : 'later'}`;
+  const direction = diffMs <= 0 ? 'ago' : 'later';
+  const absDiffMs = Math.abs(diffMs);
+
+  if (absDiffMs < 60_000) {
+    const diffSeconds = Math.floor(absDiffMs / 1_000);
+    return `${diffSeconds}s ${direction}`;
   }
-  const diffHours = Math.round(diffMinutes / 60);
-  if (Math.abs(diffHours) < 24) {
-    return `${Math.abs(diffHours)}h ${diffHours <= 0 ? 'ago' : 'later'}`;
+
+  const diffMinutes = Math.floor(absDiffMs / 60_000);
+  if (diffMinutes < 60) {
+    return `${diffMinutes}m ${direction}`;
   }
-  const diffDays = Math.round(diffHours / 24);
-  return `${Math.abs(diffDays)}d ${diffDays <= 0 ? 'ago' : 'later'}`;
+
+  const diffHours = Math.floor(absDiffMs / 3_600_000);
+  if (diffHours < 24) {
+    return `${diffHours}h ${direction}`;
+  }
+
+  const diffDays = Math.floor(absDiffMs / 86_400_000);
+  return `${diffDays}d ${direction}`;
 }
 
 export function formatCompactNumber(value: number): string {

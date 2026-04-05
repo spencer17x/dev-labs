@@ -18,3 +18,10 @@ test('dashboard source exposes pagination controls for scan results', () => {
   assert.match(source, /filters\.chains/);
   assert.doesNotMatch(source, /filters\.source/);
 });
+
+test('dashboard source updates relative time on a short client interval', () => {
+  const source = readFileSync(DASHBOARD_PATH, 'utf8');
+
+  assert.match(source, /RELATIVE_TIME_TICK_MS/);
+  assert.doesNotMatch(source, /60_000/);
+});
