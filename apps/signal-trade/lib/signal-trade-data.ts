@@ -42,11 +42,15 @@ export function normalizeDashboardFilters(
       readString(value, 'strategyTrackHours') || '12',
     ),
     chains: readDashboardChains(value),
-    minHolders: sanitizeNumericInput(readString(value, 'minHolders')),
     minMarketCap: sanitizeNumericInput(readString(value, 'minMarketCap')),
-    maxHolders: sanitizeNumericInput(readString(value, 'maxHolders')),
     maxMarketCap: sanitizeNumericInput(readString(value, 'maxMarketCap')),
-    minCommunityCount: sanitizeNumericInput(readString(value, 'minCommunityCount')),
+    minLiquidityUsd: sanitizeNumericInput(readString(value, 'minLiquidityUsd')),
+    maxLiquidityUsd: sanitizeNumericInput(readString(value, 'maxLiquidityUsd')),
+    minFdv: sanitizeNumericInput(readString(value, 'minFdv')),
+    maxFdv: sanitizeNumericInput(readString(value, 'maxFdv')),
+    requireTelegram: readBoolean(value, 'requireTelegram'),
+    requireTwitter: readBoolean(value, 'requireTwitter'),
+    requireWebsite: readBoolean(value, 'requireWebsite'),
     paidOnly: readBoolean(value, 'paidOnly'),
   };
 }

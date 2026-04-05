@@ -90,38 +90,108 @@ export function FilterDialog({
         </FieldGroup>
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <FieldGroup label="最少持币人数">
-            <Input
-              inputMode="numeric"
-              placeholder="100"
-              value={pendingFilters.minHolders}
-              onChange={event => updatePendingFilter('minHolders', event.target.value)}
-            />
-          </FieldGroup>
           <FieldGroup label="最低市值">
             <Input
               inputMode="numeric"
-              placeholder="100000"
+              placeholder="输入最低市值"
               value={pendingFilters.minMarketCap}
               onChange={event => updatePendingFilter('minMarketCap', event.target.value)}
-            />
-          </FieldGroup>
-          <FieldGroup label="最多持币人数">
-            <Input
-              inputMode="numeric"
-              placeholder="5000"
-              value={pendingFilters.maxHolders}
-              onChange={event => updatePendingFilter('maxHolders', event.target.value)}
             />
           </FieldGroup>
           <FieldGroup label="最高市值">
             <Input
               inputMode="numeric"
-              placeholder="3000000"
+              placeholder="输入最高市值"
               value={pendingFilters.maxMarketCap}
               onChange={event => updatePendingFilter('maxMarketCap', event.target.value)}
             />
           </FieldGroup>
+          <FieldGroup label="最低流动性">
+            <Input
+              inputMode="numeric"
+              placeholder="输入最低流动性"
+              value={pendingFilters.minLiquidityUsd}
+              onChange={event => updatePendingFilter('minLiquidityUsd', event.target.value)}
+            />
+          </FieldGroup>
+          <FieldGroup label="最高流动性">
+            <Input
+              inputMode="numeric"
+              placeholder="输入最高流动性"
+              value={pendingFilters.maxLiquidityUsd}
+              onChange={event => updatePendingFilter('maxLiquidityUsd', event.target.value)}
+            />
+          </FieldGroup>
+          <FieldGroup label="最低 FDV">
+            <Input
+              inputMode="numeric"
+              placeholder="输入最低 FDV"
+              value={pendingFilters.minFdv}
+              onChange={event => updatePendingFilter('minFdv', event.target.value)}
+            />
+          </FieldGroup>
+          <FieldGroup label="最高 FDV">
+            <Input
+              inputMode="numeric"
+              placeholder="输入最高 FDV"
+              value={pendingFilters.maxFdv}
+              onChange={event => updatePendingFilter('maxFdv', event.target.value)}
+            />
+          </FieldGroup>
+        </div>
+
+        <div className="grid gap-2">
+          <button
+            type="button"
+            className={cn(
+              'flex w-full items-center justify-between rounded-[18px] border px-4 py-3 text-left transition-colors',
+              pendingFilters.requireTelegram
+                ? 'border-[color:var(--color-accent)] bg-[rgba(91,132,255,0.12)] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
+                : 'border-border bg-[color:var(--color-panel-soft)]',
+            )}
+            onClick={() =>
+              updatePendingFilter('requireTelegram', !pendingFilters.requireTelegram)
+            }
+          >
+            <span className="text-sm text-foreground">仅看带 Telegram 的项目</span>
+            <Badge variant={pendingFilters.requireTelegram ? 'success' : 'secondary'}>
+              {pendingFilters.requireTelegram ? 'ON' : 'OFF'}
+            </Badge>
+          </button>
+          <button
+            type="button"
+            className={cn(
+              'flex w-full items-center justify-between rounded-[18px] border px-4 py-3 text-left transition-colors',
+              pendingFilters.requireTwitter
+                ? 'border-[color:var(--color-accent)] bg-[rgba(91,132,255,0.12)] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
+                : 'border-border bg-[color:var(--color-panel-soft)]',
+            )}
+            onClick={() =>
+              updatePendingFilter('requireTwitter', !pendingFilters.requireTwitter)
+            }
+          >
+            <span className="text-sm text-foreground">仅看带 X 的项目</span>
+            <Badge variant={pendingFilters.requireTwitter ? 'success' : 'secondary'}>
+              {pendingFilters.requireTwitter ? 'ON' : 'OFF'}
+            </Badge>
+          </button>
+          <button
+            type="button"
+            className={cn(
+              'flex w-full items-center justify-between rounded-[18px] border px-4 py-3 text-left transition-colors',
+              pendingFilters.requireWebsite
+                ? 'border-[color:var(--color-accent)] bg-[rgba(91,132,255,0.12)] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
+                : 'border-border bg-[color:var(--color-panel-soft)]',
+            )}
+            onClick={() =>
+              updatePendingFilter('requireWebsite', !pendingFilters.requireWebsite)
+            }
+          >
+            <span className="text-sm text-foreground">仅看带官网的项目</span>
+            <Badge variant={pendingFilters.requireWebsite ? 'success' : 'secondary'}>
+              {pendingFilters.requireWebsite ? 'ON' : 'OFF'}
+            </Badge>
+          </button>
         </div>
 
         <button

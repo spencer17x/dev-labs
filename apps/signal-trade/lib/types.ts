@@ -119,11 +119,15 @@ export interface DashboardFilters {
   strategyGrowthPercent: string;
   strategyTrackHours: string;
   chains: string[];
-  minHolders: string;
   minMarketCap: string;
-  maxHolders: string;
   maxMarketCap: string;
-  minCommunityCount: string;
+  minLiquidityUsd: string;
+  maxLiquidityUsd: string;
+  minFdv: string;
+  maxFdv: string;
+  requireTelegram: boolean;
+  requireTwitter: boolean;
+  requireWebsite: boolean;
   paidOnly: boolean;
 }
 

@@ -85,6 +85,7 @@ import {
   parseListFilter,
   toggleWatchSubscription,
 } from '@/lib/notification-utils';
+import { buildNotificationSocialLinks } from '@/lib/notification-display';
 import {
   buildNotificationPagination,
   buildPaginationItems,
@@ -133,11 +134,16 @@ type LaohuangSummary = {
 type ActiveFilterChip = {
   id:
     | 'chain'
-    | 'maxHolders'
+    | 'maxFdv'
+    | 'maxLiquidityUsd'
     | 'maxMarketCap'
+    | 'minFdv'
+    | 'minLiquidityUsd'
     | 'minMarketCap'
-    | 'minHolders'
     | 'paidOnly'
+    | 'requireTelegram'
+    | 'requireTwitter'
+    | 'requireWebsite'
     | 'search'
     | 'strategyStatus'
     | 'watchSubscriptions'
@@ -282,23 +288,50 @@ export function SignalTradeDashboard({
         label: `订阅 ${selectedWatchSubscriptions.length}`,
       });
     }
-    if (filters.minHolders.trim()) {
-      chips.push({ id: 'minHolders', label: `持币 >= ${filters.minHolders.trim()}` });
-    }
     if (filters.minMarketCap.trim()) {
       chips.push({
         id: 'minMarketCap',
         label: `市值 >= ${filters.minMarketCap.trim()}`,
       });
     }
-    if (filters.maxHolders.trim()) {
-      chips.push({ id: 'maxHolders', label: `持币 <= ${filters.maxHolders.trim()}` });
-    }
     if (filters.maxMarketCap.trim()) {
       chips.push({
         id: 'maxMarketCap',
         label: `市值 <= ${filters.maxMarketCap.trim()}`,
       });
+    }
+    if (filters.minLiquidityUsd.trim()) {
+      chips.push({
+        id: 'minLiquidityUsd',
+        label: `流动性 >= ${filters.minLiquidityUsd.trim()}`,
+      });
+    }
+    if (filters.maxLiquidityUsd.trim()) {
+      chips.push({
+        id: 'maxLiquidityUsd',
+        label: `流动性 <= ${filters.maxLiquidityUsd.trim()}`,
+      });
+    }
+    if (filters.minFdv.trim()) {
+      chips.push({
+        id: 'minFdv',
+        label: `FDV >= ${filters.minFdv.trim()}`,
+      });
+    }
+    if (filters.maxFdv.trim()) {
+      chips.push({
+        id: 'maxFdv',
+        label: `FDV <= ${filters.maxFdv.trim()}`,
+      });
+    }
+    if (filters.requireTelegram) {
+      chips.push({ id: 'requireTelegram', label: '有 Telegram' });
+    }
+    if (filters.requireTwitter) {
+      chips.push({ id: 'requireTwitter', label: '有 X' });
+    }
+    if (filters.requireWebsite) {
+      chips.push({ id: 'requireWebsite', label: '有官网' });
     }
     if (isStrategyPresetEnabled(filters.strategyPreset) && filters.strategyStatus !== 'all') {
       chips.push({
@@ -310,11 +343,16 @@ export function SignalTradeDashboard({
     return chips;
   }, [
     filters.chains,
-    filters.maxHolders,
+    filters.maxFdv,
+    filters.maxLiquidityUsd,
     filters.maxMarketCap,
+    filters.minFdv,
+    filters.minLiquidityUsd,
     filters.minMarketCap,
-    filters.minHolders,
     filters.paidOnly,
+    filters.requireTelegram,
+    filters.requireTwitter,
+    filters.requireWebsite,
     filters.search,
     filters.strategyPreset,
     filters.strategyStatus,
@@ -326,14 +364,16 @@ export function SignalTradeDashboard({
   const filteredNotifications = useMemo(() => {
     const search = deferredSearch.trim().toLowerCase();
     const watchTerms = parseListFilter(deferredWatchTerms);
-    const minHolders = parseNumericFilter(filters.minHolders);
     const minMarketCap = parseNumericFilter(filters.minMarketCap);
-    const maxHolders = parseNumericFilter(filters.maxHolders);
     const maxMarketCap = parseNumericFilter(filters.maxMarketCap);
-    const minCommunityCount = parseNumericFilter(filters.minCommunityCount);
+    const minLiquidityUsd = parseNumericFilter(filters.minLiquidityUsd);
+    const maxLiquidityUsd = parseNumericFilter(filters.maxLiquidityUsd);
+    const minFdv = parseNumericFilter(filters.minFdv);
+    const maxFdv = parseNumericFilter(filters.maxFdv);
     return strategyBaseRecords
       .filter(record => {
         const laohuangState = getLaohuangStateForRecord(laohuangStates, record);
+        const links = buildNotificationSocialLinks(record);
         const searchHaystack = [
           record.context.token?.symbol,
           record.context.token?.name,
@@ -366,23 +406,36 @@ export function SignalTradeDashboard({
           return false;
         }
         if (
-          minHolders !== null &&
-          (record.summary.holderCount ?? Number.NEGATIVE_INFINITY) < minHolders
-        ) {
-          return false;
-        }
-        if (
-          maxHolders !== null &&
-          (record.summary.holderCount ?? Number.POSITIVE_INFINITY) > maxHolders
-        ) {
-          return false;
-        }
-        if (
           !matchesMarketCapRange(record.summary.marketCap, {
             min: minMarketCap,
             max: maxMarketCap,
           })
         ) {
+          return false;
+        }
+        if (
+          !matchesOptionalNumberRange(record.context.dexscreener?.liquidityUsd, {
+            min: minLiquidityUsd,
+            max: maxLiquidityUsd,
+          })
+        ) {
+          return false;
+        }
+        if (
+          !matchesOptionalNumberRange(record.context.dexscreener?.fdv, {
+            min: minFdv,
+            max: maxFdv,
+          })
+        ) {
+          return false;
+        }
+        if (filters.requireTelegram && !links.some(link => link.type === 'telegram')) {
+          return false;
+        }
+        if (filters.requireTwitter && !links.some(link => link.type === 'twitter')) {
+          return false;
+        }
+        if (filters.requireWebsite && !links.some(link => link.type === 'website')) {
           return false;
         }
         if (
@@ -412,11 +465,16 @@ export function SignalTradeDashboard({
     deferredSearch,
     deferredWatchTerms,
     filters.chains,
+    filters.maxFdv,
+    filters.maxLiquidityUsd,
     filters.maxMarketCap,
-    filters.maxHolders,
+    filters.minFdv,
+    filters.minLiquidityUsd,
     filters.minMarketCap,
-    filters.minHolders,
     filters.paidOnly,
+    filters.requireTelegram,
+    filters.requireTwitter,
+    filters.requireWebsite,
     filters.strategyPreset,
     filters.strategyStatus,
     laohuangConfig,
@@ -464,10 +522,8 @@ export function SignalTradeDashboard({
     deferredSearch,
     deferredWatchTerms,
     filters.chains,
-    filters.maxHolders,
     filters.maxMarketCap,
     filters.minMarketCap,
-    filters.minHolders,
     filters.paidOnly,
     filters.strategyPreset,
     filters.strategyStatus,
@@ -513,10 +569,15 @@ export function SignalTradeDashboard({
       ...current,
       chains: pendingFilters.chains,
       paidOnly: pendingFilters.paidOnly,
-      minHolders: pendingFilters.minHolders,
       minMarketCap: pendingFilters.minMarketCap,
-      maxHolders: pendingFilters.maxHolders,
       maxMarketCap: pendingFilters.maxMarketCap,
+      minLiquidityUsd: pendingFilters.minLiquidityUsd,
+      maxLiquidityUsd: pendingFilters.maxLiquidityUsd,
+      minFdv: pendingFilters.minFdv,
+      maxFdv: pendingFilters.maxFdv,
+      requireTelegram: pendingFilters.requireTelegram,
+      requireTwitter: pendingFilters.requireTwitter,
+      requireWebsite: pendingFilters.requireWebsite,
     }));
   }
 
@@ -525,10 +586,15 @@ export function SignalTradeDashboard({
       ...current,
       chains: initialFilters.chains,
       paidOnly: initialFilters.paidOnly,
-      minHolders: initialFilters.minHolders,
       minMarketCap: initialFilters.minMarketCap,
-      maxHolders: initialFilters.maxHolders,
       maxMarketCap: initialFilters.maxMarketCap,
+      minLiquidityUsd: initialFilters.minLiquidityUsd,
+      maxLiquidityUsd: initialFilters.maxLiquidityUsd,
+      minFdv: initialFilters.minFdv,
+      maxFdv: initialFilters.maxFdv,
+      requireTelegram: initialFilters.requireTelegram,
+      requireTwitter: initialFilters.requireTwitter,
+      requireWebsite: initialFilters.requireWebsite,
     }));
   }
 
@@ -581,20 +647,40 @@ export function SignalTradeDashboard({
       updateFilter('watchSubscriptions', [...DEFAULT_DEX_WATCH_SUBSCRIPTIONS]);
       return;
     }
-    if (id === 'minHolders') {
-      updateFilter('minHolders', '');
-      return;
-    }
     if (id === 'minMarketCap') {
       updateFilter('minMarketCap', '');
       return;
     }
-    if (id === 'maxHolders') {
-      updateFilter('maxHolders', '');
-      return;
-    }
     if (id === 'maxMarketCap') {
       updateFilter('maxMarketCap', '');
+      return;
+    }
+    if (id === 'minLiquidityUsd') {
+      updateFilter('minLiquidityUsd', '');
+      return;
+    }
+    if (id === 'maxLiquidityUsd') {
+      updateFilter('maxLiquidityUsd', '');
+      return;
+    }
+    if (id === 'minFdv') {
+      updateFilter('minFdv', '');
+      return;
+    }
+    if (id === 'maxFdv') {
+      updateFilter('maxFdv', '');
+      return;
+    }
+    if (id === 'requireTelegram') {
+      updateFilter('requireTelegram', false);
+      return;
+    }
+    if (id === 'requireTwitter') {
+      updateFilter('requireTwitter', false);
+      return;
+    }
+    if (id === 'requireWebsite') {
+      updateFilter('requireWebsite', false);
       return;
     }
     if (id === 'strategyStatus') {
@@ -610,10 +696,15 @@ export function SignalTradeDashboard({
   const activeDialogCount =
     Number(filters.paidOnly) +
     Number(!areAllDashboardChainsSelected(filters.chains)) +
-    Number(filters.minHolders.trim().length > 0) +
     Number(filters.minMarketCap.trim().length > 0) +
-    Number(filters.maxHolders.trim().length > 0) +
-    Number(filters.maxMarketCap.trim().length > 0);
+    Number(filters.maxMarketCap.trim().length > 0) +
+    Number(filters.minLiquidityUsd.trim().length > 0) +
+    Number(filters.maxLiquidityUsd.trim().length > 0) +
+    Number(filters.minFdv.trim().length > 0) +
+    Number(filters.maxFdv.trim().length > 0) +
+    Number(filters.requireTelegram) +
+    Number(filters.requireTwitter) +
+    Number(filters.requireWebsite);
 
   return (
     <div className="relative overflow-hidden">
@@ -1063,4 +1154,30 @@ function summarizeLaohuangStates(
     triggered: triggered.length,
     visible: visible.length,
   };
+}
+
+function matchesOptionalNumberRange(
+  value: number | null | undefined,
+  options: {
+    max: number | null;
+    min: number | null;
+  },
+): boolean {
+  if (options.min === null && options.max === null) {
+    return true;
+  }
+
+  if (value == null) {
+    return false;
+  }
+
+  if (options.min !== null && value < options.min) {
+    return false;
+  }
+
+  if (options.max !== null && value > options.max) {
+    return false;
+  }
+
+  return true;
 }
