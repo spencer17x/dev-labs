@@ -252,9 +252,9 @@ def initialize_storage(storage: ContractStorage, chain: str):
         print(f"⚠️  [{chain.upper()}] 未找到新的符合条件的合约")
 
 
-def _passes_base_filters(contract: dict) -> bool:
+def _passes_base_filters(contract: dict, chain: str = "") -> bool:
     launch_from = contract.get("launchFrom") or ""
-    if not launch_from:
+    if not launch_from and chain != "eth":
         return False
     audit_info = _safe_dict(contract.get("auditInfo"))
     if audit_info.get("newHp", 0) > 30:
@@ -577,7 +577,7 @@ def _build_chain_stats(
 def scan_once(chain: str, active_chats: List[dict], storages: Dict[str, ContractStorage], chat_storage: ChatStorage = None) -> bool:
     response = fetch_trending(chain=chain)
     contracts = response.get("data", [])
-    filtered_contracts = [contract for contract in contracts if _passes_base_filters(contract)]
+    filtered_contracts = [contract for contract in contracts if _passes_base_filters(contract, chain)]
     trend_contract, anomaly_contract = _pick_trend_and_anomaly_contract(filtered_contracts, chain)
 
     for chat in active_chats:
