@@ -97,8 +97,7 @@ ENABLE_TELEGRAM = True
 # 支持 {token_address} 占位符，会自动替换为合约地址
 # chain: 指定链，只在该链的通知中显示，不填则所有链都显示
 MESSAGE_BUTTONS = [
-    {"text": "Pepe BSC", "url": "https://t.me/PepeboostBsc_bot?start=ref_0c9zso_ca_{token_address}", "chain": "bsc"},
-    {"text": "Pepe SOL", "url": "https://t.me/pepeboost_sol06_bot?start=ref_0b22dk_ca_{token_address}", "chain": "sol"},
     {"text": "XXYY", "url": "https://pro.xxyy.io/sol/{token_address}?ref=ncuYXE", "chain": "sol"},
     {"text": "XXYY", "url": "https://pro.xxyy.io/bsc/{token_address}?ref=ncuYXE", "chain": "bsc"},
+    {"text": "XXYY", "url": "https://pro.xxyy.io/eth/{token_address}?ref=ncuYXE", "chain": "eth"},
 ]

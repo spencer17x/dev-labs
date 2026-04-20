@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 
-CHAINS = {"bsc", "sol", "base"}
+CHAINS = {"bsc", "sol", "base", "eth"}
 CONFIG_TARGETS = CHAINS | {"multi"}
 ACTIONS = {"run", "start", "stop", "logs", "restart"}
 
@@ -115,13 +115,13 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Trending alert bot launcher")
     parser.add_argument(
         "action_or_target",
-        choices=["run", "start", "stop", "logs", "restart", "bsc", "sol", "base", "multi", "all"],
+        choices=["run", "start", "stop", "logs", "restart", "bsc", "sol", "base", "eth", "multi", "all"],
         help="Action or target config",
     )
     parser.add_argument(
         "target",
         nargs="?",
-        choices=["bsc", "sol", "base", "multi", "all"],
+        choices=["bsc", "sol", "base", "eth", "multi", "all"],
         help="Target config for action",
     )
     parser.add_argument(

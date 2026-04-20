@@ -48,6 +48,14 @@ module.exports = {
     },
     {
       ...base,
+      name: 'trending-alert-eth',
+      args: 'run eth',
+      error_file: './logs/eth-err.log',
+      out_file: './logs/eth-out.log',
+      log_file: './logs/eth-combined.log',
+    },
+    {
+      ...base,
       name: 'trending-alert-multi',
       args: 'run multi',
       error_file: './logs/multi-err.log',

@@ -1,0 +1,8 @@
+{
+  "chain": "eth",
+  "telegram_bot_token": "REPLACE_WITH_ETH_BOT_TOKEN",
+  "data_dir": "data/eth-bot",
+  "chain_allowlists": {
+    "eth": {}
+  }
+}

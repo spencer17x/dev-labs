@@ -46,5 +46,13 @@ module.exports = {
       out_file: './logs/base-out.log',
       log_file: './logs/base-combined.log',
     },
+    {
+      ...base,
+      name: 'trending-alert-eth',
+      args: 'run eth',
+      error_file: './logs/eth-err.log',
+      out_file: './logs/eth-out.log',
+      log_file: './logs/eth-combined.log',
+    },
   ],
 };

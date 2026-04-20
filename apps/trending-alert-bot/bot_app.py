@@ -71,7 +71,7 @@ def load_runtime_config(bot_config_path: str, common_config_path: Optional[str] 
     _validate_keys(bot, BOT_ALLOWED_KEYS, "bot config")
     merged = {**common, **bot}
 
-    supported_chains = {"bsc", "sol", "base"}
+    supported_chains = {"bsc", "sol", "base", "eth"}
     raw_chains = merged.get("chains")
     if raw_chains is None:
         chain = merged.get("chain", "").strip().lower()
