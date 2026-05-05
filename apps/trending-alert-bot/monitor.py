@@ -20,9 +20,12 @@ from monitor_flow import (
     initialize_storage,
     make_storage_key,
     due_summary_report_hour,
+    load_last_summary_marker,
     scan_once,
+    save_last_summary_marker,
     send_summary_report,
     storage_file_path,
+    summary_report_marker,
 )
 from telegram_bot import notifier
 from timezone_utils import beijing_now
@@ -66,7 +69,10 @@ def _bootstrap_storages(chain: str, clear_targets: set, storages: dict, active_c
                 os.remove(file_path)
             print(f"🗑️ 已清理 {chain.upper()} 本地缓存: {file_path}")
         if SILENT_INIT:
-            initialize_storage(storages[storage_key], chain)
+            try:
+                initialize_storage(storages[storage_key], chain)
+            except Exception as e:
+                print(f"⚠️  [{chain.upper()}] 静默初始化失败，后续扫描将继续重试: {e}")
 
 
 def _startup_telegram(chat_storage: ChatStorage):
@@ -81,13 +87,24 @@ def _startup_telegram(chat_storage: ChatStorage):
             notifier.send_sync(startup_message, chat_id=chat_id)
 
 
-def _initial_report_marker() -> int:
+def _initial_report_marker() -> str:
     now = beijing_now()
     for hour in SUMMARY_REPORT_HOURS:
         report_hour = (hour - 1) % 24
         if now.hour == report_hour and now.minute == 59:
-            return hour
-    return -1
+            return summary_report_marker(hour, now)
+    return ""
+
+
+def scan_chains_once(chains: List[str], active_chats: List[dict], storages: dict, chat_storage: ChatStorage) -> bool:
+    found_any_anomaly = False
+    for chain in chains:
+        print(f"🔎 扫描链: {chain.upper()}")
+        try:
+            found_any_anomaly = scan_once(chain, active_chats, storages, chat_storage) or found_any_anomaly
+        except Exception as e:
+            print(f"⚠️  [{chain.upper()}] 本轮扫描失败，跳过该链: {e}")
+    return found_any_anomaly
 
 
 def monitor_trending(clear_storage: Optional[List[str]] = None):
@@ -122,7 +139,7 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
         print(f"\n⏳ 等待 {CHECK_INTERVAL} 秒后开始监控...\n")
         time.sleep(CHECK_INTERVAL)
 
-    last_summary_hour = _initial_report_marker()
+    last_summary_marker = load_last_summary_marker() or _initial_report_marker()
     last_cleanup_day = beijing_now().day
 
     while True:
@@ -153,16 +170,14 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
                     print("✅ 无需清理\n")
                 last_cleanup_day = current_time.day
 
-            report_time_hour = due_summary_report_hour(last_summary_hour)
+            report_time_hour = due_summary_report_hour(last_summary_marker)
             if report_time_hour != -1:
                 print(f"\n📊 发送 {report_time_hour}:00 汇总报告...")
                 send_summary_report(storages)
-                last_summary_hour = report_time_hour
+                save_last_summary_marker(report_time_hour)
+                last_summary_marker = summary_report_marker(report_time_hour)
 
-            found_any_anomaly = False
-            for chain in chains:
-                print(f"🔎 扫描链: {chain.upper()}")
-                found_any_anomaly = scan_once(chain, active_chats, storages, chat_storage) or found_any_anomaly
+            found_any_anomaly = scan_chains_once(chains, active_chats, storages, chat_storage)
 
             print(f"⏳ 等待 {CHECK_INTERVAL}s...")
             if DRY_RUN:

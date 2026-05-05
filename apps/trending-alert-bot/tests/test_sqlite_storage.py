@@ -43,9 +43,9 @@ class SqliteStorageTests(unittest.TestCase):
                     "chat_id": 111,
                     "type": "group",
                     "title": "Legacy Group",
-                    "username": "",
-                    "first_name": "",
-                    "last_name": "",
+                    "username": None,
+                    "first_name": None,
+                    "last_name": None,
                     "added_at": "2026-05-05 10:00:00",
                     "updated_at": "2026-05-05 10:00:00",
                     "active": True,
@@ -62,6 +62,7 @@ class SqliteStorageTests(unittest.TestCase):
             self.assertTrue(Path(config.SQLITE_DB_FILE).exists())
             self.assertEqual(storage.get_notification_mode(111), "anomaly")
             self.assertEqual(storage.get_chat(111)["title"], "Legacy Group")
+            self.assertEqual(storage.get_chat(111)["username"], "")
             self.assertEqual(storage.get_active_chats()[0]["chat_id"], 111)
 
             storage.increment_message_count(111)
@@ -106,6 +107,32 @@ class SqliteStorageTests(unittest.TestCase):
             self.assertEqual(reloaded.get_telegram_message_id("TOKEN2", 111), 333)
             self.assertEqual(reloaded.get_notified_multipliers("TOKEN2"), [2.5])
             self.assertEqual(legacy_path.read_text(encoding="utf-8"), original_json)
+
+    def test_contract_storage_migrates_nullable_legacy_text_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, _, monitor_flow, ContractStorage = load_storage_modules(tmp)
+            legacy_path = Path(monitor_flow.storage_file_path(111, "sol"))
+            legacy_path.parent.mkdir(parents=True, exist_ok=True)
+            legacy_data = {
+                "TOKEN_NULL": {
+                    "initial_price": 1.0,
+                    "initial_market_cap": 1000.0,
+                    "push_time": None,
+                    "name": None,
+                    "symbol": None,
+                    "last_notify_time": None,
+                    "telegram_message_ids": {"111": 222},
+                }
+            }
+            legacy_path.write_text(json.dumps(legacy_data), encoding="utf-8")
+
+            storage = ContractStorage(str(legacy_path), chain="sol", chat_id=111)
+            migrated = storage.get_contract("TOKEN_NULL")
+
+            self.assertEqual(migrated["push_time"], "")
+            self.assertEqual(migrated["name"], "")
+            self.assertEqual(migrated["symbol"], "")
+            self.assertNotIn("last_notify_time", migrated)
 
     def test_contract_storage_clear_all_only_removes_target_chat_chain(self):
         with tempfile.TemporaryDirectory() as tmp:

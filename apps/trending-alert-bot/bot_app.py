@@ -1,27 +1,23 @@
-"""Bot runtime bootstrap based on config files."""
+"""Bot runtime bootstrap based on fixed targets and local environment."""
 
 import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
-COMMON_ALLOWED_KEYS = {
-    "check_interval",
-    "notify_cooldown_hours",
-    "multiplier_confirmations",
-}
 
-BOT_ALLOWED_KEYS = {
-    "chain",
-    "chains",
-    "notification_types",
-    "telegram_bot_token",
-    "data_dir",
-    "check_interval",
-    "notify_cooldown_hours",
-    "multiplier_confirmations",
-    "chain_allowlists",
+CHECK_INTERVAL = 15
+NOTIFY_COOLDOWN_HOURS = 24
+MULTIPLIER_CONFIRMATIONS = 2
+NOTIFICATION_TYPES = ["trending", "anomaly"]
+
+BOT_TARGETS = {
+    "bsc": {"chains": ["bsc"], "data_dir": "data/bsc-bot"},
+    "sol": {"chains": ["sol"], "data_dir": "data/sol-bot"},
+    "base": {"chains": ["base"], "data_dir": "data/base-bot"},
+    "eth": {"chains": ["eth"], "data_dir": "data/eth-bot"},
+    "multi": {"chains": ["bsc", "sol", "base", "eth"], "data_dir": "data/multi-bot"},
 }
 
 
@@ -31,11 +27,11 @@ class BotRuntimeConfig:
     chains: List[str]
     telegram_bot_token: str
     data_dir: str
-    check_interval: int = 15
-    notify_cooldown_hours: int = 24
-    multiplier_confirmations: int = 2
+    check_interval: int = CHECK_INTERVAL
+    notify_cooldown_hours: int = NOTIFY_COOLDOWN_HOURS
+    multiplier_confirmations: int = MULTIPLIER_CONFIRMATIONS
     notification_types: List[str] = None
-    chain_allowlists: Optional[Dict[str, Dict[str, Any]]] = None
+    chain_allowlists: Dict[str, Dict[str, Any]] = None
 
 
 def _app_root() -> Path:
@@ -46,101 +42,62 @@ def _resolve_data_dir(raw_data_dir: str) -> str:
     path = Path(raw_data_dir).expanduser()
     if path.is_absolute():
         return str(path)
-    # Relative path is resolved from startup directory (cwd).
-    return str((Path.cwd() / path).resolve())
+    return str((_app_root() / path).resolve())
 
 
-def _load_json_file(path: str) -> Dict[str, Any]:
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+def _token_env_name(target: str) -> str:
+    return f"{target.upper()}_TELEGRAM_BOT_TOKEN"
 
 
-def _validate_keys(raw: Dict[str, Any], allowed: set, source: str):
-    unknown = sorted([k for k in raw.keys() if k not in allowed])
-    if unknown:
-        raise ValueError(f"{source} has unsupported keys: {', '.join(unknown)}")
+def _strip_env_value(raw_value: str) -> str:
+    value = raw_value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        return value[1:-1]
+    return value
 
 
-def load_runtime_config(bot_config_path: str, common_config_path: Optional[str] = None) -> BotRuntimeConfig:
-    common: Dict[str, Any] = {}
-    if common_config_path and os.path.exists(common_config_path):
-        common = _load_json_file(common_config_path)
-        _validate_keys(common, COMMON_ALLOWED_KEYS, "common config")
+def load_dotenv(path: Path = None):
+    dotenv_path = path or (_app_root() / ".env")
+    if not dotenv_path.exists():
+        return
 
-    bot = _load_json_file(bot_config_path)
-    _validate_keys(bot, BOT_ALLOWED_KEYS, "bot config")
-    merged = {**common, **bot}
-
-    supported_chains = {"bsc", "sol", "base", "eth"}
-    raw_chains = merged.get("chains")
-    if raw_chains is None:
-        chain = merged.get("chain", "").strip().lower()
-        if not chain:
-            raise ValueError("bot config missing 'chain' or 'chains'")
-        raw_chains = [chain]
-
-    if not isinstance(raw_chains, list) or not raw_chains:
-        raise ValueError("'chains' must be a non-empty list")
-
-    chains: List[str] = []
-    for item in raw_chains:
-        chain = str(item).strip().lower()
-        if not chain:
+    for raw_line in dotenv_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
             continue
-        if chain in chains:
-            continue
-        if chain not in supported_chains:
-            raise ValueError(f"unsupported chain: {chain}")
-        chains.append(chain)
-    if not chains:
-        raise ValueError("'chains' must contain at least one valid chain")
 
-    token = merged.get("telegram_bot_token", "").strip()
+        key, raw_value = line.split("=", 1)
+        key = key.strip()
+        if not key or key in os.environ:
+            continue
+        os.environ[key] = _strip_env_value(raw_value)
+
+
+def load_runtime_config(target: str) -> BotRuntimeConfig:
+    normalized_target = str(target or "").strip().lower()
+    if normalized_target not in BOT_TARGETS:
+        supported = ", ".join(sorted(BOT_TARGETS))
+        raise ValueError(f"unsupported target: {target}; supported targets: {supported}")
+
+    load_dotenv()
+    token_env = _token_env_name(normalized_target)
+    token = os.getenv(token_env, "").strip()
     if not token:
-        raise ValueError("bot config missing 'telegram_bot_token'")
+        raise ValueError(f"missing required env: {token_env}")
 
-    data_dir = merged.get("data_dir", "").strip()
-    if not data_dir:
-        raise ValueError("bot config missing 'data_dir'")
-    resolved_data_dir = _resolve_data_dir(data_dir)
-
-    allowlists = merged.get("chain_allowlists", {})
-    if not isinstance(allowlists, dict):
-        raise ValueError("'chain_allowlists' must be an object")
-
-    chain_allowlists: Dict[str, Dict[str, Any]] = {}
-    for chain in chains:
-        chain_allow = allowlists.get(chain, {})
-        if not isinstance(chain_allow, dict):
-            raise ValueError(f"chain_allowlists.{chain} must be an object")
-        chain_allowlists[chain] = chain_allow
-
-    raw_notification_types = merged.get("notification_types", ["trending", "anomaly"])
-    if not isinstance(raw_notification_types, list) or not raw_notification_types:
-        raise ValueError("'notification_types' must be a non-empty list")
-    supported_notification_types = {"trending", "anomaly"}
-    notification_types: List[str] = []
-    for item in raw_notification_types:
-        notification_type = str(item).strip().lower()
-        if not notification_type:
-            continue
-        if notification_type in notification_types:
-            continue
-        if notification_type not in supported_notification_types:
-            raise ValueError(f"unsupported notification_type: {notification_type}")
-        notification_types.append(notification_type)
-    if not notification_types:
-        raise ValueError("'notification_types' must contain at least one valid type")
+    target_cfg = BOT_TARGETS[normalized_target]
+    chains = list(target_cfg["chains"])
+    chain_allowlists = {chain: {} for chain in chains}
 
     return BotRuntimeConfig(
         chain=chains[0],
         chains=chains,
         telegram_bot_token=token,
-        data_dir=resolved_data_dir,
-        check_interval=int(merged.get("check_interval", 15)),
-        notify_cooldown_hours=int(merged.get("notify_cooldown_hours", 24)),
-        multiplier_confirmations=int(merged.get("multiplier_confirmations", 2)),
-        notification_types=notification_types,
+        data_dir=_resolve_data_dir(target_cfg["data_dir"]),
+        check_interval=CHECK_INTERVAL,
+        notify_cooldown_hours=NOTIFY_COOLDOWN_HOURS,
+        multiplier_confirmations=MULTIPLIER_CONFIRMATIONS,
+        notification_types=list(NOTIFICATION_TYPES),
         chain_allowlists=chain_allowlists,
     )
 

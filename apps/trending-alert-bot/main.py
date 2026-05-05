@@ -8,16 +8,9 @@ from bot_app import apply_runtime_env, load_runtime_config, validate_runtime_con
 def parse_args():
     parser = argparse.ArgumentParser(description="趋势通知机器人")
     parser.add_argument(
-        "--bot-config",
-        metavar="PATH",
-        required=True,
-        help="Bot 配置文件路径（JSON）",
-    )
-    parser.add_argument(
-        "--common-config",
-        metavar="PATH",
-        default="",
-        help="通用配置文件路径（JSON，可选）",
+        "target",
+        choices=["bsc", "sol", "base", "eth", "multi"],
+        help="Bot 目标（bsc/sol/base/eth/multi）",
     )
     parser.add_argument(
         "-c",
@@ -36,10 +29,7 @@ def parse_args():
 
 if __name__ == "__main__":
     cli_args = parse_args()
-    runtime_cfg = load_runtime_config(
-        bot_config_path=cli_args.bot_config,
-        common_config_path=cli_args.common_config or None,
-    )
+    runtime_cfg = load_runtime_config(cli_args.target)
     validate_runtime_config(runtime_cfg)
     apply_runtime_env(runtime_cfg)
     if cli_args.dry_run:

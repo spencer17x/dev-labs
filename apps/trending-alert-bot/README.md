@@ -5,7 +5,7 @@
 ## Core Design
 
 - 单 Bot 单链/多链：一个进程可监控 `chain` 或 `chains`
-- 配置驱动：仅使用 `configs/common.json` + `configs/bots/*.json`
+- 配置简化：固定 target 写在代码中，Telegram token 只放 `.env`
 - 数据隔离：每个 Bot 使用独立 `data_dir`
 - 群组隔离：SQLite 中按 `chain + chat_id + token_address` 隔离合约追踪数据
 
@@ -30,47 +30,37 @@ uv sync --locked
 
 ## Config
 
-### 1) Common config
+项目不再使用 `configs/`。支持的 target、链、数据目录和默认参数固定在 `bot_app.py`：
 
-`configs/common.json`
+| target | chains | data_dir |
+|--------|--------|----------|
+| `bsc` | `bsc` | `data/bsc-bot` |
+| `sol` | `sol` | `data/sol-bot` |
+| `base` | `base` | `data/base-bot` |
+| `eth` | `eth` | `data/eth-bot` |
+| `multi` | `bsc, sol, base, eth` | `data/multi-bot` |
 
-```json
-{
-  "check_interval": 15,
-  "notify_cooldown_hours": 24,
-  "multiplier_confirmations": 2
-}
+默认参数：
+
+| 参数 | 值 |
+|------|----|
+| `check_interval` | `15` 秒 |
+| `notify_cooldown_hours` | `24` 小时 |
+| `multiplier_confirmations` | `2` |
+| `notification_types` | `trending, anomaly` |
+
+复制 `.env.example` 为 `.env`，只填写 Telegram token：
+
+```bash
+cp .env.example .env
 ```
 
-### 2) Bot config
-
-`configs/bots/bsc.json`（示例）
-
-```json
-{
-  "chain": "bsc",
-  "telegram_bot_token": "REPLACE_WITH_BSC_BOT_TOKEN",
-  "data_dir": "data/bsc-bot",
-  "chain_allowlists": {
-    "bsc": {}
-  }
-}
-```
-
-`configs/bots/multi.example.json`（多链示例）
-
-```json
-{
-  "chains": ["bsc", "sol", "base"],
-  "notification_types": ["trending", "anomaly"],
-  "telegram_bot_token": "REPLACE_WITH_MULTI_BOT_TOKEN",
-  "data_dir": "data/multi-bot",
-  "chain_allowlists": {
-    "bsc": {},
-    "sol": {},
-    "base": {}
-  }
-}
+```env
+BSC_TELEGRAM_BOT_TOKEN=
+SOL_TELEGRAM_BOT_TOKEN=
+BASE_TELEGRAM_BOT_TOKEN=
+ETH_TELEGRAM_BOT_TOKEN=
+MULTI_TELEGRAM_BOT_TOKEN=
 ```
 
 ## Run
@@ -118,7 +108,7 @@ uv run python run.py logs all
 # 单实例（单链）
 pm2 start run.py --name trending-alert-bot-bsc --interpreter ./.venv/bin/python -- run bsc
 
-# 单实例（多链，使用 configs/bots/multi.json）
+# 单实例（多链）
 pm2 start run.py --name trending-alert-multi --interpreter ./.venv/bin/python -- run multi
 
 # 多实例（单链 bots）
@@ -139,18 +129,17 @@ pm2 save
 
 `run.py` 和 `ecosystem.*.config.js` 默认优先使用当前目录 `.venv/bin/python`；如需覆盖，可设置 `PYTHON=/custom/python`。
 
-## Validate Config
+## Validate Env
 
 ```bash
-uv run python check_config.py --common-config configs/common.json --bot-config configs/bots/bsc.json
+uv run python check_config.py bsc
 ```
 
 ## Telegram
 
 1. 用 BotFather 创建机器人，拿到 token
-2. 写入 `configs/bots/{chain}.json` 的 `telegram_bot_token`
-3. 多链模式请额外创建 `configs/bots/multi.json`（参考 `configs/bots/multi.example.json`）
-4. 拉机器人进群并执行 `/start`
+2. 写入 `.env` 中对应的 `{TARGET}_TELEGRAM_BOT_TOKEN`
+3. 拉机器人进群并执行 `/start`
 
 ### 通知模式
 
@@ -177,9 +166,10 @@ uv run python check_config.py --common-config configs/common.json --bot-config c
 ## Project Structure
 
 - `main.py`：CLI 入口
-- `bot_app.py`：配置加载与运行时注入
+- `bot_app.py`：固定 target 元数据、`.env` 加载与运行时注入
 - `monitor.py`：调度层（循环、定时、启动）
 - `monitor_flow.py`：业务层（筛选、通知、汇总）
+- `db_storage.py`：SQLite 连接与 schema 初始化
 - `chat_storage.py`：群组状态存储
 - `storage.py`：合约追踪存储
 
@@ -189,7 +179,32 @@ uv run python check_config.py --common-config configs/common.json --bot-config c
 
 - `trending_alert_bot.sqlite`
 
-旧版 `telegram_chats.json` 与 `contracts_data_{chain}_{chat_id}.json` 会在对应 SQLite 表为空时自动导入一次；导入后不会继续写回 JSON，旧文件可作为迁移备份保留。
+SQLite 中包含：
+
+| 表 | 用途 | 隔离方式 |
+|----|------|----------|
+| `telegram_chats` | 群组订阅状态、通知模式、消息计数 | `chat_id` |
+| `contracts` | 合约初始价格、倍数通知状态、Telegram 消息 ID | `chain + chat_id + token_address` |
+
+### Legacy JSON migration
+
+旧版 JSON 会在 SQLite 对应数据为空时自动导入一次：
+
+- `telegram_chats.json` → `telegram_chats`
+- `contracts_data_{chain}_{chat_id}.json` → `contracts`
+
+导入后不会继续写回 JSON。旧 JSON 文件会保留，可作为迁移备份；确认 SQLite 数据正常后再手动删除。
+
+### Clear storage
+
+`--clear-storage` 现在会清理 SQLite 中指定链、指定群组的合约追踪记录；如果对应旧 `contracts_data_{chain}_{chat_id}.json` 仍存在，也会一并删除，避免下次启动再次导入旧数据。
+
+### Inspect data
+
+```bash
+sqlite3 data/bsc-bot/trending_alert_bot.sqlite ".tables"
+sqlite3 data/bsc-bot/trending_alert_bot.sqlite "select chat_id,title,notification_mode,active from telegram_chats;"
+```
 
 要求：不同链 Bot 使用不同 `data_dir`，避免数据互相污染。
 

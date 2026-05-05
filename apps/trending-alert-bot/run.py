@@ -34,22 +34,19 @@ def _resolve_python_interpreter(root: Path) -> str:
     return sys.executable
 
 
-def _run_single(target: str, common_config: str, dry_run: bool):
+def _run_single(target: str, dry_run: bool):
     root = Path(__file__).resolve().parent
     cmd = [
         sys.executable,
         "main.py",
-        "--common-config",
-        common_config,
-        "--bot-config",
-        f"configs/bots/{target}.json",
+        target,
     ]
     if dry_run:
         cmd.append("--dry-run")
     subprocess.run(cmd, check=True, cwd=root)
 
 
-def _start_target(target: str, common_config: str, dry_run: bool):
+def _start_target(target: str, dry_run: bool):
     root = Path(__file__).resolve().parent
     _ensure_pm2()
     interpreter = _resolve_python_interpreter(root)
@@ -64,8 +61,6 @@ def _start_target(target: str, common_config: str, dry_run: bool):
         "--",
         "run",
         target,
-        "--common-config",
-        common_config,
     ]
     if dry_run:
         cmd.append("--dry-run")
@@ -122,12 +117,7 @@ def parse_args():
         "target",
         nargs="?",
         choices=["bsc", "sol", "base", "eth", "multi", "all"],
-        help="Target config for action",
-    )
-    parser.add_argument(
-        "--common-config",
-        default="configs/common.json",
-        help="Common config path for single-config startup",
+        help="Target for action",
     )
     parser.add_argument(
         "--dry-run",
@@ -157,16 +147,16 @@ def main():
 
     if action == "run":
         if target in CONFIG_TARGETS:
-            _run_single(target, args.common_config, args.dry_run)
+            _run_single(target, args.dry_run)
             return
         raise RuntimeError(f"unsupported run target: {target}")
 
     if action == "start":
-        if target in CONFIG_TARGETS:
-            _start_target(target, args.common_config, args.dry_run)
-            return
         if args.dry_run:
-            raise RuntimeError("--dry-run is only supported for run/start single-config")
+            raise RuntimeError("--dry-run is not supported with start; use `run <target> --dry-run`")
+        if target in CONFIG_TARGETS:
+            _start_target(target, args.dry_run)
+            return
         _run_all()
         return
 

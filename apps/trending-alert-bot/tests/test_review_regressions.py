@@ -1,10 +1,12 @@
 import datetime as dt
+import asyncio
 import json
 import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 
@@ -30,6 +32,7 @@ def load_runtime_modules(data_dir: str):
         "db_storage",
         "storage",
         "telegram_bot",
+        "monitor",
         "monitor_flow",
         "notifier",
     ]:
@@ -145,9 +148,24 @@ class ReviewRegressionTests(unittest.TestCase):
             now = dt.datetime(2026, 5, 5, 4, 5, tzinfo=dt.timezone(dt.timedelta(hours=8)))
 
             with mock.patch.object(monitor_flow, "beijing_now", return_value=now):
-                self.assertEqual(monitor_flow.due_summary_report_hour(last_report_hour=-1), 4)
-                self.assertTrue(monitor_flow.should_send_summary_report(last_report_hour=-1))
-                self.assertEqual(monitor_flow.due_summary_report_hour(last_report_hour=4), -1)
+                self.assertEqual(monitor_flow.due_summary_report_hour(last_report_marker=""), 4)
+                self.assertTrue(monitor_flow.should_send_summary_report(last_report_marker=""))
+                marker = monitor_flow.summary_report_marker(4)
+                self.assertEqual(monitor_flow.due_summary_report_hour(last_report_marker=marker), -1)
+
+    def test_summary_report_marker_is_persisted_to_sqlite(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, _, monitor_flow, _, _ = load_runtime_modules(tmp)
+            now = dt.datetime(2026, 5, 5, 4, 5, tzinfo=dt.timezone(dt.timedelta(hours=8)))
+
+            with mock.patch.object(monitor_flow, "beijing_now", return_value=now):
+                expected_marker = monitor_flow.summary_report_marker(4)
+                monitor_flow.save_last_summary_marker(4)
+
+            self.assertEqual(monitor_flow.load_last_summary_marker(), expected_marker)
+
+            with mock.patch.object(monitor_flow, "beijing_now", return_value=now):
+                self.assertEqual(monitor_flow.due_summary_report_hour(expected_marker), -1)
 
     def test_add_chat_preserves_existing_notification_mode(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -168,6 +186,109 @@ class ReviewRegressionTests(unittest.TestCase):
 
             with mock.patch.object(monitor_flow, "fetch_trending", return_value={"data": [bad_contract]}):
                 self.assertFalse(monitor_flow.scan_once("sol", [], {}))
+
+    def test_startup_silent_init_failure_does_not_abort_bootstrap(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            load_runtime_modules(tmp)
+            import monitor
+
+            storages = {}
+            with mock.patch.object(monitor, "initialize_storage", side_effect=RuntimeError("api down")):
+                monitor._bootstrap_storages("sol", set(), storages, [{"chat_id": 111}])
+
+            self.assertIn("sol:111", storages)
+
+    def test_scan_chains_once_continues_after_chain_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            load_runtime_modules(tmp)
+            import monitor
+
+            with mock.patch.object(monitor, "scan_once", side_effect=[RuntimeError("bsc down"), True]) as scan_mock:
+                found = monitor.scan_chains_once(["bsc", "sol"], [], {}, None)
+
+            self.assertTrue(found)
+            self.assertEqual(scan_mock.call_count, 2)
+
+    def test_summary_report_skips_inactive_chats(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, _, monitor_flow, _, _ = load_runtime_modules(tmp)
+            fake_chat_storage = mock.Mock()
+            fake_chat_storage.get_active_chats.return_value = [{"chat_id": 111}]
+            stats = {
+                "sol": {
+                    "trend_count": 0,
+                    "total_multiplier_contracts": 0,
+                    "win_count": 0,
+                    "top_contracts": [],
+                    "multiplier_distribution": {"2x": 0, "5x": 0, "10x_plus": 0},
+                    "gain_distribution": {"20%": 0, "30%": 0, "50%": 0, "80%": 0},
+                }
+            }
+
+            monitor_flow.ENABLE_TELEGRAM = True
+            monitor_flow.DRY_RUN = False
+            with (
+                mock.patch.object(monitor_flow, "ChatStorage", return_value=fake_chat_storage),
+                mock.patch.object(monitor_flow, "_load_latest_contract_map", return_value={}),
+                mock.patch.object(monitor_flow, "_build_chain_stats", return_value=stats),
+                mock.patch.object(monitor_flow, "format_summary_report", return_value="report"),
+                mock.patch.object(monitor_flow.notifier, "send_sync") as send_mock,
+            ):
+                monitor_flow.send_summary_report({"sol:111": object(), "sol:222": object()})
+
+            send_mock.assert_called_once_with("report", chat_id=111)
+
+    def test_non_start_events_do_not_create_first_subscription(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            load_runtime_modules(tmp)
+            import telegram_bot
+
+            notifier = telegram_bot.TelegramNotifier.__new__(telegram_bot.TelegramNotifier)
+            notifier.chat_storage = mock.Mock()
+            notifier.chat_storage.get_chat.return_value = None
+
+            chat = SimpleNamespace(
+                id=111,
+                type="group",
+                title="Group",
+                username=None,
+                first_name=None,
+                last_name=None,
+            )
+            update = SimpleNamespace(effective_chat=chat)
+            asyncio.run(telegram_bot.TelegramNotifier._handle_any_message(notifier, update, SimpleNamespace()))
+
+            notifier.chat_storage.add_chat.assert_not_called()
+
+    def test_join_event_does_not_create_first_subscription(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            load_runtime_modules(tmp)
+            import telegram_bot
+
+            notifier = telegram_bot.TelegramNotifier.__new__(telegram_bot.TelegramNotifier)
+            notifier.chat_storage = mock.Mock()
+            notifier.chat_storage.get_chat.return_value = None
+            notifier._get_chat_type_name = lambda chat_type: "群组"
+
+            chat = SimpleNamespace(
+                id=111,
+                type="group",
+                title="Group",
+                username=None,
+                first_name=None,
+                last_name=None,
+            )
+            update = SimpleNamespace(
+                my_chat_member=SimpleNamespace(
+                    chat=chat,
+                    old_chat_member=SimpleNamespace(status="left"),
+                    new_chat_member=SimpleNamespace(status="member"),
+                )
+            )
+            context = SimpleNamespace(bot=SimpleNamespace(send_message=mock.AsyncMock()))
+            asyncio.run(telegram_bot.TelegramNotifier._handle_chat_member_updated(notifier, update, context))
+
+            notifier.chat_storage.add_chat.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@ import sqlite3
 import threading
 
 from config import SQLITE_DB_FILE
+from timezone_utils import format_beijing_time
 
 
 _SCHEMA_LOCK = threading.RLock()
@@ -51,5 +52,36 @@ def ensure_schema():
                     last_notify_time TEXT NOT NULL DEFAULT '',
                     PRIMARY KEY (chain, chat_id, token_address)
                 );
+
+                CREATE TABLE IF NOT EXISTS runtime_state (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT ''
+                );
                 """
             )
+
+
+def get_runtime_state(key: str, default: str = "") -> str:
+    ensure_schema()
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT value FROM runtime_state WHERE key = ?",
+            (key,),
+        ).fetchone()
+    return row["value"] if row else default
+
+
+def set_runtime_state(key: str, value: str):
+    ensure_schema()
+    with connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO runtime_state (key, value, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET
+                value=excluded.value,
+                updated_at=excluded.updated_at
+            """,
+            (key, value, format_beijing_time()),
+        )

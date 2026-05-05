@@ -182,6 +182,19 @@ class TelegramNotifier:
         old_status = result.old_chat_member.status
 
         if old_status in ["left", "kicked"] and new_status in ["member", "administrator"]:
+            existing_chat = self.chat_storage.get_chat(chat.id)
+            if not existing_chat:
+                chat_name = chat.title or chat.first_name or "未知"
+                welcome_msg = f"""👋 已加入 {self._get_chat_type_name(chat.type)} '{chat_name}'
+
+请发送 /start 订阅通知
+命令: /start /status /help"""
+                try:
+                    await context.bot.send_message(chat_id=chat.id, text=welcome_msg)
+                except Exception as e:
+                    print(f"⚠️  发送欢迎消息失败: {e}")
+                return
+
             chat_info = {
                 "type": chat.type,
                 "title": chat.title,
@@ -212,15 +225,6 @@ class TelegramNotifier:
             return
         if self.chat_storage.get_chat(chat.id):
             return
-
-        chat_info = {
-            "type": chat.type,
-            "title": chat.title,
-            "username": chat.username,
-            "first_name": chat.first_name,
-            "last_name": chat.last_name,
-        }
-        self.chat_storage.add_chat(chat.id, chat_info)
 
     def _get_chat_type_name(self, chat_type: str) -> str:
         type_map = {

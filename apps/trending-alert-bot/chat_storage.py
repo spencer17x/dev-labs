@@ -81,19 +81,23 @@ class ChatStorage:
 
     def _normalize_chat(self, chat_data: Dict) -> Dict:
         chat_id = int(chat_data.get("chat_id", 0))
+        notification_mode = chat_data.get("notification_mode") or DEFAULT_NOTIFICATION_MODE
+        if notification_mode not in VALID_NOTIFICATION_MODES:
+            notification_mode = DEFAULT_NOTIFICATION_MODE
+
         return {
             "chat_id": chat_id,
-            "type": chat_data.get("type", "unknown"),
-            "title": chat_data.get("title", ""),
-            "username": chat_data.get("username", ""),
-            "first_name": chat_data.get("first_name", ""),
-            "last_name": chat_data.get("last_name", ""),
-            "added_at": chat_data.get("added_at", format_beijing_time()),
-            "updated_at": chat_data.get("updated_at", format_beijing_time()),
+            "type": chat_data.get("type") or "unknown",
+            "title": chat_data.get("title") or "",
+            "username": chat_data.get("username") or "",
+            "first_name": chat_data.get("first_name") or "",
+            "last_name": chat_data.get("last_name") or "",
+            "added_at": chat_data.get("added_at") or format_beijing_time(),
+            "updated_at": chat_data.get("updated_at") or format_beijing_time(),
             "active": bool(chat_data.get("active", True)),
             "message_count": int(chat_data.get("message_count", 0) or 0),
-            "notification_mode": chat_data.get("notification_mode", DEFAULT_NOTIFICATION_MODE),
-            "removed_at": chat_data.get("removed_at", ""),
+            "notification_mode": notification_mode,
+            "removed_at": chat_data.get("removed_at") or "",
         }
 
     def _upsert_chat(self, conn, chat_data: Dict):

@@ -18,6 +18,7 @@ from config import (
     SUMMARY_REPORT_HOURS,
     SUMMARY_TOP_N,
 )
+from db_storage import get_runtime_state, set_runtime_state
 from notifier import (
     format_initial_notification,
     format_multiplier_notification,
@@ -487,6 +488,25 @@ def _next_report_time_str(now: datetime) -> str:
     return next_report_time.strftime("%Y-%m-%d %H:%M")
 
 
+_SUMMARY_REPORT_STATE_KEY = "last_summary_report_marker"
+
+
+def summary_report_marker(report_hour: int, now: Optional[datetime] = None) -> str:
+    current = now or beijing_now()
+    report_date = current.date()
+    if report_hour == 0 and current.hour == 23:
+        report_date = (current + timedelta(days=1)).date()
+    return f"{report_date.isoformat()}:{report_hour:02d}"
+
+
+def load_last_summary_marker() -> str:
+    return get_runtime_state(_SUMMARY_REPORT_STATE_KEY, "")
+
+
+def save_last_summary_marker(report_hour: int):
+    set_runtime_state(_SUMMARY_REPORT_STATE_KEY, summary_report_marker(report_hour))
+
+
 def _load_latest_contract_map(chain: str) -> Dict[str, dict]:
     try:
         latest_contracts = fetch_trending(chain=chain).get("data", [])
@@ -614,6 +634,7 @@ def send_summary_report(storages: dict):
     next_report_time_str = _next_report_time_str(now)
     chain_latest_map: Dict[str, Dict[str, dict]] = {}
     chat_chain_stats: Dict[int, Dict[str, dict]] = {}
+    active_chat_ids = {chat["chat_id"] for chat in ChatStorage().get_active_chats()}
 
     for storage_key, storage in storages.items():
         if ":" in storage_key:
@@ -631,6 +652,8 @@ def send_summary_report(storages: dict):
         chat_chain_stats[chat_id].update(chain_stats)
 
     for chat_id, chain_stats in chat_chain_stats.items():
+        if chat_id not in active_chat_ids:
+            continue
         msg = format_summary_report(chain_stats, next_report_time_str)
         print("\n" + "=" * 60)
         print(msg)
@@ -667,7 +690,7 @@ def get_summary_report_for_chat(chat_id: int, storages: dict) -> str:
     return format_summary_report(chain_stats, next_report_time_str)
 
 
-def due_summary_report_hour(last_report_hour: int) -> int:
+def due_summary_report_hour(last_report_marker: str = "") -> int:
     now = beijing_now()
     current_hour = now.hour
     current_minute = now.minute
@@ -678,11 +701,11 @@ def due_summary_report_hour(last_report_hour: int) -> int:
             (current_hour == report_hour and current_minute == 59)
             or current_hour == hour
         )
-        if is_due_window and hour != last_report_hour:
+        if is_due_window and summary_report_marker(hour, now) != last_report_marker:
             return hour
 
     return -1
 
 
-def should_send_summary_report(last_report_hour: int) -> bool:
-    return due_summary_report_hour(last_report_hour) != -1
+def should_send_summary_report(last_report_marker: str = "") -> bool:
+    return due_summary_report_hour(last_report_marker) != -1

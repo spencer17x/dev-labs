@@ -1,8 +1,0 @@
-{
-  "chain": "sol",
-  "telegram_bot_token": "REPLACE_WITH_SOL_BOT_TOKEN",
-  "data_dir": "data/sol-bot",
-  "chain_allowlists": {
-    "sol": {}
-  }
-}

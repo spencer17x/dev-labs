@@ -32,6 +32,10 @@ def _json_loads(value, fallback):
     return parsed if parsed is not None else fallback
 
 
+def _safe_text(value) -> str:
+    return "" if value is None else str(value)
+
+
 class ContractStorage:
     def __init__(self, storage_file: str, chain: str = "", chat_id: Optional[int] = None):
         self.storage_file = storage_file
@@ -162,13 +166,13 @@ class ContractStorage:
                 token_address,
                 _safe_float(contract_data.get("initial_price")),
                 _safe_float(contract_data.get("initial_market_cap")),
-                contract_data.get("push_time", ""),
+                _safe_text(contract_data.get("push_time")),
                 json.dumps(notified_multipliers, ensure_ascii=False),
-                contract_data.get("name", ""),
-                contract_data.get("symbol", ""),
+                _safe_text(contract_data.get("name")),
+                _safe_text(contract_data.get("symbol")),
                 json.dumps(telegram_message_ids, ensure_ascii=False),
                 pending_multiplier_json,
-                contract_data.get("last_notify_time", ""),
+                _safe_text(contract_data.get("last_notify_time")),
             ),
         )
 
