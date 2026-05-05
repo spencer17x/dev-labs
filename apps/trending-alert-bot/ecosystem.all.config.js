@@ -4,7 +4,7 @@ const python = process.env.PYTHON || path.join(__dirname, '.venv', 'bin', 'pytho
 
 const base = {
   cwd: __dirname,
-  script: 'run.py',
+  script: 'main.py',
   interpreter: python,
   instances: 1,
   autorestart: true,
@@ -25,7 +25,7 @@ module.exports = {
     {
       ...base,
       name: 'trending-alert-bsc',
-      args: 'run bsc',
+      args: 'bsc',
       error_file: './logs/bsc-err.log',
       out_file: './logs/bsc-out.log',
       log_file: './logs/bsc-combined.log',
@@ -33,7 +33,7 @@ module.exports = {
     {
       ...base,
       name: 'trending-alert-sol',
-      args: 'run sol',
+      args: 'sol',
       error_file: './logs/sol-err.log',
       out_file: './logs/sol-out.log',
       log_file: './logs/sol-combined.log',
@@ -41,7 +41,7 @@ module.exports = {
     {
       ...base,
       name: 'trending-alert-base',
-      args: 'run base',
+      args: 'base',
       error_file: './logs/base-err.log',
       out_file: './logs/base-out.log',
       log_file: './logs/base-combined.log',
@@ -49,7 +49,7 @@ module.exports = {
     {
       ...base,
       name: 'trending-alert-eth',
-      args: 'run eth',
+      args: 'eth',
       error_file: './logs/eth-err.log',
       out_file: './logs/eth-out.log',
       log_file: './logs/eth-combined.log',
@@ -57,7 +57,7 @@ module.exports = {
     {
       ...base,
       name: 'trending-alert-multi',
-      args: 'run multi',
+      args: 'multi',
       error_file: './logs/multi-err.log',
       out_file: './logs/multi-out.log',
       log_file: './logs/multi-combined.log',

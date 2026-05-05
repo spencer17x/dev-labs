@@ -7,9 +7,9 @@ module.exports = {
     {
       name: 'trending-alert-multi',
       cwd: __dirname,
-      script: 'run.py',
+      script: 'main.py',
       interpreter: python,
-      args: 'run multi',
+      args: 'multi',
       instances: 1,
       autorestart: true,
       watch: false,

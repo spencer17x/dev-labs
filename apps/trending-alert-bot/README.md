@@ -66,51 +66,17 @@ MULTI_TELEGRAM_BOT_TOKEN=
 ## Run
 
 ```bash
-# 注意：`run` 必须带 target（如 bsc/sol/base/multi），不能直接 `uv run python run.py run`
+# 本地前台运行
+uv run python main.py bsc
+uv run python main.py multi
 
-# 本地前台运行（单配置）
-uv run python run.py run bsc
-uv run python run.py run multi
-
-# PM2 启动（单配置）
-uv run python run.py start bsc
-uv run python run.py start sol
-uv run python run.py start base
-uv run python run.py start multi
-
-# PM2 一键启动所有（单链 + 多链）
-uv run python run.py start all
-uv run python run.py all
-
-# 单配置 Dry-run（run/start 均支持）
-uv run python run.py run bsc --dry-run
-uv run python run.py start bsc --dry-run
-
-# 停止
-uv run python run.py stop bsc
-uv run python run.py stop multi
-uv run python run.py stop all
-
-# 重启
-uv run python run.py restart bsc
-uv run python run.py restart multi
-uv run python run.py restart all
-
-# 查看日志
-uv run python run.py logs bsc
-uv run python run.py logs multi
-uv run python run.py logs all
+# 单次 Dry-run，不发送 Telegram 消息
+uv run python main.py bsc --dry-run
 ```
 
 ## PM2
 
 ```bash
-# 单实例（单链）
-pm2 start run.py --name trending-alert-bot-bsc --interpreter ./.venv/bin/python -- run bsc
-
-# 单实例（多链）
-pm2 start run.py --name trending-alert-multi --interpreter ./.venv/bin/python -- run multi
-
 # 多实例（单链 bots）
 pm2 start ecosystem.bots.config.js
 
@@ -127,7 +93,7 @@ pm2 startup
 pm2 save
 ```
 
-`run.py` 和 `ecosystem.*.config.js` 默认优先使用当前目录 `.venv/bin/python`；如需覆盖，可设置 `PYTHON=/custom/python`。
+`ecosystem.*.config.js` 默认优先使用当前目录 `.venv/bin/python`；如需覆盖，可设置 `PYTHON=/custom/python`。
 
 ## Validate Env
 
