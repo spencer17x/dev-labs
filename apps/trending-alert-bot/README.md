@@ -7,7 +7,7 @@
 - 单 Bot 单链/多链：一个进程可监控 `chain` 或 `chains`
 - 配置驱动：仅使用 `configs/common.json` + `configs/bots/*.json`
 - 数据隔离：每个 Bot 使用独立 `data_dir`
-- 群组隔离：每个群组每条链独立 `contracts_data_{chain}_{chat_id}.json`
+- 群组隔离：SQLite 中按 `chain + chat_id + token_address` 隔离合约追踪数据
 
 ## Features
 
@@ -172,7 +172,7 @@ uv run python check_config.py --common-config configs/common.json --bot-config c
 | `/status` | 所有人 | 查看运行状态及通知模式 |
 | `/help` | 所有人 | 查看命令说明 |
 
-通知模式配置存储在 `data_dir/telegram_chats.json` 中每个群组的 `notification_mode` 字段。
+通知模式配置存储在 `data_dir/trending_alert_bot.sqlite` 的 `telegram_chats` 表中。
 
 ## Project Structure
 
@@ -187,8 +187,9 @@ uv run python check_config.py --common-config configs/common.json --bot-config c
 
 每个 Bot 的 `data_dir` 下会生成：
 
-- `telegram_chats.json`
-- `contracts_data_{chain}_{chat_id}.json`
+- `trending_alert_bot.sqlite`
+
+旧版 `telegram_chats.json` 与 `contracts_data_{chain}_{chat_id}.json` 会在对应 SQLite 表为空时自动导入一次；导入后不会继续写回 JSON，旧文件可作为迁移备份保留。
 
 要求：不同链 Bot 使用不同 `data_dir`，避免数据互相污染。
 

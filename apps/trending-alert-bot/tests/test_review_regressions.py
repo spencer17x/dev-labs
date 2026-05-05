@@ -27,6 +27,7 @@ def load_runtime_modules(data_dir: str):
     for name in [
         "config",
         "chat_storage",
+        "db_storage",
         "storage",
         "telegram_bot",
         "monitor_flow",

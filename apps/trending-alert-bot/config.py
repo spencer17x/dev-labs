@@ -84,6 +84,7 @@ if _bot_allowlist_raw:
 DATA_DIR = _required_env("BOT_DATA_DIR")
 STORAGE_DIR = DATA_DIR
 CHATS_FILE = os.path.join(DATA_DIR, "telegram_chats.json")
+SQLITE_DB_FILE = os.path.join(DATA_DIR, "trending_alert_bot.sqlite")
 
 # 运行
 SILENT_INIT = True

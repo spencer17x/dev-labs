@@ -57,12 +57,14 @@ def _bootstrap_storages(chain: str, clear_targets: set, storages: dict, active_c
     for chat in active_chats:
         chat_id = chat["chat_id"]
         file_path = storage_file_path(chat_id, chain)
-        if chain in clear_targets and os.path.exists(file_path):
-            os.remove(file_path)
-            print(f"🗑️ 已清理 {chain.upper()} 本地缓存: {file_path}")
 
         storage_key = make_storage_key(chat_id, chain)
         storages[storage_key] = ensure_chat_storage(storages, chat_id, chain)
+        if chain in clear_targets:
+            storages[storage_key].clear_all()
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            print(f"🗑️ 已清理 {chain.upper()} 本地缓存: {file_path}")
         if SILENT_INIT:
             initialize_storage(storages[storage_key], chain)
 

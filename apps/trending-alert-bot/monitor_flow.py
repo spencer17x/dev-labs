@@ -326,7 +326,11 @@ def ensure_chat_storage(
 ) -> ContractStorage:
     storage_key = make_storage_key(chat_id, chain)
     if storage_key not in storages:
-        storages[storage_key] = ContractStorage(storage_file_path(chat_id, chain))
+        storages[storage_key] = ContractStorage(
+            storage_file_path(chat_id, chain),
+            chain=chain,
+            chat_id=chat_id,
+        )
     return storages[storage_key]
 
 
