@@ -19,9 +19,9 @@ from monitor_flow import (
     ensure_chat_storage,
     initialize_storage,
     make_storage_key,
+    due_summary_report_hour,
     scan_once,
     send_summary_report,
-    should_send_summary_report,
     storage_file_path,
 )
 from telegram_bot import notifier
@@ -151,18 +151,11 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
                     print("✅ 无需清理\n")
                 last_cleanup_day = current_time.day
 
-            if should_send_summary_report(last_summary_hour):
-                now = beijing_now()
-                report_time_hour = -1
-                for hour in SUMMARY_REPORT_HOURS:
-                    report_hour = (hour - 1) % 24
-                    if now.hour == report_hour and now.minute == 59:
-                        report_time_hour = hour
-                        break
-                if report_time_hour != -1:
-                    print(f"\n📊 发送 {report_time_hour}:00 汇总报告...")
-                    send_summary_report(storages)
-                    last_summary_hour = report_time_hour
+            report_time_hour = due_summary_report_hour(last_summary_hour)
+            if report_time_hour != -1:
+                print(f"\n📊 发送 {report_time_hour}:00 汇总报告...")
+                send_summary_report(storages)
+                last_summary_hour = report_time_hour
 
             found_any_anomaly = False
             for chain in chains:

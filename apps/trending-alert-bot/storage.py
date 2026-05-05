@@ -5,6 +5,13 @@ from typing import Dict, List, Optional
 from timezone_utils import beijing_now, beijing_today_start, format_beijing_time
 
 
+def _safe_float(value) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 class ContractStorage:
     def __init__(self, storage_file: str):
         self.storage_file = storage_file
@@ -25,7 +32,7 @@ class ContractStorage:
 
     def add_contract(self, token_address: str, initial_price: float, contract_info: Dict):
         push_time = format_beijing_time()
-        current_market_cap = float(contract_info.get("marketCapUSD", 0))
+        current_market_cap = _safe_float(contract_info.get("marketCapUSD"))
         self.data[token_address] = {
             "initial_price": initial_price,
             "initial_market_cap": current_market_cap,

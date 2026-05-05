@@ -21,10 +21,12 @@
 ## Install
 
 ```bash
+cd apps/trending-alert-bot
 uv python install
-uv venv
-uv pip install -r requirements.txt
+uv sync --locked
 ```
+
+依赖由 `pyproject.toml` 声明，并通过 `uv.lock` 锁定版本；`uv sync` 会创建/更新当前 app 的 `.venv`。
 
 ## Config
 

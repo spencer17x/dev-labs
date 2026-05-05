@@ -423,6 +423,7 @@ class TelegramNotifier:
                 return False
 
             # 为每个聊天分别发送（因为 reply_to_message_id 不同）
+            all_sent = True
             for chat in chats:
                 cid = chat['chat_id']
                 reply_to_id = storage.get_telegram_message_id(token_address, cid)
@@ -431,9 +432,11 @@ class TelegramNotifier:
                     self.send_message(message, cid, reply_to_id, token_address, chain),
                     self.bot_loop
                 )
-                future.result(timeout=10)
+                message_ids = future.result(timeout=10)
+                if cid not in message_ids:
+                    all_sent = False
 
-            return True
+            return all_sent
         except Exception as e:
             print(f"❌ 同步发送（带引用）失败: {e}")
             return False

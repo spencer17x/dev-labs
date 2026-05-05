@@ -45,6 +45,7 @@ class ChatStorage:
         with self._FILE_LOCK:
             self.data = self._load_unlocked()
             chat_id_str = str(chat_id)
+            existing_chat = self.data.get(chat_id_str, {})
             chat_data = {
                 "chat_id": chat_id,
                 "type": chat_info.get("type", "unknown"),
@@ -52,10 +53,11 @@ class ChatStorage:
                 "username": chat_info.get("username", ""),
                 "first_name": chat_info.get("first_name", ""),
                 "last_name": chat_info.get("last_name", ""),
-                "added_at": self.data.get(chat_id_str, {}).get("added_at", format_beijing_time()),
+                "added_at": existing_chat.get("added_at", format_beijing_time()),
                 "updated_at": format_beijing_time(),
                 "active": True,
-                "message_count": self.data.get(chat_id_str, {}).get("message_count", 0),
+                "message_count": existing_chat.get("message_count", 0),
+                "notification_mode": existing_chat.get("notification_mode", DEFAULT_NOTIFICATION_MODE),
             }
             self.data[chat_id_str] = chat_data
             self._save_unlocked()

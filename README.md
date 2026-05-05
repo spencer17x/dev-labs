@@ -95,12 +95,9 @@ pnpm --filter signal-trade runtime:watch -- --interval-sec 15 --limit 10
 # 进入项目目录
 cd apps/telegram-forwarder  # 或其他 Python 项目
 
-# 使用仓库固定的 Python 版本创建当前 app 的 .venv
+# 使用仓库固定的 Python 版本，并按 pyproject.toml/uv.lock 同步当前 app 的 .venv
 uv python install
-uv venv
-
-# 安装依赖并运行
-uv pip install -r requirements.txt
+uv sync --locked
 uv run python main.py
 ```
 
@@ -142,8 +139,8 @@ scp dist/index.cjs server:/app/
 node /app/index.cjs  # 无需 npm install，秒级启动
 
 # Python 项目：uv + .venv 部署
-uv venv
-uv pip install -r requirements.txt
+uv python install
+uv sync --locked
 uv run python main.py
 ```
 

@@ -1,3 +1,4 @@
+from html import escape
 from typing import Dict, List, Optional
 from urllib.parse import quote
 from timezone_utils import beijing_now, format_beijing_time
@@ -37,6 +38,23 @@ def _safe_float(value) -> float:
         return 0.0
 
 
+def _safe_int(value) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _html_escape(value) -> str:
+    if value is None:
+        return ""
+    return escape(str(value), quote=False)
+
+
+def _html_code(value) -> str:
+    return f"<code>{_html_escape(value)}</code>"
+
+
 def _format_kol_sections(kol_holders=None, kol_leavers=None) -> str:
     holders = kol_holders or []
 
@@ -48,7 +66,7 @@ def _format_kol_sections(kol_holders=None, kol_leavers=None) -> str:
     if holders:
         lines.append(f"🚀 已上车 ({len(holders)}):")
         for kol in holders[:5]:
-            kol_name = kol.get("name", "Unknown")
+            kol_name = _html_escape(kol.get("name", "Unknown"))
             hold_value_usd = _safe_float(kol.get("holdValueUSD"))
             hold_percent = _safe_float(kol.get("holdPercent"))
             buy_count = kol.get("buyCount") or 0
@@ -69,20 +87,22 @@ def format_initial_notification(
     kol_leavers: Optional[List[Dict]] = None,
     is_anomaly: bool = False,
 ) -> str:
-    symbol = contract.get("symbol", "N/A")
-    name = contract.get("name", "N/A")
-    price = float(contract.get("priceUSD", 0))
-    market_cap = float(contract.get("marketCapUSD", 0))
-    volume_24h = float(contract.get("volume", 0))
-    token_address = contract.get("tokenAddress", "N/A")
-    price_change_24h = contract.get("priceChange24H", "N/A")
-    holders = contract.get("holders", 0)
+    symbol = _html_escape(contract.get("symbol", "N/A"))
+    name = _html_escape(contract.get("name", "N/A"))
+    price = _safe_float(contract.get("priceUSD"))
+    market_cap = _safe_float(contract.get("marketCapUSD"))
+    volume_24h = _safe_float(contract.get("volume"))
+    token_address = str(contract.get("tokenAddress") or "N/A")
+    price_change_24h = _html_escape(contract.get("priceChange24H", "N/A"))
+    holders = _safe_float(contract.get("holders"))
     create_time = contract.get("createTime")
-    dex_name = contract.get("dexName", "N/A")
-    launch_from = contract.get("launchFrom", "N/A")
+    dex_name = _html_escape(contract.get("dexName", "N/A"))
+    launch_from = _html_escape(contract.get("launchFrom", "N/A"))
     links = contract.get("links", {})
+    if not isinstance(links, dict):
+        links = {}
 
-    time_ago = _format_time_ago(int(create_time)) if create_time else "N/A"
+    time_ago = _format_time_ago(_safe_int(create_time)) if create_time else "N/A"
     push_time = format_beijing_time()
     chain_prefix = f"[{chain.upper()}] " if chain else ""
 
@@ -90,7 +110,7 @@ def format_initial_notification(
     msg = f"""{chain_prefix}{title}
 
 💎 {symbol} ({name})
-📝 CA: <code>{token_address}</code>
+📝 CA: {_html_code(token_address)}
 
 💰 价格: ${price:.8f}
 📊 市值: {_format_market_cap(market_cap)}
@@ -116,17 +136,17 @@ def format_initial_notification(
         has_links = False
         for key, url in links.items():
             if url:
-                icon_text = link_icons.get(key, f"🔗 {key.title()}")
-                msg += f"\n{icon_text}: {url}"
+                icon_text = link_icons.get(key, f"🔗 {_html_escape(str(key).title())}")
+                msg += f"\n{icon_text}: {_html_escape(url)}"
                 has_links = True
         search_url = f"https://x.com/search?q={quote(token_address)}"
-        msg += f"\n🔎 搜索合约: {search_url}"
+        msg += f"\n🔎 搜索合约: {_html_escape(search_url)}"
         has_links = True
         if not has_links:
             msg += "\n暂无数据"
     else:
         search_url = f"https://x.com/search?q={quote(token_address)}"
-        msg += f"\n🔎 搜索合约: {search_url}"
+        msg += f"\n🔎 搜索合约: {_html_escape(search_url)}"
 
     return msg.strip()
 
@@ -142,15 +162,15 @@ def format_multiplier_notification(
     kol_holders: Optional[List[Dict]] = None,
     kol_leavers: Optional[List[Dict]] = None,
 ) -> str:
-    symbol = contract.get("symbol", "N/A")
-    current_market_cap = float(contract.get("marketCapUSD", 0))
-    token_address = contract.get("tokenAddress", "N/A")
+    symbol = _html_escape(contract.get("symbol", "N/A"))
+    current_market_cap = _safe_float(contract.get("marketCapUSD"))
+    token_address = str(contract.get("tokenAddress") or "N/A")
     chain_prefix = f"[{chain.upper()}] " if chain else ""
 
     msg = f"""{chain_prefix}🚀 倍数通知 {multiplier:.2f}X
 
 💎 {symbol}
-📝 CA: <code>{token_address}</code>
+📝 CA: {_html_code(token_address)}
 
 📈 涨幅: {multiplier:.2f}X
 💵 当前价格: ${current_price:.8f}
@@ -226,14 +246,14 @@ def format_summary_report(
                 stored_data = item["stored_data"]
                 multiplier = item["multiplier"]
 
-                symbol = contract.get("symbol", "N/A")
-                name = contract.get("name", "N/A")
-                token_address = contract.get("tokenAddress", "N/A")
-                initial_price = stored_data.get("initial_price", 0)
+                symbol = _html_escape(contract.get("symbol", "N/A"))
+                name = _html_escape(contract.get("name", "N/A"))
+                token_address = str(contract.get("tokenAddress") or "N/A")
+                initial_price = _safe_float(stored_data.get("initial_price"))
                 # 最高倍数通知时的价格 = 初始价格 * 最高倍数
                 max_multiplier_price = initial_price * multiplier
                 # 最高倍数通知时的市值 = 初始市值 * 最高倍数
-                initial_market_cap = stored_data.get("initial_market_cap", 0)
+                initial_market_cap = _safe_float(stored_data.get("initial_market_cap"))
                 max_multiplier_market_cap = initial_market_cap * multiplier
                 push_time = stored_data.get("push_time", "N/A")
 
@@ -241,7 +261,7 @@ def format_summary_report(
 
                 msg += f"""
 {rank_emoji} {symbol} ({name})
-  CA: <code>{token_address}</code>
+  CA: {_html_code(token_address)}
   倍数: {multiplier:.2f}X
   首次趋势通知价格: ${initial_price:.8f}
   最高倍数通知价格: ${max_multiplier_price:.8f}

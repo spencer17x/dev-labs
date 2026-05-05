@@ -111,7 +111,7 @@ def check_multipliers(
     chat_id: Optional[int] = None,
 ):
     token_address = contract.get("tokenAddress")
-    current_price = float(contract.get("priceUSD", 0))
+    current_price = _safe_float(contract.get("priceUSD"))
 
     if not token_address or current_price <= 0:
         return
@@ -125,7 +125,7 @@ def check_multipliers(
     if not has_real_notification:
         return
 
-    initial_price = stored_contract["initial_price"]
+    initial_price = _safe_float(stored_contract.get("initial_price"))
     if initial_price <= 0:
         return
 
@@ -155,8 +155,6 @@ def check_multipliers(
         storage.update_pending_multiplier(token_address, pending_int, pending_count)
         return
 
-    storage.clear_pending_multiplier(token_address)
-
     kol_with_positions, kol_without_positions = load_kol_status(
         contract,
         chain,
@@ -177,9 +175,18 @@ def check_multipliers(
     print(msg)
     print("\n" + "=" * 60 + "\n")
 
-    if ENABLE_TELEGRAM and not DRY_RUN:
-        notifier.send_with_reply_sync(msg, token_address, storage, chat_id=chat_id, chain=chain)
+    if DRY_RUN:
+        return
+    if ENABLE_TELEGRAM and not notifier.send_with_reply_sync(
+        msg,
+        token_address,
+        storage,
+        chat_id=chat_id,
+        chain=chain,
+    ):
+        return
 
+    storage.clear_pending_multiplier(token_address)
     storage.update_notified_multiplier(token_address, multiplier)
 
 
@@ -219,11 +226,10 @@ def initialize_storage(storage: ContractStorage, chain: str):
     contracts = response.get("data", [])
 
     loaded_count = 0
-    first_contract_address = None
 
     for contract in contracts:
         token_address = contract.get("tokenAddress")
-        current_price = float(contract.get("priceUSD", 0))
+        current_price = _safe_float(contract.get("priceUSD"))
 
         if not token_address or current_price <= 0:
             continue
@@ -231,20 +237,17 @@ def initialize_storage(storage: ContractStorage, chain: str):
             continue
 
         is_new = storage.is_new_contract(token_address)
-        if first_contract_address is None:
-            first_contract_address = token_address
 
         if is_new:
             storage.add_contract(token_address, current_price, contract)
             loaded_count += 1
 
-    if first_contract_address:
-        stored_contract = storage.get_contract(first_contract_address)
+        stored_contract = storage.get_contract(token_address)
         if stored_contract:
             telegram_message_ids = stored_contract.get("telegram_message_ids", {})
             has_real_notification = any(msg_id != -1 for msg_id in telegram_message_ids.values())
             if not has_real_notification and not telegram_message_ids:
-                storage.update_telegram_message_id(first_contract_address, -1, -1)
+                storage.update_telegram_message_id(token_address, -1, -1)
 
     if loaded_count > 0:
         print(f"✅ [{chain.upper()}] 初始化完成，加载 {loaded_count} 个新合约")
@@ -283,7 +286,7 @@ def _pick_trend_and_anomaly_contract(
 
     for contract in contracts:
         token_address = contract.get("tokenAddress")
-        current_price = float(contract.get("priceUSD", 0))
+        current_price = _safe_float(contract.get("priceUSD"))
         if not token_address or current_price <= 0:
             continue
         if should_filter_contract(contract, chain):
@@ -337,7 +340,7 @@ def _send_candidate_notification(
     is_anomaly: bool,
 ) -> int:
     token_address = contract.get("tokenAddress")
-    current_price = float(contract.get("priceUSD", 0))
+    current_price = _safe_float(contract.get("priceUSD"))
     if not token_address or current_price <= 0:
         return 0
 
@@ -353,7 +356,7 @@ def _send_candidate_notification(
         return 0
 
     if not is_new:
-        current_market_cap = float(contract.get("marketCapUSD", 0))
+        current_market_cap = _safe_float(contract.get("marketCapUSD"))
         storage.update_initial_price(token_address, current_price, current_market_cap)
 
     msg = format_initial_notification(
@@ -447,7 +450,7 @@ def _process_chat_contracts(
 
     for contract in contracts:
         token_address = contract.get("tokenAddress")
-        current_price = float(contract.get("priceUSD", 0))
+        current_price = _safe_float(contract.get("priceUSD"))
         if not token_address or current_price <= 0:
             continue
         if should_filter_contract(contract, chain):
@@ -660,14 +663,22 @@ def get_summary_report_for_chat(chat_id: int, storages: dict) -> str:
     return format_summary_report(chain_stats, next_report_time_str)
 
 
-def should_send_summary_report(last_report_hour: int) -> bool:
+def due_summary_report_hour(last_report_hour: int) -> int:
     now = beijing_now()
     current_hour = now.hour
     current_minute = now.minute
 
     for hour in SUMMARY_REPORT_HOURS:
         report_hour = (hour - 1) % 24
-        if current_hour == report_hour and current_minute == 59 and hour != last_report_hour:
-            return True
+        is_due_window = (
+            (current_hour == report_hour and current_minute == 59)
+            or current_hour == hour
+        )
+        if is_due_window and hour != last_report_hour:
+            return hour
 
-    return False
+    return -1
+
+
+def should_send_summary_report(last_report_hour: int) -> bool:
+    return due_summary_report_hour(last_report_hour) != -1
