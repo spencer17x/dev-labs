@@ -1,11 +1,34 @@
+from __future__ import annotations
+
 import asyncio
 import threading
 from typing import Optional, List, Dict
-from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, ChatMemberHandler, ContextTypes, MessageHandler, filters
-from telegram.error import TelegramError
+
+try:
+    from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+    from telegram.ext import Application, CommandHandler, ChatMemberHandler, ContextTypes, MessageHandler, filters
+    from telegram.error import TelegramError
+except ModuleNotFoundError:
+    Update = None
+    InlineKeyboardButton = None
+    InlineKeyboardMarkup = None
+    Application = None
+    CommandHandler = None
+    ChatMemberHandler = None
+    ContextTypes = None
+    MessageHandler = None
+    filters = None
+
+    class TelegramError(Exception):
+        pass
+
 from config import TELEGRAM_BOT_TOKEN, ENABLE_TELEGRAM, MESSAGE_BUTTONS, NOTIFICATION_TYPES
 from chat_storage import ChatStorage, VALID_NOTIFICATION_MODES
+
+
+def _require_telegram_sdk():
+    if Application is None:
+        raise RuntimeError("python-telegram-bot is required to start the Telegram bot")
 
 
 class TelegramNotifier:
@@ -22,6 +45,7 @@ class TelegramNotifier:
         self._report_generator = fn
 
     def _setup_application(self):
+        _require_telegram_sdk()
         self.app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
         self.app.add_handler(CommandHandler("start", self._cmd_start))
         self.app.add_handler(CommandHandler("status", self._cmd_status))
@@ -238,6 +262,8 @@ class TelegramNotifier:
     def _build_inline_keyboard(self, token_address: str = None, chain: str = None) -> Optional[InlineKeyboardMarkup]:
         """根据配置生成内联按钮键盘，支持按链过滤"""
         if not MESSAGE_BUTTONS or not token_address:
+            return None
+        if InlineKeyboardButton is None or InlineKeyboardMarkup is None:
             return None
 
         buttons = []

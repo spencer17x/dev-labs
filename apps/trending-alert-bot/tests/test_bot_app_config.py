@@ -54,9 +54,13 @@ class BotAppConfigTests(unittest.TestCase):
         self.assertEqual(bsc_cfg.telegram_bot_token, "from-env")
 
     def test_missing_target_token_names_required_env(self):
-        with mock.patch.dict(os.environ, {}, clear=True):
-            with self.assertRaisesRegex(ValueError, "BSC_TELEGRAM_BOT_TOKEN"):
-                load_runtime_config("bsc")
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                mock.patch("bot_app._app_root", return_value=Path(tmp)),
+                mock.patch.dict(os.environ, {}, clear=True),
+            ):
+                with self.assertRaisesRegex(ValueError, "BSC_TELEGRAM_BOT_TOKEN"):
+                    load_runtime_config("bsc")
 
     def test_unsupported_target_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "unsupported target"):

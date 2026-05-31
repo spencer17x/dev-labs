@@ -1,4 +1,7 @@
-from curl_cffi import requests
+def _requests():
+    from curl_cffi import requests
+
+    return requests
 
 
 def _build_headers(chain: str = "sol", referer: str = "") -> dict:
@@ -87,7 +90,7 @@ def fetch_trending(period: str = "1M", category: str = "", chain: str = "sol") -
             ]
         }
     """
-    resp = requests.post(
+    resp = _requests().post(
         "https://www.xxyy.io/api/data/list/trending",
         headers=_build_headers(chain),
         json={"period": period, "category": category},
@@ -146,7 +149,7 @@ def fetch_kol_holders(
     if info_token:
         headers["x-info-token"] = info_token
 
-    resp = requests.get(
+    resp = _requests().get(
         "https://www.xxyy.io/api/data/holders/kol",
         params={"mint": mint, "pair": pair},
         headers=headers,

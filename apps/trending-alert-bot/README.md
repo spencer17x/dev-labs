@@ -150,20 +150,15 @@ SQLite 中包含：
 | 表 | 用途 | 隔离方式 |
 |----|------|----------|
 | `telegram_chats` | 群组订阅状态、通知模式、消息计数 | `chat_id` |
-| `contracts` | 合约初始价格、倍数通知状态、Telegram 消息 ID | `chain + chat_id + token_address` |
-
-### Legacy JSON migration
-
-旧版 JSON 会在 SQLite 对应数据为空时自动导入一次：
-
-- `telegram_chats.json` → `telegram_chats`
-- `contracts_data_{chain}_{chat_id}.json` → `contracts`
-
-导入后不会继续写回 JSON。旧 JSON 文件会保留，可作为迁移备份；确认 SQLite 数据正常后再手动删除。
+| `contracts` | 合约初始价格、名称、符号、最后通知时间 | `chain + chat_id + token_address` |
+| `contract_message_ids` | 合约首次通知的 Telegram 消息 ID | `chain + chat_id + token_address + telegram_chat_id` |
+| `contract_notified_multipliers` | 已通知过的倍数 | `chain + chat_id + token_address + multiplier` |
+| `contract_pending_multipliers` | 等待确认的整数倍状态 | `chain + chat_id + token_address` |
+| `runtime_state` | 汇总报告 marker 等运行状态 | `key` |
 
 ### Clear storage
 
-`--clear-storage` 现在会清理 SQLite 中指定链、指定群组的合约追踪记录；如果对应旧 `contracts_data_{chain}_{chat_id}.json` 仍存在，也会一并删除，避免下次启动再次导入旧数据。
+`--clear-storage` 会清理 SQLite 中指定链、指定群组的合约追踪记录，并通过外键级联清理对应消息 ID、倍数通知和 pending 倍数状态。群组订阅状态保留在 `telegram_chats` 中。
 
 ### Inspect data
 

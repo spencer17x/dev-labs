@@ -7,6 +7,17 @@ from timezone_utils import format_beijing_time
 
 
 _SCHEMA_LOCK = threading.RLock()
+_CONTRACT_COLUMNS = {
+    "chain",
+    "chat_id",
+    "token_address",
+    "initial_price",
+    "initial_market_cap",
+    "push_time",
+    "name",
+    "symbol",
+    "last_notify_time",
+}
 
 
 def connect() -> sqlite3.Connection:
@@ -15,6 +26,103 @@ def connect() -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
+
+
+def _table_columns(conn: sqlite3.Connection, table_name: str) -> set:
+    rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+    return {row["name"] for row in rows}
+
+
+def _create_contracts_table(conn: sqlite3.Connection, table_name: str = "contracts"):
+    conn.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {table_name} (
+            chain TEXT NOT NULL,
+            chat_id INTEGER NOT NULL,
+            token_address TEXT NOT NULL,
+            initial_price REAL NOT NULL DEFAULT 0,
+            initial_market_cap REAL NOT NULL DEFAULT 0,
+            push_time TEXT NOT NULL DEFAULT '',
+            name TEXT NOT NULL DEFAULT '',
+            symbol TEXT NOT NULL DEFAULT '',
+            last_notify_time TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY (chain, chat_id, token_address)
+        )
+        """
+    )
+
+
+def _create_contract_relation_tables(conn: sqlite3.Connection):
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS contract_message_ids (
+            chain TEXT NOT NULL,
+            chat_id INTEGER NOT NULL,
+            token_address TEXT NOT NULL,
+            telegram_chat_id INTEGER NOT NULL,
+            message_id INTEGER NOT NULL,
+            PRIMARY KEY (chain, chat_id, token_address, telegram_chat_id),
+            FOREIGN KEY (chain, chat_id, token_address)
+                REFERENCES contracts(chain, chat_id, token_address)
+                ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS contract_notified_multipliers (
+            chain TEXT NOT NULL,
+            chat_id INTEGER NOT NULL,
+            token_address TEXT NOT NULL,
+            multiplier REAL NOT NULL,
+            notified_at TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY (chain, chat_id, token_address, multiplier),
+            FOREIGN KEY (chain, chat_id, token_address)
+                REFERENCES contracts(chain, chat_id, token_address)
+                ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS contract_pending_multipliers (
+            chain TEXT NOT NULL,
+            chat_id INTEGER NOT NULL,
+            token_address TEXT NOT NULL,
+            multiplier_int INTEGER NOT NULL DEFAULT 0,
+            count INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (chain, chat_id, token_address),
+            FOREIGN KEY (chain, chat_id, token_address)
+                REFERENCES contracts(chain, chat_id, token_address)
+                ON DELETE CASCADE
+        );
+        """
+    )
+
+
+def _ensure_contract_schema(conn: sqlite3.Connection):
+    existing = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'contracts'"
+    ).fetchone()
+    if not existing:
+        _create_contracts_table(conn)
+        _create_contract_relation_tables(conn)
+        return
+
+    if _table_columns(conn, "contracts") == _CONTRACT_COLUMNS:
+        _create_contract_relation_tables(conn)
+        return
+
+    conn.execute("ALTER TABLE contracts RENAME TO contracts_previous")
+    _create_contracts_table(conn)
+    conn.execute(
+        """
+        INSERT INTO contracts (
+            chain, chat_id, token_address, initial_price, initial_market_cap,
+            push_time, name, symbol, last_notify_time
+        )
+        SELECT
+            chain, chat_id, token_address, initial_price, initial_market_cap,
+            push_time, name, symbol, last_notify_time
+        FROM contracts_previous
+        """
+    )
+    conn.execute("DROP TABLE contracts_previous")
+    _create_contract_relation_tables(conn)
 
 
 def ensure_schema():
@@ -37,22 +145,6 @@ def ensure_schema():
                     notification_mode TEXT NOT NULL DEFAULT 'all'
                 );
 
-                CREATE TABLE IF NOT EXISTS contracts (
-                    chain TEXT NOT NULL,
-                    chat_id INTEGER NOT NULL,
-                    token_address TEXT NOT NULL,
-                    initial_price REAL NOT NULL DEFAULT 0,
-                    initial_market_cap REAL NOT NULL DEFAULT 0,
-                    push_time TEXT NOT NULL DEFAULT '',
-                    notified_multipliers_json TEXT NOT NULL DEFAULT '[]',
-                    name TEXT NOT NULL DEFAULT '',
-                    symbol TEXT NOT NULL DEFAULT '',
-                    telegram_message_ids_json TEXT NOT NULL DEFAULT '{}',
-                    pending_multiplier_json TEXT NOT NULL DEFAULT '',
-                    last_notify_time TEXT NOT NULL DEFAULT '',
-                    PRIMARY KEY (chain, chat_id, token_address)
-                );
-
                 CREATE TABLE IF NOT EXISTS runtime_state (
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL DEFAULT '',
@@ -60,6 +152,7 @@ def ensure_schema():
                 );
                 """
             )
+            _ensure_contract_schema(conn)
 
 
 def get_runtime_state(key: str, default: str = "") -> str:

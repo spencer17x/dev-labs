@@ -5,7 +5,6 @@ import os
 import sys
 import tempfile
 import unittest
-from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
@@ -74,7 +73,7 @@ class ReviewRegressionTests(unittest.TestCase):
     def test_dry_run_multiplier_does_not_mark_notified(self):
         with tempfile.TemporaryDirectory() as tmp:
             _, _, monitor_flow, _, ContractStorage = load_runtime_modules(tmp)
-            storage = ContractStorage(str(Path(tmp) / "contracts.json"))
+            storage = ContractStorage(chain="sol", chat_id=111)
             storage.add_contract("TOKEN1", 1.0, sample_contract(priceUSD="1.0"))
             storage.update_telegram_message_id("TOKEN1", 111, 222)
 
@@ -88,7 +87,7 @@ class ReviewRegressionTests(unittest.TestCase):
     def test_failed_multiplier_send_does_not_mark_notified(self):
         with tempfile.TemporaryDirectory() as tmp:
             _, _, monitor_flow, _, ContractStorage = load_runtime_modules(tmp)
-            storage = ContractStorage(str(Path(tmp) / "contracts.json"))
+            storage = ContractStorage(chain="sol", chat_id=111)
             storage.add_contract("TOKEN1", 1.0, sample_contract(priceUSD="1.0"))
             storage.update_telegram_message_id("TOKEN1", 111, 222)
             storage.update_pending_multiplier("TOKEN1", 2, 1)
@@ -130,7 +129,7 @@ class ReviewRegressionTests(unittest.TestCase):
     def test_silent_init_marks_all_loaded_contracts_as_suppressed(self):
         with tempfile.TemporaryDirectory() as tmp:
             _, _, monitor_flow, _, ContractStorage = load_runtime_modules(tmp)
-            storage = ContractStorage(str(Path(tmp) / "contracts.json"))
+            storage = ContractStorage(chain="sol", chat_id=111)
             contracts = [
                 sample_contract(tokenAddress="TOKEN1", priceUSD="1.0"),
                 sample_contract(tokenAddress="TOKEN2", priceUSD="2.0"),
@@ -170,7 +169,6 @@ class ReviewRegressionTests(unittest.TestCase):
     def test_add_chat_preserves_existing_notification_mode(self):
         with tempfile.TemporaryDirectory() as tmp:
             _, chat_storage, _, _, _ = load_runtime_modules(tmp)
-            chat_storage.CHATS_FILE = str(Path(tmp) / "telegram_chats.json")
             storage = chat_storage.ChatStorage()
 
             storage.add_chat(111, {"type": "group", "title": "Group"})

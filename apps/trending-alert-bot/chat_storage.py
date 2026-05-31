@@ -1,9 +1,6 @@
-import json
-import os
 import threading
 from typing import Dict, List, Optional
 from db_storage import connect, ensure_schema
-from config import CHATS_FILE
 from timezone_utils import format_beijing_time
 
 
@@ -16,7 +13,6 @@ class ChatStorage:
 
     def __init__(self):
         ensure_schema()
-        self._migrate_legacy_json_if_empty()
         self.data: Dict[str, Dict] = self._load()
 
     def _load_unlocked(self) -> Dict[str, Dict]:
@@ -39,27 +35,6 @@ class ChatStorage:
     def _save(self):
         with self._FILE_LOCK:
             self._save_unlocked()
-
-    def _migrate_legacy_json_if_empty(self):
-        with self._FILE_LOCK:
-            with connect() as conn:
-                existing_count = conn.execute("SELECT COUNT(*) FROM telegram_chats").fetchone()[0]
-                if existing_count > 0 or not os.path.exists(CHATS_FILE):
-                    return
-
-                try:
-                    with open(CHATS_FILE, "r", encoding="utf-8") as f:
-                        legacy_data = json.load(f)
-                except Exception as e:
-                    print(f"⚠️  迁移聊天记录失败: {e}")
-                    return
-
-                if not isinstance(legacy_data, dict):
-                    return
-
-                for chat in legacy_data.values():
-                    if isinstance(chat, dict):
-                        self._upsert_chat(conn, self._normalize_chat(chat))
 
     def _row_to_chat(self, row) -> Dict:
         chat = {

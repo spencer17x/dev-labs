@@ -1,7 +1,4 @@
-import json
-import os
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Dict, List, Optional
 
 from db_storage import connect, ensure_schema
@@ -22,95 +19,68 @@ def _safe_int(value) -> int:
         return 0
 
 
-def _json_loads(value, fallback):
-    if not value:
-        return fallback
-    try:
-        parsed = json.loads(value)
-    except (TypeError, json.JSONDecodeError):
-        return fallback
-    return parsed if parsed is not None else fallback
-
-
 def _safe_text(value) -> str:
     return "" if value is None else str(value)
 
 
 class ContractStorage:
-    def __init__(self, storage_file: str, chain: str = "", chat_id: Optional[int] = None):
-        self.storage_file = storage_file
+    def __init__(self, chain: str, chat_id: int):
         self.chain = (chain or "").strip().lower()
-        self.chat_id = chat_id
-        self._infer_scope_from_storage_file()
+        self.chat_id = _safe_int(chat_id)
         ensure_schema()
-        self._migrate_legacy_json_if_empty()
 
-    def _infer_scope_from_storage_file(self):
-        if self.chain and self.chat_id is not None:
-            return
+    def _load_message_ids(self, conn, token_address: str) -> Dict[str, int]:
+        rows = conn.execute(
+            """
+            SELECT telegram_chat_id, message_id
+            FROM contract_message_ids
+            WHERE chain = ? AND chat_id = ? AND token_address = ?
+            ORDER BY telegram_chat_id
+            """,
+            (self.chain, self.chat_id, token_address),
+        ).fetchall()
+        return {str(row["telegram_chat_id"]): row["message_id"] for row in rows}
 
-        path = Path(self.storage_file)
-        name = path.name
-        prefix = "contracts_data_"
-        suffix = ".json"
-        if not name.startswith(prefix) or not name.endswith(suffix):
-            self.chain = self.chain or ""
-            self.chat_id = 0 if self.chat_id is None else self.chat_id
-            return
+    def _load_notified_multipliers(self, conn, token_address: str) -> List[float]:
+        rows = conn.execute(
+            """
+            SELECT multiplier
+            FROM contract_notified_multipliers
+            WHERE chain = ? AND chat_id = ? AND token_address = ?
+            ORDER BY multiplier
+            """,
+            (self.chain, self.chat_id, token_address),
+        ).fetchall()
+        return [_safe_float(row["multiplier"]) for row in rows]
 
-        raw = name[len(prefix):-len(suffix)]
-        parts = raw.rsplit("_", 1)
-        if len(parts) == 2:
-            inferred_chain, inferred_chat_id = parts
-            self.chain = self.chain or inferred_chain
-            if self.chat_id is None:
-                self.chat_id = _safe_int(inferred_chat_id)
-            return
+    def _load_pending_multiplier(self, conn, token_address: str) -> Optional[Dict]:
+        row = conn.execute(
+            """
+            SELECT multiplier_int, count
+            FROM contract_pending_multipliers
+            WHERE chain = ? AND chat_id = ? AND token_address = ?
+            """,
+            (self.chain, self.chat_id, token_address),
+        ).fetchone()
+        if not row:
+            return None
+        return {
+            "multiplier_int": _safe_int(row["multiplier_int"]),
+            "count": _safe_int(row["count"]),
+        }
 
-        self.chain = self.chain or ""
-        if self.chat_id is None:
-            self.chat_id = _safe_int(raw)
-
-    def _migrate_legacy_json_if_empty(self):
-        if not os.path.exists(self.storage_file):
-            return
-
-        with connect() as conn:
-            existing_count = conn.execute(
-                """
-                SELECT COUNT(*) FROM contracts
-                WHERE chain = ? AND chat_id = ?
-                """,
-                (self.chain, self.chat_id),
-            ).fetchone()[0]
-            if existing_count > 0:
-                return
-
-            try:
-                with open(self.storage_file, "r", encoding="utf-8") as f:
-                    legacy_data = json.load(f)
-            except Exception as e:
-                print(f"⚠️  迁移合约缓存失败: {e}")
-                return
-
-            if not isinstance(legacy_data, dict):
-                return
-
-            for token_address, contract_data in legacy_data.items():
-                if token_address and isinstance(contract_data, dict):
-                    self._upsert_contract(conn, token_address, contract_data)
-
-    def _row_to_contract(self, row) -> Dict:
+    def _row_to_contract(self, conn, row) -> Dict:
+        token_address = row["token_address"]
         data = {
             "initial_price": _safe_float(row["initial_price"]),
             "initial_market_cap": _safe_float(row["initial_market_cap"]),
             "push_time": row["push_time"],
-            "notified_multipliers": _json_loads(row["notified_multipliers_json"], []),
+            "notified_multipliers": self._load_notified_multipliers(conn, token_address),
             "name": row["name"],
             "symbol": row["symbol"],
-            "telegram_message_ids": _json_loads(row["telegram_message_ids_json"], {}),
+            "telegram_message_ids": self._load_message_ids(conn, token_address),
         }
-        pending = _json_loads(row["pending_multiplier_json"], None)
+        pending = self._load_pending_multiplier(conn, token_address)
         if pending:
             data["pending_multiplier"] = pending
         if row["last_notify_time"]:
@@ -126,38 +96,21 @@ class ContractStorage:
                 """,
                 (self.chain, self.chat_id, token_address),
             ).fetchone()
-        return self._row_to_contract(row) if row else None
+            return self._row_to_contract(conn, row) if row else None
 
     def _upsert_contract(self, conn, token_address: str, contract_data: Dict):
-        notified_multipliers = contract_data.get("notified_multipliers", [])
-        if not isinstance(notified_multipliers, list):
-            notified_multipliers = []
-
-        telegram_message_ids = contract_data.get("telegram_message_ids", {})
-        if not isinstance(telegram_message_ids, dict):
-            telegram_message_ids = {}
-
-        pending_multiplier = contract_data.get("pending_multiplier")
-        pending_multiplier_json = ""
-        if isinstance(pending_multiplier, dict):
-            pending_multiplier_json = json.dumps(pending_multiplier, ensure_ascii=False)
-
         conn.execute(
             """
             INSERT INTO contracts (
                 chain, chat_id, token_address, initial_price, initial_market_cap,
-                push_time, notified_multipliers_json, name, symbol,
-                telegram_message_ids_json, pending_multiplier_json, last_notify_time
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                push_time, name, symbol, last_notify_time
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(chain, chat_id, token_address) DO UPDATE SET
                 initial_price=excluded.initial_price,
                 initial_market_cap=excluded.initial_market_cap,
                 push_time=excluded.push_time,
-                notified_multipliers_json=excluded.notified_multipliers_json,
                 name=excluded.name,
                 symbol=excluded.symbol,
-                telegram_message_ids_json=excluded.telegram_message_ids_json,
-                pending_multiplier_json=excluded.pending_multiplier_json,
                 last_notify_time=excluded.last_notify_time
             """,
             (
@@ -167,11 +120,8 @@ class ContractStorage:
                 _safe_float(contract_data.get("initial_price")),
                 _safe_float(contract_data.get("initial_market_cap")),
                 _safe_text(contract_data.get("push_time")),
-                json.dumps(notified_multipliers, ensure_ascii=False),
                 _safe_text(contract_data.get("name")),
                 _safe_text(contract_data.get("symbol")),
-                json.dumps(telegram_message_ids, ensure_ascii=False),
-                pending_multiplier_json,
                 _safe_text(contract_data.get("last_notify_time")),
             ),
         )
@@ -180,16 +130,13 @@ class ContractStorage:
         return self.get_contract(token_address) is None
 
     def add_contract(self, token_address: str, initial_price: float, contract_info: Dict):
-        push_time = format_beijing_time()
-        current_market_cap = _safe_float(contract_info.get("marketCapUSD"))
         data = {
             "initial_price": initial_price,
-            "initial_market_cap": current_market_cap,
-            "push_time": push_time,
-            "notified_multipliers": [],
+            "initial_market_cap": _safe_float(contract_info.get("marketCapUSD")),
+            "push_time": format_beijing_time(),
             "name": contract_info.get("name", ""),
             "symbol": contract_info.get("symbol", ""),
-            "telegram_message_ids": {},
+            "last_notify_time": "",
         }
         with connect() as conn:
             self._upsert_contract(conn, token_address, data)
@@ -198,16 +145,21 @@ class ContractStorage:
         return self._load_contract(token_address)
 
     def update_notified_multiplier(self, token_address: str, multiplier: float):
-        data = self.get_contract(token_address)
-        if not data:
+        if not self.get_contract(token_address):
             return
-        data["notified_multipliers"].append(multiplier)
         with connect() as conn:
-            self._upsert_contract(conn, token_address, data)
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO contract_notified_multipliers (
+                    chain, chat_id, token_address, multiplier, notified_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (self.chain, self.chat_id, token_address, multiplier, format_beijing_time()),
+            )
 
     def get_notified_multipliers(self, token_address: str) -> List[float]:
-        data = self.get_contract(token_address)
-        return data.get("notified_multipliers", []) if data else []
+        with connect() as conn:
+            return self._load_notified_multipliers(conn, token_address)
 
     def get_max_notified_integer_multiplier(self, token_address: str) -> int:
         multipliers = self.get_notified_multipliers(token_address)
@@ -216,43 +168,64 @@ class ContractStorage:
         return 0
 
     def get_pending_multiplier(self, token_address: str) -> Optional[Dict]:
-        data = self.get_contract(token_address)
-        return data.get("pending_multiplier") if data else None
+        with connect() as conn:
+            return self._load_pending_multiplier(conn, token_address)
 
     def update_pending_multiplier(self, token_address: str, multiplier_int: int, count: int):
-        data = self.get_contract(token_address)
-        if not data:
+        if not self.get_contract(token_address):
             return
-        data["pending_multiplier"] = {
-            "multiplier_int": multiplier_int,
-            "count": count,
-        }
         with connect() as conn:
-            self._upsert_contract(conn, token_address, data)
+            conn.execute(
+                """
+                INSERT INTO contract_pending_multipliers (
+                    chain, chat_id, token_address, multiplier_int, count
+                ) VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(chain, chat_id, token_address) DO UPDATE SET
+                    multiplier_int=excluded.multiplier_int,
+                    count=excluded.count
+                """,
+                (self.chain, self.chat_id, token_address, multiplier_int, count),
+            )
 
     def clear_pending_multiplier(self, token_address: str):
-        data = self.get_contract(token_address)
-        if not data or "pending_multiplier" not in data:
-            return
-        del data["pending_multiplier"]
         with connect() as conn:
-            self._upsert_contract(conn, token_address, data)
+            conn.execute(
+                """
+                DELETE FROM contract_pending_multipliers
+                WHERE chain = ? AND chat_id = ? AND token_address = ?
+                """,
+                (self.chain, self.chat_id, token_address),
+            )
 
     def update_telegram_message_id(self, token_address: str, chat_id: int, message_id: int):
-        data = self.get_contract(token_address)
-        if not data:
+        if not self.get_contract(token_address):
             return
-        data.setdefault("telegram_message_ids", {})
-        data["telegram_message_ids"][str(chat_id)] = message_id
         with connect() as conn:
-            self._upsert_contract(conn, token_address, data)
+            conn.execute(
+                """
+                INSERT INTO contract_message_ids (
+                    chain, chat_id, token_address, telegram_chat_id, message_id
+                ) VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(chain, chat_id, token_address, telegram_chat_id)
+                DO UPDATE SET message_id=excluded.message_id
+                """,
+                (self.chain, self.chat_id, token_address, chat_id, message_id),
+            )
 
     def get_telegram_message_id(self, token_address: str, chat_id: int) -> Optional[int]:
-        data = self.get_contract(token_address)
-        if not data:
-            return None
-        message_ids = data.get("telegram_message_ids", {})
-        return message_ids.get(str(chat_id))
+        with connect() as conn:
+            row = conn.execute(
+                """
+                SELECT message_id
+                FROM contract_message_ids
+                WHERE chain = ?
+                    AND chat_id = ?
+                    AND token_address = ?
+                    AND telegram_chat_id = ?
+                """,
+                (self.chain, self.chat_id, token_address, chat_id),
+            ).fetchone()
+        return row["message_id"] if row else None
 
     def update_initial_price(self, token_address: str, new_price: float, new_market_cap: float):
         data = self.get_contract(token_address)
@@ -261,9 +234,15 @@ class ContractStorage:
         data["initial_price"] = new_price
         data["initial_market_cap"] = new_market_cap
         data["push_time"] = format_beijing_time()
-        data["notified_multipliers"] = []
         with connect() as conn:
             self._upsert_contract(conn, token_address, data)
+            conn.execute(
+                """
+                DELETE FROM contract_notified_multipliers
+                WHERE chain = ? AND chat_id = ? AND token_address = ?
+                """,
+                (self.chain, self.chat_id, token_address),
+            )
 
     def update_last_notify_time(self, token_address: str):
         data = self.get_contract(token_address)
@@ -284,35 +263,35 @@ class ContractStorage:
         with connect() as conn:
             rows = conn.execute(
                 """
-                SELECT token_address, * FROM contracts
+                SELECT * FROM contracts
                 WHERE chain = ? AND chat_id = ?
                 """,
                 (self.chain, self.chat_id),
             ).fetchall()
 
-        for row in rows:
-            data = self._row_to_contract(row)
-            telegram_message_ids = data.get("telegram_message_ids", {})
-            if not telegram_message_ids:
-                continue
+            for row in rows:
+                data = self._row_to_contract(conn, row)
+                telegram_message_ids = data.get("telegram_message_ids", {})
+                if not telegram_message_ids:
+                    continue
 
-            has_real_notification = any(
-                msg_id != -1 for msg_id in telegram_message_ids.values()
-            )
-            if not has_real_notification:
-                continue
+                has_real_notification = any(
+                    msg_id != -1 for msg_id in telegram_message_ids.values()
+                )
+                if not has_real_notification:
+                    continue
 
-            push_time_str = data.get("push_time")
-            if push_time_str:
-                try:
-                    push_time = datetime.strptime(push_time_str, "%Y-%m-%d %H:%M:%S")
-                    if push_time >= today_start:
-                        contracts.append({
-                            "token_address": row["token_address"],
-                            "data": data
-                        })
-                except ValueError:
-                    pass
+                push_time_str = data.get("push_time")
+                if push_time_str:
+                    try:
+                        push_time = datetime.strptime(push_time_str, "%Y-%m-%d %H:%M:%S")
+                        if push_time >= today_start:
+                            contracts.append({
+                                "token_address": row["token_address"],
+                                "data": data,
+                            })
+                    except ValueError:
+                        pass
 
         return contracts
 

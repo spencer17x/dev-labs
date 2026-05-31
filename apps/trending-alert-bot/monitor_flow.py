@@ -1,6 +1,5 @@
 """监控业务流程与通知编排。"""
 
-import os
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
@@ -14,7 +13,6 @@ from config import (
     MULTIPLIER_CONFIRMATIONS,
     NOTIFICATION_TYPES,
     NOTIFY_COOLDOWN_HOURS,
-    STORAGE_DIR,
     SUMMARY_REPORT_HOURS,
     SUMMARY_TOP_N,
 )
@@ -33,12 +31,6 @@ def make_storage_key(chat_id: int, chain: str = "") -> str:
     if chain:
         return f"{chain}:{chat_id}"
     return str(chat_id)
-
-
-def storage_file_path(chat_id: int, chain: str = "") -> str:
-    if chain:
-        return os.path.join(STORAGE_DIR, f"contracts_data_{chain}_{chat_id}.json")
-    return os.path.join(STORAGE_DIR, f"contracts_data_{chat_id}.json")
 
 
 def _safe_float(value) -> float:
@@ -327,11 +319,7 @@ def ensure_chat_storage(
 ) -> ContractStorage:
     storage_key = make_storage_key(chat_id, chain)
     if storage_key not in storages:
-        storages[storage_key] = ContractStorage(
-            storage_file_path(chat_id, chain),
-            chain=chain,
-            chat_id=chat_id,
-        )
+        storages[storage_key] = ContractStorage(chain=chain, chat_id=chat_id)
     return storages[storage_key]
 
 

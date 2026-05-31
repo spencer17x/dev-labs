@@ -24,7 +24,6 @@ from monitor_flow import (
     scan_once,
     save_last_summary_marker,
     send_summary_report,
-    storage_file_path,
     summary_report_marker,
 )
 from telegram_bot import notifier
@@ -59,15 +58,11 @@ def normalize_clear_targets(raw_value: Optional[str]) -> List[str]:
 def _bootstrap_storages(chain: str, clear_targets: set, storages: dict, active_chats: List[dict]):
     for chat in active_chats:
         chat_id = chat["chat_id"]
-        file_path = storage_file_path(chat_id, chain)
-
         storage_key = make_storage_key(chat_id, chain)
         storages[storage_key] = ensure_chat_storage(storages, chat_id, chain)
         if chain in clear_targets:
             storages[storage_key].clear_all()
-            if os.path.exists(file_path):
-                os.remove(file_path)
-            print(f"🗑️ 已清理 {chain.upper()} 本地缓存: {file_path}")
+            print(f"🗑️ 已清理 {chain.upper()} SQLite 合约缓存: chat_id={chat_id}")
         if SILENT_INIT:
             try:
                 initialize_storage(storages[storage_key], chain)
