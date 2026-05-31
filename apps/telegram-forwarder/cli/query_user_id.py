@@ -3,6 +3,7 @@
 查询 Telegram 用户 ID 的工具脚本
 支持通过用户名或手机号查询
 """
+
 import asyncio
 import os
 import sys
@@ -11,18 +12,22 @@ from telethon import TelegramClient
 from dotenv import load_dotenv
 
 # 加载环境变量（从父目录）
-env_path = Path(__file__).parent.parent / '.env'
+env_path = Path(__file__).parent.parent / ".env"
 load_dotenv(dotenv_path=env_path)
 
-# 读取配置
-API_ID = os.getenv('TELEGRAM_API_ID')
-API_HASH = os.getenv('TELEGRAM_API_HASH')
-SESSION_PATH = os.getenv('TELEGRAM_SESSION_PATH', 'telegram_forwarder_session')
 
-if not API_ID or not API_HASH:
-    print("❌ 错误: 未找到 TELEGRAM_API_ID 或 TELEGRAM_API_HASH")
-    print("请在 .env 文件中配置这些变量")
-    sys.exit(1)
+def get_runtime_config():
+    """读取运行配置，延迟到 CLI 执行时再校验。"""
+    api_id = os.getenv("TELEGRAM_API_ID")
+    api_hash = os.getenv("TELEGRAM_API_HASH")
+    session_path = os.getenv("TELEGRAM_SESSION_PATH", "telegram_forwarder_session")
+
+    if not api_id or not api_hash:
+        print("❌ 错误: 未找到 TELEGRAM_API_ID 或 TELEGRAM_API_HASH")
+        print("请在 .env 文件中配置这些变量")
+        sys.exit(1)
+
+    return api_id, api_hash, session_path
 
 
 async def get_user_info(client: TelegramClient, identifier: str):
@@ -35,15 +40,15 @@ async def get_user_info(client: TelegramClient, identifier: str):
     """
     try:
         # 移除 @ 符号（如果有）
-        if identifier.startswith('@'):
+        if identifier.startswith("@"):
             identifier = identifier[1:]
 
         # 尝试获取用户实体
         user = await client.get_entity(identifier)
 
-        print("\n" + "="*50)
+        print("\n" + "=" * 50)
         print("📋 用户信息")
-        print("="*50)
+        print("=" * 50)
         print(f"🆔 用户ID: {user.id}")
         print(f"👤 名称: {user.first_name or ''} {user.last_name or ''}")
 
@@ -52,21 +57,21 @@ async def get_user_info(client: TelegramClient, identifier: str):
         else:
             print(f"🔗 用户名: 无")
 
-        if hasattr(user, 'phone') and user.phone:
+        if hasattr(user, "phone") and user.phone:
             print(f"📱 手机号: +{user.phone}")
 
-        if hasattr(user, 'bot') and user.bot:
+        if hasattr(user, "bot") and user.bot:
             print(f"🤖 类型: Bot")
         else:
             print(f"👥 类型: 用户")
 
-        if hasattr(user, 'verified') and user.verified:
+        if hasattr(user, "verified") and user.verified:
             print(f"✅ 认证: 已认证")
 
-        if hasattr(user, 'premium') and user.premium:
+        if hasattr(user, "premium") and user.premium:
             print(f"⭐ 会员: Premium")
 
-        print("="*50)
+        print("=" * 50)
 
         return user
 
@@ -83,9 +88,10 @@ async def main():
     """主函数"""
     print("🔍 Telegram 用户 ID 查询工具")
     print("-" * 50)
+    api_id, api_hash, session_path = get_runtime_config()
 
     # 创建客户端
-    client = TelegramClient(SESSION_PATH, API_ID, API_HASH)
+    client = TelegramClient(session_path, api_id, api_hash)
 
     try:
         await client.start()
@@ -106,7 +112,7 @@ async def main():
                 print("⚠️  输入不能为空")
                 continue
 
-            if identifier.lower() in ['quit', 'exit', 'q']:
+            if identifier.lower() in ["quit", "exit", "q"]:
                 print("\n👋 再见！")
                 break
 
@@ -121,7 +127,7 @@ async def main():
         await client.disconnect()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:

@@ -2,6 +2,7 @@
 Message filter implementation
 Supports flexible filtering rules with multiple modes and conditions
 """
+
 import re
 import logging
 from typing import Dict, List, Any
@@ -43,6 +44,16 @@ class RuleEvaluator:
             return RuleEvaluator._eval_media(message, config)
         elif rule_type == "composite":
             return RuleEvaluator._eval_composite(message, config)
+        elif rule_type == "length":
+            return RuleEvaluator._eval_length(message, config)
+        elif rule_type == "link":
+            return RuleEvaluator._eval_link(message, config)
+        elif rule_type == "reply":
+            return RuleEvaluator._eval_reply(message, config)
+        elif rule_type == "bot":
+            return RuleEvaluator._eval_bot(message, config)
+        elif rule_type == "channel_post":
+            return RuleEvaluator._eval_channel_post(message, config)
         else:
             logger.warning(f"未知的规则类型: {rule_type}")
             return False
@@ -54,6 +65,8 @@ class RuleEvaluator:
             return False
 
         words = config.get("words", [])
+        if not words:
+            return False
         match_case = config.get("match_case", False)
         match_mode = config.get("match_mode", "any")  # any | all
 
@@ -90,15 +103,15 @@ class RuleEvaluator:
 
         # 解析正则标志
         flags = 0
-        if 'i' in flags_str:
+        if "i" in flags_str:
             flags |= re.IGNORECASE
-        if 'm' in flags_str:
+        if "m" in flags_str:
             flags |= re.MULTILINE
-        if 's' in flags_str:
+        if "s" in flags_str:
             flags |= re.DOTALL
 
         try:
-            regex = re.compile(pattern, flags)
+            regex = config.get("_compiled_pattern") or re.compile(pattern, flags)
             match = regex.search(message.text)
 
             if match:
@@ -127,19 +140,30 @@ class RuleEvaluator:
                 if forward_all:
                     logger.info(f"用户ID匹配: {sender_id} (转发所有消息)")
                 return True
+            if isinstance(user, str) and user.lstrip("-").isdigit():
+                if sender_id == int(user):
+                    if forward_all:
+                        logger.info(f"用户ID匹配: {sender_id} (转发所有消息)")
+                    return True
 
         # 检查用户名
-        if hasattr(message, 'sender') and message.sender and hasattr(message.sender, 'username'):
+        if (
+            hasattr(message, "sender")
+            and message.sender
+            and hasattr(message.sender, "username")
+        ):
             sender_username = message.sender.username
             if sender_username:
-                clean_sender = sender_username.replace('@', '').lower()
+                clean_sender = sender_username.replace("@", "").lower()
 
                 for user in users:
                     if isinstance(user, str):
-                        clean_user = user.replace('@', '').lower()
+                        clean_user = user.replace("@", "").lower()
                         if clean_sender == clean_user:
                             if forward_all:
-                                logger.info(f"用户名匹配: @{sender_username} (转发所有消息)")
+                                logger.info(
+                                    f"用户名匹配: @{sender_username} (转发所有消息)"
+                                )
                             return True
 
         return False
@@ -151,15 +175,21 @@ class RuleEvaluator:
         if not RuleEvaluator._eval_user(message, config):
             return False
 
+        if config.get("forward_all", False):
+            logger.info(
+                f"用户 {RuleEvaluator._get_sender_info(message)} 匹配，forward_all=true"
+            )
+            return True
+
         # 获取发送者信息用于日志
         sender_info = RuleEvaluator._get_sender_info(message)
 
         conditions = config.get("conditions", [])
         condition_logic = config.get("condition_logic", "any")  # any | all
 
-        # 如果没有附加条件，根据 forward_all 决定（已在 _eval_user 中处理）
         if not conditions:
-            return True
+            logger.info(f"用户 {sender_info} 未配置附加条件，未匹配")
+            return False
 
         # 评估所有条件
         results = []
@@ -183,6 +213,8 @@ class RuleEvaluator:
     def _eval_media(message: Message, config: Dict[str, Any]) -> bool:
         """媒体类型匹配"""
         types = config.get("types", [])
+        if not types:
+            return False
         match_mode = config.get("match_mode", "any")
 
         has_media = []
@@ -222,10 +254,55 @@ class RuleEvaluator:
             return any(results)
 
     @staticmethod
+    def _eval_length(message: Message, config: Dict[str, Any]) -> bool:
+        """消息文本长度匹配"""
+        text = message.text or ""
+        min_length = config.get("min")
+        max_length = config.get("max")
+        if min_length is not None and len(text) < min_length:
+            return False
+        if max_length is not None and len(text) > max_length:
+            return False
+        return True
+
+    @staticmethod
+    def _eval_link(message: Message, config: Dict[str, Any]) -> bool:
+        """链接匹配"""
+        text = message.text or ""
+        has_link = bool(re.search(r"https?://|t\.me/|www\.", text, re.IGNORECASE))
+        return has_link if config.get("contains", True) else not has_link
+
+    @staticmethod
+    def _eval_reply(message: Message, config: Dict[str, Any]) -> bool:
+        """回复消息匹配"""
+        is_reply = bool(
+            getattr(message, "is_reply", False)
+            or getattr(message, "reply_to_msg_id", None)
+        )
+        return is_reply == config.get("is_reply", True)
+
+    @staticmethod
+    def _eval_bot(message: Message, config: Dict[str, Any]) -> bool:
+        """发送者 bot 状态匹配"""
+        sender = getattr(message, "sender", None)
+        is_bot = bool(getattr(sender, "bot", False))
+        return is_bot == config.get("is_bot", True)
+
+    @staticmethod
+    def _eval_channel_post(message: Message, config: Dict[str, Any]) -> bool:
+        """频道帖子匹配"""
+        is_channel_post = bool(getattr(message, "post", False))
+        return is_channel_post == config.get("is_channel_post", True)
+
+    @staticmethod
     def _get_sender_info(message: Message) -> str:
         """获取发送者信息用于日志"""
         sender_id = message.sender_id
-        if hasattr(message, 'sender') and message.sender and hasattr(message.sender, 'username'):
+        if (
+            hasattr(message, "sender")
+            and message.sender
+            and hasattr(message.sender, "username")
+        ):
             sender_username = message.sender.username
             if sender_username:
                 return f"@{sender_username} (ID: {sender_id})"
@@ -234,10 +311,6 @@ class RuleEvaluator:
 
 class MessageFilter:
     """消息过滤器"""
-
-    def __init__(self):
-        """初始化过滤器"""
-        pass
 
     def should_forward(self, message: Message, rule: GroupRule) -> bool:
         """
@@ -284,7 +357,9 @@ class MessageFilter:
             # 任一规则匹配即不转发
             for i, rule_config in enumerate(filter_rules):
                 if RuleEvaluator.evaluate(message, rule_config):
-                    logger.debug(f"匹配排除规则 #{i+1} (类型: {rule_config.get('type')})")
+                    logger.debug(
+                        f"匹配排除规则 #{i+1} (类型: {rule_config.get('type')})"
+                    )
                     return False
 
             logger.debug("所有 exclude 规则都不匹配，转发")
@@ -306,4 +381,3 @@ class MessageFilter:
             bool: 是否匹配
         """
         return RuleEvaluator.evaluate(message, rule)
-

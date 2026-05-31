@@ -1,57 +1,30 @@
 {
-  "session_name": "telegram_forwarder_session",
-  "groups": [
+  "forwards": [
     {
-      "id": "example_group_1",
-      "name": "示例群组1 - 币安公告",
-      "source": "@binance_announcements",
-      "rules": [
-        {
-          "targets": ["@my_archive"],
-          "filters": {
-            "mode": "all"
-          }
-        },
-        {
-          "targets": ["@vip_channel"],
-          "filters": {
-            "mode": "include",
-            "rules": [
-              {
-                "type": "keyword",
-                "config": {
-                  "words": ["上线", "Alpha", "新币"],
-                  "match_case": false,
-                  "match_mode": "any"
-                }
-              }
-            ]
-          }
-        }
-      ]
+      "from": "@binance_announcements",
+      "to": "@my_archive"
     },
     {
-      "id": "example_group_2",
-      "name": "示例群组2 - 交易群",
-      "source": "@trading_group",
+      "from": "@binance_announcements",
+      "to": "@vip_channel",
+      "keywords": ["上线", "Alpha", "新币"]
+    },
+    {
+      "from": "@trading_group",
+      "to": ["@expert_signals", "@backup_channel"],
+      "users": ["@expert_1", "@expert_2", 123456789],
+      "silent": true
+    }
+  ],
+  "groups": [
+    {
+      "id": "address_monitor",
+      "name": "KOL 地址监控",
+      "source": -1001234567890,
       "rules": [
         {
-          "targets": ["@expert_signals"],
-          "filters": {
-            "mode": "include",
-            "rules": [
-              {
-                "type": "user",
-                "config": {
-                  "users": ["@expert_1", "@expert_2", 123456789],
-                  "forward_all": true
-                }
-              }
-            ]
-          }
-        },
-        {
-          "targets": ["@address_tracker"],
+          "targets": ["@address_alerts"],
+          "forward_mode": "copy",
           "filters": {
             "mode": "include",
             "rules": [
@@ -77,45 +50,9 @@
       ]
     },
     {
-      "id": "example_group_3",
-      "name": "示例群组3 - 多目标分发",
-      "source": -1001234567890,
-      "rules": [
-        {
-          "targets": ["@btc_channel"],
-          "filters": {
-            "mode": "include",
-            "rules": [
-              {
-                "type": "keyword",
-                "config": {
-                  "words": ["BTC", "Bitcoin", "比特币"]
-                }
-              }
-            ]
-          }
-        },
-        {
-          "targets": ["@eth_channel"],
-          "filters": {
-            "mode": "include",
-            "rules": [
-              {
-                "type": "keyword",
-                "config": {
-                  "words": ["ETH", "Ethereum", "以太坊"]
-                }
-              }
-            ]
-          }
-        },
-        {
-          "targets": ["@backup_channel"],
-          "filters": {
-            "mode": "all"
-          }
-        }
-      ]
+      "id": "paused_example",
+      "name": "临时暂停示例",
+      "enabled": false
     }
   ]
 }

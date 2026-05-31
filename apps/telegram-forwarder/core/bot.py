@@ -1,6 +1,7 @@
 """
 Telegram Forwarder Bot - main bot class
 """
+
 import logging
 import os
 from telethon import TelegramClient, events
@@ -64,16 +65,20 @@ class TelegramForwarderBot:
                 logger.info(f"创建会话目录: {session_dir}")
 
             logger.info(f"会话文件路径: {session_path}")
+            logger.info(
+                f"配置文件路径: {getattr(self.config, 'config_path', 'unknown')}"
+            )
 
             self.client = TelegramClient(
-                session_path,
-                self.config.API_ID,
-                self.config.API_HASH
+                session_path, self.config.API_ID, self.config.API_HASH
             )
 
             # 初始化服务层
             self.telegram_service = TelegramService(self.client)
-            self.message_service = MessageService(self.client)
+            self.message_service = MessageService(
+                self.client,
+                flood_wait_max_seconds=self.config.FLOOD_WAIT_MAX_SECONDS,
+            )
 
             # 初始化核心业务层
             self.forwarder = MessageForwarder(self.message_service)
@@ -97,9 +102,14 @@ class TelegramForwarderBot:
 
     def _register_event_handlers(self):
         """注册事件处理器"""
+
         @self.client.on(events.NewMessage(chats=self.event_handler.get_event_filter()))
         async def handle_message(event):
             await self.event_handler.handle_new_message(event)
+
+        @self.client.on(events.Album(chats=self.event_handler.get_event_filter()))
+        async def handle_album(event):
+            await self.event_handler.handle_album(event)
 
     async def validate_configuration(self):
         """验证所有群组和规则配置"""
@@ -120,13 +130,17 @@ class TelegramForwarderBot:
             # 验证源群组
             source_info = await self.telegram_service.get_entity_info(group.source_id)
             if source_info["is_valid"]:
-                logger.info(f"   源: {self.telegram_service.format_entity_info(source_info)}")
+                logger.info(
+                    f"   源: {self.telegram_service.format_entity_info(source_info)}"
+                )
             else:
                 logger.warning(f"   源: 无效 - {group.source_id}")
 
             # 显示规则信息
             enabled_rules = [r for r in group.rules if r.enabled]
-            logger.info(f"   规则: {len(group.rules)} 条 (已启用: {len(enabled_rules)})")
+            logger.info(
+                f"   规则: {len(group.rules)} 条 (已启用: {len(enabled_rules)})"
+            )
 
             for rule_idx, rule in enumerate(group.rules):
                 rule_status = "✓" if rule.enabled else "✗"
@@ -141,7 +155,9 @@ class TelegramForwarderBot:
                 for target_id in rule.target_ids:
                     target_info = await self.telegram_service.get_entity_info(target_id)
                     if target_info["is_valid"]:
-                        logger.info(f"          → {self.telegram_service.format_entity_info(target_info)}")
+                        logger.info(
+                            f"          → {self.telegram_service.format_entity_info(target_info)}"
+                        )
                     else:
                         logger.warning(f"          → 无效 - {target_id}")
 
@@ -161,13 +177,13 @@ class TelegramForwarderBot:
         """向所有转发目标群组发送启动通知"""
         logger.info("发送启动通知到目标群组...")
 
-        group_lines, user_lines = self._build_monitor_summary()
-
         summary = ""
-        if group_lines:
-            summary += "📡 监控群组:\n" + "\n".join(group_lines) + "\n\n"
-        if user_lines:
-            summary += "👤 监控用户:\n" + "\n".join(user_lines) + "\n\n"
+        if self.config.STARTUP_NOTIFICATION_DETAILS:
+            group_lines, user_lines = self._build_monitor_summary()
+            if group_lines:
+                summary += "📡 监控群组:\n" + "\n".join(group_lines) + "\n\n"
+            if user_lines:
+                summary += "👤 监控用户:\n" + "\n".join(user_lines) + "\n\n"
 
         # 收集所有唯一的目标群组
         notified_targets = set()
@@ -252,14 +268,15 @@ class TelegramForwarderBot:
     def _format_user(self, user) -> str:
         """格式化用户标识"""
         if isinstance(user, str):
-            if user.lstrip('-').isdigit():
+            if user.lstrip("-").isdigit():
                 return user
-            return user if user.startswith('@') else f"@{user}"
+            return user if user.startswith("@") else f"@{user}"
         return str(user)
 
     def _get_current_time(self) -> str:
         """获取当前格式化时间（北京时间 UTC+8）"""
         from datetime import datetime, timezone, timedelta
+
         beijing_tz = timezone(timedelta(hours=8))
         return datetime.now(beijing_tz).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -270,7 +287,8 @@ class TelegramForwarderBot:
             await self.validate_configuration()
 
             # 发送启动通知
-            await self.send_startup_notifications()
+            if self.config.SEND_STARTUP_NOTIFICATION:
+                await self.send_startup_notifications()
 
             # 保持运行直到中断
             await self.client.run_until_disconnected()
