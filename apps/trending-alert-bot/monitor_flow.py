@@ -252,15 +252,6 @@ def _passes_base_filters(contract: dict, chain: str = "") -> bool:
     launch_from = contract.get("launchFrom") or ""
     if not launch_from and chain != "eth":
         return False
-    audit_info = _safe_dict(contract.get("auditInfo"))
-    if audit_info.get("newHp", 0) > 30:
-        return False
-    if audit_info.get("insiderHp", 0) > 30:
-        return False
-    if audit_info.get("bundleHp", 0) > 30:
-        return False
-    if audit_info.get("devHp", 0) > 30:
-        return False
     security = _safe_dict(contract.get("security"))
     honey_pot = _safe_dict(security.get("honeyPot"))
     if honey_pot.get("value", False):

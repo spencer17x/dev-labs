@@ -185,6 +185,20 @@ class ReviewRegressionTests(unittest.TestCase):
             with mock.patch.object(monitor_flow, "fetch_trending", return_value={"data": [bad_contract]}):
                 self.assertFalse(monitor_flow.scan_once("sol", [], {}))
 
+    def test_base_filters_ignore_audit_holder_percentages(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, _, monitor_flow, _, _ = load_runtime_modules(tmp)
+            contract = sample_contract(
+                auditInfo={
+                    "newHp": 99,
+                    "insiderHp": 99,
+                    "bundleHp": 99,
+                    "devHp": 99,
+                }
+            )
+
+            self.assertTrue(monitor_flow._passes_base_filters(contract, "sol"))
+
     def test_startup_silent_init_failure_does_not_abort_bootstrap(self):
         with tempfile.TemporaryDirectory() as tmp:
             load_runtime_modules(tmp)
