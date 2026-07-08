@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from html import escape
 from typing import Dict, List, Optional
 from urllib.parse import quote
@@ -80,12 +81,38 @@ def _format_kol_sections(kol_holders=None, kol_leavers=None) -> str:
     return "\n".join(lines)
 
 
+def _format_narrative_section(narrative=None) -> str:
+    if not narrative or not isinstance(narrative, Mapping):
+        return ""
+
+    tags = narrative.get("tags") or []
+    if not isinstance(tags, (list, tuple)):
+        tags = []
+    tag_text = ", ".join(_html_escape(tag) for tag in tags) if tags else "N/A"
+    score = _safe_int(narrative.get("score"))
+    summary = _html_escape(narrative.get("summary", ""))
+    confidence = _html_escape(narrative.get("confidence", "low"))
+    risk_flags = narrative.get("risk_flags") or []
+    if not isinstance(risk_flags, (list, tuple)):
+        risk_flags = []
+    risk_text = ", ".join(_html_escape(flag) for flag in risk_flags) if risk_flags else "none"
+
+    return f"""
+
+🧠 叙事: {tag_text}
+⭐ 叙事分: {score}/100
+📌 依据: {summary}
+🔎 置信度: {confidence}
+⚠️ 风险: {risk_text}"""
+
+
 def format_initial_notification(
     contract: Dict,
     chain: str = "",
     kol_holders: Optional[List[Dict]] = None,
     kol_leavers: Optional[List[Dict]] = None,
     is_anomaly: bool = False,
+    narrative: Optional[Dict] = None,
 ) -> str:
     symbol = _html_escape(contract.get("symbol", "N/A"))
     name = _html_escape(contract.get("name", "N/A"))
@@ -124,6 +151,7 @@ def format_initial_notification(
 🎯 Launch From: {launch_from}"""
 
     msg += _format_kol_sections(kol_holders, kol_leavers)
+    msg += _format_narrative_section(narrative)
 
     msg += "\n\n📱 链接:"
     if links:

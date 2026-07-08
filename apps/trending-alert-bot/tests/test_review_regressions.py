@@ -137,6 +137,94 @@ class ReviewRegressionTests(unittest.TestCase):
             self.assertIn("<code>TOKEN1</code>", msg)
             self.assertNotIn("<BAD&>", msg)
 
+    def test_initial_notification_includes_narrative_section(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, _, _, notifier, _ = load_runtime_modules(tmp)
+
+            msg = notifier.format_initial_notification(
+                sample_contract(),
+                "sol",
+                narrative={
+                    "tags": ["meme", "binance_related"],
+                    "score": 72,
+                    "summary": "CA matched in active meme posts.",
+                    "confidence": "medium",
+                    "risk_flags": ["mostly_shill_posts"],
+                },
+            )
+
+            self.assertIn("🧠 叙事: meme, binance_related", msg)
+            self.assertIn("⭐ 叙事分: 72/100", msg)
+            self.assertIn("📌 依据: CA matched in active meme posts.", msg)
+            self.assertIn("⚠️ 风险: mostly_shill_posts", msg)
+
+    def test_initial_notification_without_narrative_omits_narrative_section(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, _, _, notifier, _ = load_runtime_modules(tmp)
+
+            for kwargs in ({}, {"narrative": None}):
+                msg = notifier.format_initial_notification(sample_contract(), "sol", **kwargs)
+
+                self.assertIn("[SOL] 📈 趋势通知", msg)
+                self.assertIn("💎 SAFE (Safe Token)", msg)
+                self.assertNotIn("🧠 叙事", msg)
+
+    def test_initial_notification_escapes_narrative_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, _, _, notifier, _ = load_runtime_modules(tmp)
+
+            msg = notifier.format_initial_notification(
+                sample_contract(),
+                "sol",
+                narrative={
+                    "tags": ["<meme&>", "binance"],
+                    "score": 72,
+                    "summary": "CA <matched> & active posts.",
+                    "confidence": "<medium&>",
+                    "risk_flags": ["<mostly_shill&>"],
+                },
+            )
+
+            self.assertIn("🧠 叙事: &lt;meme&amp;&gt;, binance", msg)
+            self.assertIn("📌 依据: CA &lt;matched&gt; &amp; active posts.", msg)
+            self.assertIn("🔎 置信度: &lt;medium&amp;&gt;", msg)
+            self.assertIn("⚠️ 风险: &lt;mostly_shill&amp;&gt;", msg)
+            self.assertNotIn("<meme&>", msg)
+            self.assertNotIn("CA <matched> & active posts.", msg)
+
+    def test_malformed_narrative_shapes_do_not_raise_or_split_characters(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, _, _, notifier, _ = load_runtime_modules(tmp)
+
+            msg = notifier.format_initial_notification(sample_contract(), "sol", narrative="narrative")
+
+            self.assertNotIn("🧠 叙事", msg)
+
+            msg = notifier.format_initial_notification(
+                sample_contract(),
+                "sol",
+                narrative={
+                    "tags": "meme",
+                    "score": 72,
+                    "summary": "shape fallback",
+                    "confidence": "medium",
+                    "risk_flags": 123,
+                },
+            )
+
+            self.assertIn("🧠 叙事: N/A", msg)
+            self.assertIn("⚠️ 风险: none", msg)
+            self.assertNotIn("m, e, m, e", msg)
+
+    def test_initial_notification_positional_anomaly_argument_still_works(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, _, _, notifier, _ = load_runtime_modules(tmp)
+
+            msg = notifier.format_initial_notification(sample_contract(), "sol", None, None, True)
+
+            self.assertIn("[SOL] ⚡️ 异动通知", msg)
+            self.assertNotIn("🧠 叙事", msg)
+
     def test_silent_init_marks_all_loaded_contracts_as_suppressed(self):
         with tempfile.TemporaryDirectory() as tmp:
             _, _, monitor_flow, _, ContractStorage = load_runtime_modules(tmp)
