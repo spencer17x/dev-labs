@@ -17,6 +17,7 @@ from config import (
     SUMMARY_TOP_N,
 )
 from db_storage import get_runtime_state, set_runtime_state
+from narrative_service import analyze_contract_narrative
 from notifier import (
     format_initial_notification,
     format_multiplier_notification,
@@ -343,12 +344,28 @@ def _send_candidate_notification(
         current_market_cap = _safe_float(contract.get("marketCapUSD"))
         storage.update_initial_price(token_address, current_price, current_market_cap)
 
+    narrative = None
+    try:
+        narrative_analysis = analyze_contract_narrative(
+            contract,
+            chain,
+            kol_with_positions,
+        )
+        if narrative_analysis:
+            narrative = narrative_analysis.to_display_dict()
+    except Exception as e:
+        print(
+            f"⚠️ [{chain.upper() or 'N/A'}] {contract.get('symbol', 'N/A')} "
+            f"叙事分析失败，继续发送基础通知: {token_address} | {e}"
+        )
+
     msg = format_initial_notification(
         contract,
         chain,
         kol_with_positions,
         kol_without_positions,
         is_anomaly,
+        narrative=narrative,
     )
     print(msg)
     print("\n" + "=" * 60 + "\n")

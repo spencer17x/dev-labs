@@ -225,6 +225,157 @@ class ReviewRegressionTests(unittest.TestCase):
             self.assertIn("[SOL] ⚡️ 异动通知", msg)
             self.assertNotIn("🧠 叙事", msg)
 
+    def test_candidate_notification_uses_narrative_when_available(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, _, monitor_flow, _, ContractStorage = load_runtime_modules(tmp)
+            storage = ContractStorage(chain="sol", chat_id=111)
+            contract = sample_contract(tokenAddress="TOKEN1", priceUSD="1.0")
+            fake_analysis = mock.Mock()
+            fake_analysis.to_display_dict.return_value = {
+                "tags": ["meme"],
+                "score": 66,
+                "summary": "Meme posts with CA evidence.",
+                "confidence": "medium",
+                "risk_flags": [],
+            }
+
+            monitor_flow.ENABLE_TELEGRAM = False
+            monitor_flow.DRY_RUN = True
+            with (
+                mock.patch.object(monitor_flow, "analyze_contract_narrative", return_value=fake_analysis) as narrative_mock,
+                mock.patch.object(monitor_flow, "format_initial_notification", return_value="msg") as format_mock,
+            ):
+                sent = monitor_flow._send_candidate_notification(
+                    storage,
+                    111,
+                    "sol",
+                    contract,
+                    [],
+                    [],
+                    False,
+                )
+
+            self.assertEqual(sent, 1)
+            narrative_mock.assert_called_once()
+            self.assertEqual(format_mock.call_args.kwargs["narrative"]["score"], 66)
+
+    def test_candidate_notification_continues_when_narrative_analysis_returns_none(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, _, monitor_flow, _, ContractStorage = load_runtime_modules(tmp)
+            storage = ContractStorage(chain="sol", chat_id=111)
+            contract = sample_contract(tokenAddress="TOKEN1", priceUSD="1.0")
+
+            monitor_flow.ENABLE_TELEGRAM = False
+            monitor_flow.DRY_RUN = True
+            with (
+                mock.patch.object(monitor_flow, "analyze_contract_narrative", return_value=None) as narrative_mock,
+                mock.patch.object(monitor_flow, "format_initial_notification", return_value="msg") as format_mock,
+            ):
+                sent = monitor_flow._send_candidate_notification(
+                    storage,
+                    111,
+                    "sol",
+                    contract,
+                    [],
+                    [],
+                    False,
+                )
+
+            self.assertEqual(sent, 1)
+            narrative_mock.assert_called_once_with(contract, "sol", [])
+            self.assertIsNone(format_mock.call_args.kwargs["narrative"])
+
+    def test_candidate_notification_continues_when_narrative_display_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, _, monitor_flow, _, ContractStorage = load_runtime_modules(tmp)
+            storage = ContractStorage(chain="sol", chat_id=111)
+            contract = sample_contract(tokenAddress="TOKEN1", priceUSD="1.0")
+            fake_analysis = mock.Mock()
+            fake_analysis.to_display_dict.side_effect = ValueError("bad display")
+
+            monitor_flow.ENABLE_TELEGRAM = False
+            monitor_flow.DRY_RUN = True
+            with (
+                mock.patch.object(monitor_flow, "analyze_contract_narrative", return_value=fake_analysis),
+                mock.patch.object(monitor_flow, "format_initial_notification", return_value="msg") as format_mock,
+                mock.patch("builtins.print") as print_mock,
+            ):
+                sent = monitor_flow._send_candidate_notification(
+                    storage,
+                    111,
+                    "sol",
+                    contract,
+                    [],
+                    [],
+                    False,
+                )
+
+            self.assertEqual(sent, 1)
+            self.assertIsNone(format_mock.call_args.kwargs["narrative"])
+            printed_lines = [args[0] for args, _ in print_mock.call_args_list if args]
+            self.assertTrue(
+                any(
+                    "叙事分析失败" in line
+                    and "[SOL]" in line
+                    and "SAFE" in line
+                    and "TOKEN1" in line
+                    for line in printed_lines
+                )
+            )
+
+    def test_existing_candidate_notification_skips_narrative_analysis(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, _, monitor_flow, _, ContractStorage = load_runtime_modules(tmp)
+            storage = ContractStorage(chain="sol", chat_id=111)
+            contract = sample_contract(tokenAddress="TOKEN1", priceUSD="1.0")
+            storage.add_contract("TOKEN1", 1.0, contract)
+            storage.update_telegram_message_id("TOKEN1", 111, 222)
+
+            with (
+                mock.patch.object(monitor_flow, "analyze_contract_narrative") as narrative_mock,
+                mock.patch.object(monitor_flow, "format_initial_notification") as format_mock,
+            ):
+                sent = monitor_flow._send_candidate_notification(
+                    storage,
+                    111,
+                    "sol",
+                    contract,
+                    [],
+                    [],
+                    False,
+                )
+
+            self.assertEqual(sent, 0)
+            narrative_mock.assert_not_called()
+            format_mock.assert_not_called()
+
+    def test_cooldown_candidate_notification_skips_narrative_analysis(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, _, monitor_flow, _, ContractStorage = load_runtime_modules(tmp)
+            storage = ContractStorage(chain="sol", chat_id=111)
+            contract = sample_contract(tokenAddress="TOKEN1", priceUSD="1.0")
+            storage.add_contract("TOKEN1", 1.0, contract)
+
+            with (
+                mock.patch.object(monitor_flow, "is_on_cooldown", return_value=True) as cooldown_mock,
+                mock.patch.object(monitor_flow, "analyze_contract_narrative") as narrative_mock,
+                mock.patch.object(monitor_flow, "format_initial_notification") as format_mock,
+            ):
+                sent = monitor_flow._send_candidate_notification(
+                    storage,
+                    111,
+                    "sol",
+                    contract,
+                    [],
+                    [],
+                    False,
+                )
+
+            self.assertEqual(sent, 0)
+            cooldown_mock.assert_called_once_with(storage, "TOKEN1")
+            narrative_mock.assert_not_called()
+            format_mock.assert_not_called()
+
     def test_silent_init_marks_all_loaded_contracts_as_suppressed(self):
         with tempfile.TemporaryDirectory() as tmp:
             _, _, monitor_flow, _, ContractStorage = load_runtime_modules(tmp)
