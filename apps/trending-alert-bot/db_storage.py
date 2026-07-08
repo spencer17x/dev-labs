@@ -125,6 +125,29 @@ def _ensure_contract_schema(conn: sqlite3.Connection):
     _create_contract_relation_tables(conn)
 
 
+def _create_narrative_analysis_table(conn: sqlite3.Connection):
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS narrative_analysis (
+            chain TEXT NOT NULL,
+            token_address TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            score INTEGER NOT NULL,
+            confidence TEXT NOT NULL,
+            tags_json TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            influencer_hits_json TEXT NOT NULL,
+            risk_flags_json TEXT NOT NULL,
+            evidence_links_json TEXT NOT NULL,
+            raw_result_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            PRIMARY KEY (chain, token_address, provider)
+        )
+        """
+    )
+
+
 def ensure_schema():
     with _SCHEMA_LOCK:
         with connect() as conn:
@@ -153,6 +176,7 @@ def ensure_schema():
                 """
             )
             _ensure_contract_schema(conn)
+            _create_narrative_analysis_table(conn)
 
 
 def get_runtime_state(key: str, default: str = "") -> str:
