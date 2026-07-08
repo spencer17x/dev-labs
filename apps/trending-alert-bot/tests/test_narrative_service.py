@@ -43,6 +43,7 @@ def load_narrative_modules(data_dir: str, env=None):
             if name in sys.modules:
                 del sys.modules[name]
 
+        import config
         import narrative_provider
         from narrative_types import NarrativeInput
     finally:
@@ -359,6 +360,309 @@ class NarrativeProviderTests(unittest.TestCase):
                 )
 
             self.assertIs(exc.__cause__, post_error)
+
+
+class NarrativeServiceTests(unittest.TestCase):
+    def _contract(self, **overrides):
+        contract = {
+            "tokenAddress": "TOKEN1",
+            "pairAddress": "PAIR1",
+            "symbol": "SAFE",
+            "name": "Safe Token",
+            "links": {},
+            "priceUSD": "1.0",
+            "marketCapUSD": "1000",
+            "volume": "100",
+        }
+        contract.update(overrides)
+        return contract
+
+    def test_disabled_service_returns_none(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            load_narrative_modules(tmp, {"NARRATIVE_ENABLED": "0"})
+            import narrative_service
+
+            result = narrative_service.analyze_contract_narrative(
+                {
+                    "tokenAddress": "TOKEN1",
+                    "pairAddress": "PAIR1",
+                    "symbol": "SAFE",
+                    "name": "Safe Token",
+                    "links": {},
+                    "priceUSD": "1.0",
+                    "marketCapUSD": "1000",
+                    "volume": "100",
+                },
+                "sol",
+                [],
+            )
+
+            self.assertIsNone(result)
+
+    def test_provider_failure_returns_none(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            load_narrative_modules(tmp)
+            import narrative_provider
+            import narrative_service
+
+            class FailingProvider(narrative_provider.BaseNarrativeProvider):
+                provider_name = "mock"
+
+                def analyze(self, narrative_input):
+                    raise narrative_provider.NarrativeProviderError("down")
+
+            with mock.patch.object(
+                narrative_service, "_get_provider", return_value=FailingProvider()
+            ):
+                result = narrative_service.analyze_contract_narrative(
+                    {
+                        "tokenAddress": "TOKEN1",
+                        "pairAddress": "PAIR1",
+                        "symbol": "SAFE",
+                        "name": "Safe Token",
+                        "links": {},
+                        "priceUSD": "1.0",
+                        "marketCapUSD": "1000",
+                        "volume": "100",
+                    },
+                    "sol",
+                    [],
+                )
+
+            self.assertIsNone(result)
+
+    def test_successful_result_is_cached(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            load_narrative_modules(tmp)
+            import narrative_service
+            from narrative_provider import BaseNarrativeProvider
+            from narrative_types import EvidenceItem, NarrativeLLMResult
+
+            class CountingProvider(BaseNarrativeProvider):
+                provider_name = "mock"
+                calls = 0
+
+                def analyze(self, narrative_input):
+                    self.calls += 1
+                    return (
+                        NarrativeLLMResult(
+                            narrative_tags=["meme"],
+                            summary="Meme discussion.",
+                            confidence="medium",
+                            evidence_links=["https://x.com/example/status/1"],
+                        ),
+                        [
+                            EvidenceItem(
+                                url="https://x.com/example/status/1",
+                                exact_token_match=True,
+                                author_handle="example",
+                                author_id="1",
+                                like_count=10,
+                            )
+                        ],
+                    )
+
+            provider = CountingProvider()
+            contract = {
+                "tokenAddress": "TOKEN1",
+                "pairAddress": "PAIR1",
+                "symbol": "SAFE",
+                "name": "Safe Token",
+                "links": {},
+                "priceUSD": "1.0",
+                "marketCapUSD": "1000",
+                "volume": "100",
+            }
+
+            with mock.patch.object(narrative_service, "_get_provider", return_value=provider):
+                first = narrative_service.analyze_contract_narrative(contract, "sol", [])
+                second = narrative_service.analyze_contract_narrative(contract, "sol", [])
+
+            self.assertIsNotNone(first)
+            self.assertEqual(second.score, first.score)
+            self.assertEqual(provider.calls, 1)
+
+    def test_generator_evidence_is_materialized_and_cached(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            load_narrative_modules(tmp)
+            import narrative_service
+            from narrative_provider import BaseNarrativeProvider
+            from narrative_types import EvidenceItem, NarrativeLLMResult
+
+            class GeneratorProvider(BaseNarrativeProvider):
+                provider_name = "mock"
+
+                def __init__(self):
+                    self.calls = 0
+
+                def analyze(self, narrative_input):
+                    self.calls += 1
+
+                    def evidence_items():
+                        yield EvidenceItem(
+                            url="https://x.com/example/status/1",
+                            exact_token_match=True,
+                            author_handle="example",
+                            author_id="1",
+                            like_count=10,
+                        )
+                        yield EvidenceItem(
+                            url="https://x.com/example/status/2",
+                            exact_token_match=True,
+                            author_handle="example2",
+                            author_id="2",
+                            like_count=20,
+                        )
+
+                    return (
+                        NarrativeLLMResult(
+                            narrative_tags=["meme"],
+                            summary="Meme discussion.",
+                            confidence="medium",
+                            evidence_links=[
+                                "https://x.com/example/status/1",
+                                "https://x.com/example/status/2",
+                            ],
+                        ),
+                        evidence_items(),
+                    )
+
+            provider = GeneratorProvider()
+
+            with mock.patch.object(
+                narrative_service, "_get_provider", return_value=provider
+            ):
+                first = narrative_service.analyze_contract_narrative(
+                    self._contract(), "sol", []
+                )
+                second = narrative_service.analyze_contract_narrative(
+                    self._contract(), "sol", []
+                )
+
+            self.assertIsNotNone(first)
+            self.assertEqual(first.raw_result["evidence_count"], 2)
+            self.assertEqual(second.raw_result["evidence_count"], 2)
+            self.assertEqual(provider.calls, 1)
+
+    def test_cache_load_failure_continues_to_provider(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            load_narrative_modules(tmp)
+            import narrative_service
+            from narrative_provider import BaseNarrativeProvider
+            from narrative_types import EvidenceItem, NarrativeLLMResult
+
+            class CountingProvider(BaseNarrativeProvider):
+                provider_name = "mock"
+
+                def __init__(self):
+                    self.calls = 0
+
+                def analyze(self, narrative_input):
+                    self.calls += 1
+                    return (
+                        NarrativeLLMResult(
+                            narrative_tags=["meme"],
+                            summary="Meme discussion.",
+                            confidence="medium",
+                            evidence_links=["https://x.com/example/status/1"],
+                        ),
+                        [
+                            EvidenceItem(
+                                url="https://x.com/example/status/1",
+                                exact_token_match=True,
+                            )
+                        ],
+                    )
+
+            provider = CountingProvider()
+
+            with mock.patch.object(
+                narrative_service,
+                "load_cached_analysis",
+                side_effect=RuntimeError("cache down"),
+            ), mock.patch.object(
+                narrative_service, "_get_provider", return_value=provider
+            ):
+                result = narrative_service.analyze_contract_narrative(
+                    self._contract(), "sol", []
+                )
+
+            self.assertIsNotNone(result)
+            self.assertEqual(provider.calls, 1)
+
+    def test_cache_save_failure_returns_analysis(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            load_narrative_modules(tmp)
+            import narrative_service
+            from narrative_provider import BaseNarrativeProvider
+            from narrative_types import EvidenceItem, NarrativeLLMResult
+
+            class CountingProvider(BaseNarrativeProvider):
+                provider_name = "mock"
+
+                def analyze(self, narrative_input):
+                    return (
+                        NarrativeLLMResult(
+                            narrative_tags=["meme"],
+                            summary="Meme discussion.",
+                            confidence="medium",
+                            evidence_links=["https://x.com/example/status/1"],
+                        ),
+                        [
+                            EvidenceItem(
+                                url="https://x.com/example/status/1",
+                                exact_token_match=True,
+                            )
+                        ],
+                    )
+
+            with mock.patch.object(
+                narrative_service, "_get_provider", return_value=CountingProvider()
+            ), mock.patch.object(
+                narrative_service,
+                "save_analysis",
+                side_effect=RuntimeError("write down"),
+            ):
+                result = narrative_service.analyze_contract_narrative(
+                    self._contract(), "sol", []
+                )
+
+            self.assertIsNotNone(result)
+            self.assertEqual(result.raw_result["evidence_count"], 1)
+
+    def test_missing_token_skips_cache_and_provider(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            load_narrative_modules(tmp)
+            import narrative_service
+
+            with mock.patch.object(
+                narrative_service, "load_cached_analysis"
+            ) as load_cached, mock.patch.object(
+                narrative_service, "_get_provider"
+            ) as get_provider:
+                result = narrative_service.analyze_contract_narrative(
+                    self._contract(tokenAddress=""), "sol", []
+                )
+
+            self.assertIsNone(result)
+            load_cached.assert_not_called()
+            get_provider.assert_not_called()
+
+    def test_build_narrative_input_sanitizes_optional_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            load_narrative_modules(tmp)
+            import narrative_service
+
+            narrative_input = narrative_service.build_narrative_input(
+                self._contract(links=["bad"], marketCapUSD="bad", volume=None),
+                "sol",
+                [{"handle": "alice"}],
+            )
+
+            self.assertEqual(narrative_input.links, {})
+            self.assertEqual(narrative_input.market_cap_usd, 0.0)
+            self.assertEqual(narrative_input.volume_24h, 0.0)
+            self.assertEqual(narrative_input.kol_summary, [{"handle": "alice"}])
 
 
 if __name__ == "__main__":
