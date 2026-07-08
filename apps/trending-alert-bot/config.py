@@ -89,6 +89,26 @@ SQLITE_DB_FILE = os.path.join(DATA_DIR, "trending_alert_bot.sqlite")
 SILENT_INIT = True
 DRY_RUN = _as_bool(os.getenv("BOT_DRY_RUN", "0"))
 
+# Narrative analysis
+NARRATIVE_ENABLED = _as_bool(os.getenv("NARRATIVE_ENABLED", "0"))
+NARRATIVE_PROVIDER = os.getenv("NARRATIVE_PROVIDER", "xai").strip().lower() or "xai"
+if NARRATIVE_PROVIDER not in {"mock", "xai"}:
+    raise RuntimeError(f"unsupported narrative provider: {NARRATIVE_PROVIDER}")
+
+NARRATIVE_CACHE_TTL_HOURS = int(os.getenv("NARRATIVE_CACHE_TTL_HOURS", "12"))
+if NARRATIVE_CACHE_TTL_HOURS <= 0:
+    raise RuntimeError("NARRATIVE_CACHE_TTL_HOURS must be > 0")
+
+NARRATIVE_MIN_EVIDENCE = int(os.getenv("NARRATIVE_MIN_EVIDENCE", "3"))
+if NARRATIVE_MIN_EVIDENCE < 0:
+    raise RuntimeError("NARRATIVE_MIN_EVIDENCE must be >= 0")
+
+NARRATIVE_TIMEOUT_SECONDS = int(os.getenv("NARRATIVE_TIMEOUT_SECONDS", "20"))
+if NARRATIVE_TIMEOUT_SECONDS <= 0:
+    raise RuntimeError("NARRATIVE_TIMEOUT_SECONDS must be > 0")
+
+XAI_API_KEY = os.getenv("XAI_API_KEY", "").strip()
+
 # Telegram
 TELEGRAM_BOT_TOKEN = _required_env("BOT_TELEGRAM_TOKEN")
 ENABLE_TELEGRAM = True

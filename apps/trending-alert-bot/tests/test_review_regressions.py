@@ -70,6 +70,17 @@ def sample_contract(**overrides):
 
 
 class ReviewRegressionTests(unittest.TestCase):
+    def test_narrative_config_defaults_disabled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config, _, _, _, _ = load_runtime_modules(tmp)
+
+            self.assertFalse(config.NARRATIVE_ENABLED)
+            self.assertEqual(config.NARRATIVE_PROVIDER, "xai")
+            self.assertEqual(config.NARRATIVE_CACHE_TTL_HOURS, 12)
+            self.assertEqual(config.NARRATIVE_MIN_EVIDENCE, 3)
+            self.assertEqual(config.NARRATIVE_TIMEOUT_SECONDS, 20)
+            self.assertEqual(config.XAI_API_KEY, "")
+
     def test_dry_run_multiplier_does_not_mark_notified(self):
         with tempfile.TemporaryDirectory() as tmp:
             _, _, monitor_flow, _, ContractStorage = load_runtime_modules(tmp)
