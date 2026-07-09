@@ -101,6 +101,20 @@ pm2 save
 uv run python check_config.py bsc
 ```
 
+## Narrative Analysis
+
+Narrative analysis is disabled by default. When enabled, the bot analyzes only contracts that are about to receive an initial trend/anomaly notification.
+
+```bash
+NARRATIVE_ENABLED=true
+NARRATIVE_PROVIDER=xai
+XAI_API_KEY=...
+```
+
+The first production provider uses xAI Responses API with `x_search`. The bot computes the final score locally from the returned structured result, so the model summarizes evidence while deterministic rules control scoring.
+
+The narrative result is cached in SQLite per `chain + token_address + provider`. If the provider fails or times out, the normal trend/anomaly notification is still sent without the narrative section.
+
 ## Telegram
 
 1. 用 BotFather 创建机器人，拿到 token
@@ -154,6 +168,7 @@ SQLite 中包含：
 | `contract_message_ids` | 合约首次通知的 Telegram 消息 ID | `chain + chat_id + token_address + telegram_chat_id` |
 | `contract_notified_multipliers` | 已通知过的倍数 | `chain + chat_id + token_address + multiplier` |
 | `contract_pending_multipliers` | 等待确认的整数倍状态 | `chain + chat_id + token_address` |
+| `narrative_analysis` | narrative analysis cache / 叙事分析缓存 | `chain + token_address + provider` |
 | `runtime_state` | 汇总报告 marker 等运行状态 | `key` |
 
 ### Clear storage
