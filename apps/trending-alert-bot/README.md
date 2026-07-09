@@ -49,7 +49,7 @@ uv sync --locked
 | `multiplier_confirmations` | `2` |
 | `notification_types` | `trending, anomaly` |
 
-复制 `.env.example` 为 `.env`，只填写 Telegram token：
+复制 `.env.example` 为 `.env`，至少填写目标 Telegram token：
 
 ```bash
 cp .env.example .env
@@ -62,6 +62,8 @@ BASE_TELEGRAM_BOT_TOKEN=
 ETH_TELEGRAM_BOT_TOKEN=
 MULTI_TELEGRAM_BOT_TOKEN=
 ```
+
+`.env.example` 会列出所有代码支持读取的环境变量。常规运行 `uv run python main.py <target>` 时，`BOT_*` 运行时变量会由 `bot_app.py` 根据 target 自动注入；只有直接加载底层模块、测试特殊配置，或需要显式覆盖时才需要手动调整这些字段。JSON 字段（如 `BOT_CHAINS`、`BOT_NOTIFICATION_TYPES`、`BOT_CHAIN_ALLOWLIST_JSON`）需要保持合法 JSON。
 
 ## Run
 
