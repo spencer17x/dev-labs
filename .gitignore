@@ -132,6 +132,9 @@ dist
 
 .idea
 
+# Local git worktrees
+.worktrees/
+
 # python
 venv/
 .venv/
