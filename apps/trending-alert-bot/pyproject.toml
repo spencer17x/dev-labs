@@ -4,5 +4,5 @@ version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
   "curl-cffi",
-  "python-telegram-bot>=20,<21",
+  "python-telegram-bot[socks]>=20,<21",
 ]
