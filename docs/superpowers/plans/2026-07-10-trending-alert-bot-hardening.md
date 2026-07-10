@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Fix the eight confirmed storage, dry-run, Telegram, multiplier, narrative, and scheduled-report defects without changing alert-selection business rules.
+**Goal:** Fix the eight confirmed storage, dry-run, Telegram, multiplier, narrative, and scheduled-report defects, then add Robinhood Chain support without changing existing alert-selection business rules.
 
 **Architecture:** Keep the synchronous monitor and SQLite architecture. Rebuild incompatible tracking schemas instead of migrating data, isolate dry-run in a temporary database, make Telegram worker health fatal, validate structured narrative evidence once per candidate per scan, and persist scheduled-report success per chat.
 
@@ -12,6 +12,8 @@
 
 - Runtime contract, multiplier, message-id, and narrative-cache data may be discarded and rebuilt after an incompatible schema change.
 - Preserve `telegram_chats`, chat activation, notification modes, candidate selection, cooldowns, multiplier thresholds, report schedules, and notification text semantics.
+- XXYY's Robinhood Chain identifier is `robin`; its trending and KOL endpoints
+  use the existing request/response contract, while `launchFrom` may be empty.
 - Dry-run must not read or write the production SQLite database and must finish one scan even when no chats are subscribed.
 - Narrative enrichment remains display-only and failure must not block the base alert.
 - Do not introduce a queue, background worker service, new dependency, or unrelated refactor.
@@ -636,4 +638,70 @@ Expected: 0 failures, compile exit 0, and no whitespace errors.
 ```bash
 git add apps/trending-alert-bot/monitor.py apps/trending-alert-bot/monitor_flow.py apps/trending-alert-bot/tests/test_review_regressions.py docs/superpowers/plans/2026-07-10-trending-alert-bot-hardening.md
 git commit -m "fix(trending-alert-bot): retry failed reports per chat"
+```
+
+### Task 7: Add Robinhood Chain Runtime Support
+
+**Files:**
+- Modify: `apps/trending-alert-bot/bot_app.py`
+- Modify: `apps/trending-alert-bot/main.py`
+- Modify: `apps/trending-alert-bot/check_config.py`
+- Modify: `apps/trending-alert-bot/config.py`
+- Modify: `apps/trending-alert-bot/monitor_flow.py`
+- Modify: `apps/trending-alert-bot/ecosystem.bots.config.js`
+- Modify: `apps/trending-alert-bot/ecosystem.all.config.js`
+- Modify: `apps/trending-alert-bot/.env.example`
+- Modify: `apps/trending-alert-bot/README.md`
+- Test: `apps/trending-alert-bot/tests/test_bot_app_config.py`
+- Test: `apps/trending-alert-bot/tests/test_entrypoint_config.py`
+- Test: `apps/trending-alert-bot/tests/test_review_regressions.py`
+
+**Verified upstream contract:**
+- `POST /api/data/list/trending` with `x-chain: robin` returns the existing
+  trending-row shape and `chainId: robin`.
+- `GET /api/data/holders/kol` accepts the existing `mint`, `pair`, and
+  `x-chain: robin` inputs.
+- Robin rows may have `launchFrom: null`; pair routes use `pairAddress`, while
+  storage and multiplier tracking continue to use `tokenAddress`.
+
+- [ ] **Step 1: Write failing Robin configuration and filtering tests**
+
+Assert that `load_runtime_config("robin")` reads
+`ROBIN_TELEGRAM_BOT_TOKEN`, uses `data/robin-bot`, and produces
+`chains == ["robin"]`. Update the multi-target expectation to include Robin.
+Assert the CLI and PM2 configurations expose the target, and assert
+`_passes_base_filters()` accepts a safe Robin row with no `launchFrom` while
+the same shape remains rejected for chains that still require it.
+
+- [ ] **Step 2: Run focused tests RED**
+
+Run the new target, entrypoint, and filtering tests. Expect failures because
+Robin is not yet configured and its rows are removed by the launch-source
+presence check.
+
+- [ ] **Step 3: Add the Robin target and narrow filter adaptation**
+
+Add `robin` to `BOT_TARGETS`, append it to `multi`, and expose it from both CLI
+parsers. Add a Robin PM2 process, environment token placeholder, README rows
+and examples, and an XXYY button using `/robin/{token_address}`. Change only
+the launch-source presence check so `robin` joins `eth` in allowing an empty
+value; keep every other filter and KOL rule intact.
+
+- [ ] **Step 4: Run focused and full tests GREEN**
+
+Run:
+
+```bash
+cd apps/trending-alert-bot
+uv run python -m unittest tests.test_bot_app_config tests.test_entrypoint_config tests.test_review_regressions -q
+uv run python -m unittest discover -s tests -q
+uv run python -m compileall -q .
+git diff --check
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add apps/trending-alert-bot docs/superpowers
+git commit -m "feat(trending-alert-bot): add robinhood chain support"
 ```

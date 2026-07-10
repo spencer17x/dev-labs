@@ -21,6 +21,8 @@ notification modes remain durable.
 - Analyze each candidate at most once per scan, including failed analyses.
 - Retry only failed scheduled-report deliveries and advance the global report
   marker only after all applicable chats succeed.
+- Add Robinhood Chain as a first-class single-chain target and include it in
+  the existing multi-chain target.
 - Preserve existing candidate selection, notification modes, multiplier rules,
   narrative display-only behavior, and report contents.
 
@@ -125,6 +127,24 @@ report window keeps successful-chat markers and therefore does not duplicate
 their reports. Manual `/report` generation does not read or write scheduled
 delivery markers.
 
+### Robinhood Chain Support
+
+XXYY uses `robin` consistently for the page route, the `x-chain` request
+header, and the `chainId` field returned by the trending API. The existing
+`/api/data/list/trending` and `/api/data/holders/kol` endpoints accept that
+header without a separate request shape. Pair-page routes carry a pair address;
+the trending payload continues to expose both `pairAddress` and
+`tokenAddress`, so the bot keeps its current token-based storage identity and
+passes both values to the KOL request.
+
+Add a `robin` runtime target backed by `ROBIN_TELEGRAM_BOT_TOKEN` and
+`data/robin-bot`, and append `robin` to the `multi` target. Add matching CLI,
+environment example, PM2, README, and XXYY-button entries. Robinhood Chain
+trending rows commonly have no `launchFrom`, so the base filter treats `robin`
+like `eth` for that one presence check. All other candidate ordering, KOL
+requirements, honeypot handling, cooldowns, notification modes, and multiplier
+rules stay unchanged.
+
 ## Error Handling
 
 - Schema recreation is transactional; a failed recreation rolls back.
@@ -149,6 +169,8 @@ Add regression tests before implementation for all eight defects:
 - minimum-evidence rejection without cache writes;
 - one provider call for one failed candidate across multiple chats;
 - per-chat scheduled-report retry and global-marker advancement.
+- Robin target configuration, multi-target membership, CLI/PM2 exposure, and
+  acceptance of otherwise-valid Robin rows with an empty `launchFrom`.
 
 Run focused tests during each change, then run:
 
