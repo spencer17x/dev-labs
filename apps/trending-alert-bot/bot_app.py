@@ -22,7 +22,11 @@ BOT_TARGETS = {
     "sol": {"chains": ["sol"], "data_dir": "data/sol-bot"},
     "base": {"chains": ["base"], "data_dir": "data/base-bot"},
     "eth": {"chains": ["eth"], "data_dir": "data/eth-bot"},
-    "multi": {"chains": ["bsc", "sol", "base", "eth"], "data_dir": "data/multi-bot"},
+    "robin": {"chains": ["robin"], "data_dir": "data/robin-bot"},
+    "multi": {
+        "chains": ["bsc", "sol", "base", "eth", "robin"],
+        "data_dir": "data/multi-bot",
+    },
 }
 
 

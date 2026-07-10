@@ -119,13 +119,27 @@ class BotAppConfigTests(unittest.TestCase):
             cfg = load_runtime_config("multi")
 
         self.assertEqual(cfg.chain, "bsc")
-        self.assertEqual(cfg.chains, ["bsc", "sol", "base", "eth"])
+        self.assertEqual(cfg.chains, ["bsc", "sol", "base", "eth", "robin"])
         self.assertEqual(cfg.telegram_bot_token, "456:test")
         self.assertTrue(cfg.data_dir.endswith("data/multi-bot"))
         self.assertEqual(
             cfg.chain_allowlists,
-            {"bsc": {}, "sol": {}, "base": {}, "eth": {}},
+            {"bsc": {}, "sol": {}, "base": {}, "eth": {}, "robin": {}},
         )
+
+    def test_robin_target_uses_robin_token_and_data_dir(self):
+        with mock.patch.dict(
+            os.environ,
+            {"ROBIN_TELEGRAM_BOT_TOKEN": "789:test"},
+            clear=True,
+        ):
+            cfg = load_runtime_config("robin")
+
+        self.assertEqual(cfg.chain, "robin")
+        self.assertEqual(cfg.chains, ["robin"])
+        self.assertEqual(cfg.telegram_bot_token, "789:test")
+        self.assertTrue(cfg.data_dir.endswith("data/robin-bot"))
+        self.assertEqual(cfg.chain_allowlists, {"robin": {}})
 
     def test_dotenv_file_supplies_token_without_overriding_existing_env(self):
         with tempfile.TemporaryDirectory() as tmp:

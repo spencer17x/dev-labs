@@ -54,5 +54,13 @@ module.exports = {
       out_file: './logs/eth-out.log',
       log_file: './logs/eth-combined.log',
     },
+    {
+      ...base,
+      name: 'trending-alert-robin',
+      args: 'robin',
+      error_file: './logs/robin-err.log',
+      out_file: './logs/robin-out.log',
+      log_file: './logs/robin-combined.log',
+    },
   ],
 };

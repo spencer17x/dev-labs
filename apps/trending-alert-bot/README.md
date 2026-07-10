@@ -38,7 +38,8 @@ uv sync --locked
 | `sol` | `sol` | `data/sol-bot` |
 | `base` | `base` | `data/base-bot` |
 | `eth` | `eth` | `data/eth-bot` |
-| `multi` | `bsc, sol, base, eth` | `data/multi-bot` |
+| `robin` | `robin` | `data/robin-bot` |
+| `multi` | `bsc, sol, base, eth, robin` | `data/multi-bot` |
 
 默认参数：
 
@@ -60,16 +61,22 @@ BSC_TELEGRAM_BOT_TOKEN=
 SOL_TELEGRAM_BOT_TOKEN=
 BASE_TELEGRAM_BOT_TOKEN=
 ETH_TELEGRAM_BOT_TOKEN=
+ROBIN_TELEGRAM_BOT_TOKEN=
 MULTI_TELEGRAM_BOT_TOKEN=
 ```
 
 `.env.example` 会列出所有代码支持读取的环境变量。常规运行 `uv run python main.py <target>` 时，`BOT_*` 运行时变量会由 `bot_app.py` 根据 target 自动注入；只有直接加载底层模块、测试特殊配置，或需要显式覆盖时才需要手动调整这些字段。JSON 字段（如 `BOT_CHAINS`、`BOT_NOTIFICATION_TYPES`、`BOT_CHAIN_ALLOWLIST_JSON`）需要保持合法 JSON。
+
+Robinhood Chain 使用 XXYY 的 `robin` 链标识，复用现有 trending 与 KOL
+接口。榜单中的 `pairAddress` 用于 KOL 查询，`tokenAddress` 继续作为本地
+追踪主键；Robin 数据允许 `launchFrom` 为空，其余筛选与通知规则不变。
 
 ## Run
 
 ```bash
 # 本地前台运行
 uv run python main.py bsc
+uv run python main.py robin
 uv run python main.py multi
 
 # 单次 Dry-run，不发送 Telegram 消息

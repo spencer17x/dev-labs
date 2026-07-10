@@ -26,8 +26,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description="趋势通知机器人")
     parser.add_argument(
         "target",
-        choices=["bsc", "sol", "base", "eth", "multi"],
-        help="Bot 目标（bsc/sol/base/eth/multi）",
+        choices=["bsc", "sol", "base", "eth", "robin", "multi"],
+        help="Bot 目标（bsc/sol/base/eth/robin/multi）",
     )
     parser.add_argument(
         "-c",

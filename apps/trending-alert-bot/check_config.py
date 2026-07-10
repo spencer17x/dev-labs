@@ -9,7 +9,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Check bot target environment")
     parser.add_argument(
         "target",
-        choices=["bsc", "sol", "base", "eth", "multi"],
+        choices=["bsc", "sol", "base", "eth", "robin", "multi"],
         help="Bot target to validate",
     )
     return parser.parse_args()

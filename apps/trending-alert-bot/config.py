@@ -120,4 +120,5 @@ MESSAGE_BUTTONS = [
     {"text": "XXYY", "url": "https://pro.xxyy.io/sol/{token_address}?ref=ncuYXE", "chain": "sol"},
     {"text": "XXYY", "url": "https://pro.xxyy.io/bsc/{token_address}?ref=ncuYXE", "chain": "bsc"},
     {"text": "XXYY", "url": "https://pro.xxyy.io/eth/{token_address}?ref=ncuYXE", "chain": "eth"},
+    {"text": "XXYY", "url": "https://pro.xxyy.io/robin/{token_address}?ref=ncuYXE", "chain": "robin"},
 ]

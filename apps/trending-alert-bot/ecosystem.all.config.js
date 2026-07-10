@@ -56,6 +56,14 @@ module.exports = {
     },
     {
       ...base,
+      name: 'trending-alert-robin',
+      args: 'robin',
+      error_file: './logs/robin-err.log',
+      out_file: './logs/robin-out.log',
+      log_file: './logs/robin-combined.log',
+    },
+    {
+      ...base,
       name: 'trending-alert-multi',
       args: 'multi',
       error_file: './logs/multi-err.log',

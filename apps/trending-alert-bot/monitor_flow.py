@@ -261,7 +261,7 @@ def initialize_storage(storage: ContractStorage, chain: str):
 
 def _passes_base_filters(contract: dict, chain: str = "") -> bool:
     launch_from = contract.get("launchFrom") or ""
-    if not launch_from and chain != "eth":
+    if not launch_from and chain not in {"eth", "robin"}:
         return False
     if _is_honeypot_contract(contract):
         return False

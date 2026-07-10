@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest import mock
 
 import main
+import check_config
 from bot_app import BotRuntimeConfig
 
 
@@ -51,6 +52,23 @@ class EntrypointConfigTests(unittest.TestCase):
                 self.assertIn("script: 'main.py'", content)
                 self.assertNotIn("script: 'run.py'", content)
                 self.assertNotIn("args: 'run ", content)
+
+    def test_robin_target_is_exposed_by_cli_pm2_and_env_example(self):
+        with mock.patch.object(sys, "argv", ["main.py", "robin"]):
+            self.assertEqual(main.parse_args().target, "robin")
+        with mock.patch.object(sys, "argv", ["check_config.py", "robin"]):
+            self.assertEqual(check_config.parse_args().target, "robin")
+
+        for config_name in [
+            "ecosystem.bots.config.js",
+            "ecosystem.all.config.js",
+        ]:
+            content = (APP_ROOT / config_name).read_text(encoding="utf-8")
+            self.assertIn("name: 'trending-alert-robin'", content)
+            self.assertIn("args: 'robin'", content)
+
+        env_example = (APP_ROOT / ".env.example").read_text(encoding="utf-8")
+        self.assertIn("ROBIN_TELEGRAM_BOT_TOKEN=", env_example)
 
     def test_dry_run_reloads_cached_runtime_into_removed_temporary_data_dir(self):
         class CachedRuntimeDidNotExit(RuntimeError):

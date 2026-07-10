@@ -520,6 +520,24 @@ class ReviewRegressionTests(unittest.TestCase):
 
             self.assertTrue(monitor_flow._passes_base_filters(contract, "sol"))
 
+    def test_robin_safe_contract_allows_missing_launch_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config, _, monitor_flow, _, _ = load_runtime_modules(tmp)
+            contract = sample_contract(
+                launchFrom=None,
+                security={"honeyPot": None},
+            )
+
+            self.assertTrue(monitor_flow._passes_base_filters(contract, "robin"))
+            self.assertFalse(monitor_flow._passes_base_filters(contract, "sol"))
+            self.assertTrue(
+                any(
+                    button.get("chain") == "robin"
+                    and "/robin/{token_address}" in button.get("url", "")
+                    for button in config.MESSAGE_BUTTONS
+                )
+            )
+
     def test_startup_silent_init_failure_does_not_abort_bootstrap(self):
         with tempfile.TemporaryDirectory() as tmp:
             load_runtime_modules(tmp)

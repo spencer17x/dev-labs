@@ -19,7 +19,7 @@ def fetch_trending(period: str = "1M", category: str = "", chain: str = "sol") -
     Args:
         period: 时间周期 (1M等)
         category: 分类筛选
-        chain: 链名称 (sol/bsc)
+        chain: XXYY 链标识 (sol/bsc/base/eth/robin)
 
     Returns:
         {
@@ -47,7 +47,7 @@ def fetch_trending(period: str = "1M", category: str = "", chain: str = "sol") -
                     "dexIcon": "DEX图标URL",
                     "launchFrom": "发射平台 (pump/four/flap/launchlab等)",
                     "sourceDexIcon": "来源DEX图标",
-                    "chainId": "链ID (bsc/sol)",
+                    "chainId": "链ID (bsc/sol/base/eth/robin)",
                     "quoteSymbol": "计价代币符号 (WBNB/USDT/USD1等)",
                     "quoteName": "计价代币名称",
                     "devHoldPercent": "开发者持仓占比%",
@@ -114,7 +114,7 @@ def fetch_kol_holders(
     Args:
         mint: 代币合约地址 (tokenAddress)
         pair: 交易对地址 (pairAddress)
-        chain: 链名称 (sol/bsc)
+        chain: XXYY 链标识 (sol/bsc/base/eth/robin)
         authorization: 认证token (从cookie中获取)
         info_token: x-info-token (从cookie中获取)
 
