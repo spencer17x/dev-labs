@@ -318,6 +318,44 @@ class ReviewRegressionTests(unittest.TestCase):
             narrative_mock.assert_called_once_with(contract, "sol", [])
             self.assertIsNone(format_mock.call_args.kwargs["narrative"])
 
+    def test_scan_once_memoizes_failed_narrative_across_chats(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, _, monitor_flow, _, _ = load_runtime_modules(tmp)
+            contract = sample_contract(tokenAddress="TOKEN1", priceUSD="1.0")
+            active_chats = [
+                {"chat_id": 111},
+                {"chat_id": 222},
+                {"chat_id": 333},
+            ]
+
+            monitor_flow.ENABLE_TELEGRAM = False
+            monitor_flow.DRY_RUN = True
+            with (
+                mock.patch.object(
+                    monitor_flow,
+                    "fetch_trending",
+                    return_value={"data": [contract]},
+                ),
+                mock.patch.object(
+                    monitor_flow,
+                    "_pick_trend_and_anomaly_contract",
+                    return_value=((contract, [], []), None),
+                ),
+                mock.patch.object(
+                    monitor_flow,
+                    "analyze_contract_narrative",
+                    return_value=None,
+                ) as narrative_mock,
+                mock.patch.object(
+                    monitor_flow,
+                    "format_initial_notification",
+                    return_value="msg",
+                ),
+            ):
+                monitor_flow.scan_once("sol", active_chats, {})
+
+            narrative_mock.assert_called_once_with(contract, "sol", [])
+
     def test_candidate_notification_continues_when_narrative_display_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             _, _, monitor_flow, _, ContractStorage = load_runtime_modules(tmp)

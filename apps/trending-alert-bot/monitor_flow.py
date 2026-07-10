@@ -331,6 +331,7 @@ def _send_candidate_notification(
     kol_with_positions: List[dict],
     kol_without_positions: List[dict],
     is_anomaly: bool,
+    narrative_results: Optional[Dict[Tuple[str, str], Optional[dict]]] = None,
 ) -> int:
     token_address = contract.get("tokenAddress")
     current_price = _safe_float(contract.get("priceUSD"))
@@ -352,20 +353,26 @@ def _send_candidate_notification(
         current_market_cap = _safe_float(contract.get("marketCapUSD"))
         storage.update_initial_price(token_address, current_price, current_market_cap)
 
-    narrative = None
-    try:
-        narrative_analysis = analyze_contract_narrative(
-            contract,
-            chain,
-            kol_with_positions,
-        )
-        if narrative_analysis:
-            narrative = narrative_analysis.to_display_dict()
-    except Exception as e:
-        print(
-            f"⚠️ [{chain.upper() or 'N/A'}] {contract.get('symbol', 'N/A')} "
-            f"叙事分析失败，继续发送基础通知: {token_address} | {e}"
-        )
+    narrative_key = (chain, token_address)
+    if narrative_results is not None and narrative_key in narrative_results:
+        narrative = narrative_results[narrative_key]
+    else:
+        narrative = None
+        try:
+            narrative_analysis = analyze_contract_narrative(
+                contract,
+                chain,
+                kol_with_positions,
+            )
+            if narrative_analysis:
+                narrative = narrative_analysis.to_display_dict()
+        except Exception as e:
+            print(
+                f"⚠️ [{chain.upper() or 'N/A'}] {contract.get('symbol', 'N/A')} "
+                f"叙事分析失败，继续发送基础通知: {token_address} | {e}"
+            )
+        if narrative_results is not None:
+            narrative_results[narrative_key] = narrative
 
     msg = format_initial_notification(
         contract,
@@ -427,6 +434,7 @@ def _process_chat_contracts(
     trend_contract: Optional[Tuple[dict, List[dict], List[dict]]],
     anomaly_contract: Optional[Tuple[dict, List[dict], List[dict]]],
     notification_mode: str = "all",
+    narrative_results: Optional[Dict[Tuple[str, str], Optional[dict]]] = None,
 ):
     new_contracts_count = 0
     tracked_contracts_count = 0
@@ -444,6 +452,7 @@ def _process_chat_contracts(
             kol_with_positions,
             kol_without_positions,
             False,
+            narrative_results,
         )
     if anomaly_contract and send_anomaly:
         contract, kol_with_positions, kol_without_positions = anomaly_contract
@@ -455,6 +464,7 @@ def _process_chat_contracts(
             kol_with_positions,
             kol_without_positions,
             True,
+            narrative_results,
         )
 
     for contract in contracts:
@@ -610,6 +620,7 @@ def scan_once(chain: str, active_chats: List[dict], storages: Dict[str, Contract
     contracts = response.get("data", [])
     filtered_contracts = [contract for contract in contracts if _passes_base_filters(contract, chain)]
     trend_contract, anomaly_contract = _pick_trend_and_anomaly_contract(filtered_contracts, chain)
+    narrative_results: Dict[Tuple[str, str], Optional[dict]] = {}
 
     for chat in active_chats:
         chat_id = chat["chat_id"]
@@ -625,6 +636,7 @@ def scan_once(chain: str, active_chats: List[dict], storages: Dict[str, Contract
             trend_contract,
             anomaly_contract,
             notification_mode,
+            narrative_results,
         )
 
     return anomaly_contract is not None
