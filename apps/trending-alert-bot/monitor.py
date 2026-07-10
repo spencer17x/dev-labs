@@ -184,9 +184,9 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
                 report_time_hour = due_summary_report_hour(last_summary_marker)
                 if report_time_hour != -1:
                     print(f"\n📊 发送 {report_time_hour}:00 汇总报告...")
-                    send_summary_report(storages)
-                    save_last_summary_marker(report_time_hour)
-                    last_summary_marker = summary_report_marker(report_time_hour)
+                    if send_summary_report(storages, report_time_hour):
+                        save_last_summary_marker(report_time_hour)
+                        last_summary_marker = summary_report_marker(report_time_hour)
 
             found_any_anomaly = scan_chains_once(chains, active_chats, storages, chat_storage)
 

@@ -503,6 +503,11 @@ def _next_report_time_str(now: datetime) -> str:
 
 
 _SUMMARY_REPORT_STATE_KEY = "last_summary_report_marker"
+_SUMMARY_REPORT_CHAT_STATE_PREFIX = "last_summary_report_marker:"
+
+
+def _summary_report_chat_state_key(chat_id: int) -> str:
+    return f"{_SUMMARY_REPORT_CHAT_STATE_PREFIX}{chat_id}"
 
 
 def summary_report_marker(report_hour: int, now: Optional[datetime] = None) -> str:
@@ -642,15 +647,22 @@ def scan_once(chain: str, active_chats: List[dict], storages: Dict[str, Contract
     return anomaly_contract is not None
 
 
-def send_summary_report(storages: dict):
+def send_summary_report(
+    storages: dict,
+    report_hour: Optional[int] = None,
+) -> bool:
     if not storages:
-        return
+        return True
 
     now = beijing_now()
+    report_marker = (
+        summary_report_marker(report_hour, now) if report_hour is not None else ""
+    )
     next_report_time_str = _next_report_time_str(now)
     chain_latest_map: Dict[str, Dict[str, dict]] = {}
     chat_chain_stats: Dict[int, Dict[str, dict]] = {}
     active_chat_ids = {chat["chat_id"] for chat in ChatStorage().get_active_chats()}
+    all_succeeded = True
 
     for storage_key, storage in storages.items():
         if ":" in storage_key:
@@ -670,13 +682,27 @@ def send_summary_report(storages: dict):
     for chat_id, chain_stats in chat_chain_stats.items():
         if chat_id not in active_chat_ids:
             continue
+        if report_marker and get_runtime_state(
+            _summary_report_chat_state_key(chat_id), ""
+        ) == report_marker:
+            continue
         msg = format_summary_report(chain_stats, next_report_time_str)
         print("\n" + "=" * 60)
         print(msg)
         print("=" * 60 + "\n")
 
         if ENABLE_TELEGRAM and not DRY_RUN:
-            notifier.send_sync(msg, chat_id=chat_id)
+            message_ids = notifier.send_sync(msg, chat_id=chat_id)
+            if chat_id not in message_ids:
+                all_succeeded = False
+                continue
+            if report_marker:
+                set_runtime_state(
+                    _summary_report_chat_state_key(chat_id),
+                    report_marker,
+                )
+
+    return all_succeeded
 
 
 def get_summary_report_for_chat(chat_id: int, storages: dict) -> str:

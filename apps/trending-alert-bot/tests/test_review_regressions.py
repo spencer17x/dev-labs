@@ -661,6 +661,117 @@ class ReviewRegressionTests(unittest.TestCase):
 
             send_mock.assert_called_once_with("report", chat_id=111)
 
+    def test_summary_report_retries_only_failed_chats(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, _, monitor_flow, _, _ = load_runtime_modules(tmp)
+            fake_chat_storage = mock.Mock()
+            fake_chat_storage.get_active_chats.return_value = [
+                {"chat_id": 111},
+                {"chat_id": 222},
+            ]
+            stats = {
+                "sol": {
+                    "trend_count": 0,
+                    "total_multiplier_contracts": 0,
+                    "win_count": 0,
+                    "top_contracts": [],
+                    "multiplier_distribution": {"2x": 0, "5x": 0, "10x_plus": 0},
+                    "gain_distribution": {"20%": 0, "30%": 0, "50%": 0, "80%": 0},
+                }
+            }
+            attempts = {111: 0, 222: 0}
+
+            def send_report(message, chat_id):
+                attempts[chat_id] += 1
+                if chat_id == 111:
+                    return {111: 10}
+                if attempts[chat_id] == 1:
+                    return {}
+                return {222: 20}
+
+            monitor_flow.ENABLE_TELEGRAM = True
+            monitor_flow.DRY_RUN = False
+            with (
+                mock.patch.object(monitor_flow, "ChatStorage", return_value=fake_chat_storage),
+                mock.patch.object(monitor_flow, "_load_latest_contract_map", return_value={}),
+                mock.patch.object(monitor_flow, "_build_chain_stats", return_value=stats),
+                mock.patch.object(monitor_flow, "format_summary_report", return_value="report"),
+                mock.patch.object(
+                    monitor_flow.notifier,
+                    "send_sync",
+                    side_effect=send_report,
+                ),
+            ):
+                first_result = monitor_flow.send_summary_report(
+                    {"sol:111": object(), "sol:222": object()},
+                    report_hour=4,
+                )
+                report_marker = monitor_flow.summary_report_marker(4)
+
+                self.assertFalse(first_result)
+                self.assertEqual(
+                    monitor_flow.get_runtime_state(
+                        "last_summary_report_marker:111"
+                    ),
+                    report_marker,
+                )
+                self.assertEqual(
+                    monitor_flow.get_runtime_state(
+                        "last_summary_report_marker:222"
+                    ),
+                    "",
+                )
+
+                second_result = monitor_flow.send_summary_report(
+                    {"sol:111": object(), "sol:222": object()},
+                    report_hour=4,
+                )
+
+            self.assertTrue(second_result)
+            self.assertEqual(attempts, {111: 1, 222: 2})
+            self.assertEqual(
+                monitor_flow.get_runtime_state("last_summary_report_marker:222"),
+                report_marker,
+            )
+
+    def test_monitor_advances_summary_marker_only_after_all_chats_succeed(self):
+        for delivery_succeeded in (False, True):
+            with self.subTest(delivery_succeeded=delivery_succeeded):
+                with tempfile.TemporaryDirectory() as tmp:
+                    load_runtime_modules(tmp)
+                    import monitor
+
+                    chat_storage = mock.Mock()
+                    chat_storage.get_active_chats.return_value = [{"chat_id": 111}]
+                    with (
+                        mock.patch.object(monitor, "ChatStorage", return_value=chat_storage),
+                        mock.patch.object(monitor, "_startup_telegram"),
+                        mock.patch.object(monitor, "_bootstrap_storages"),
+                        mock.patch.object(monitor, "ENABLE_TELEGRAM", False),
+                        mock.patch.object(monitor, "DRY_RUN", False),
+                        mock.patch.object(monitor, "SILENT_INIT", False),
+                        mock.patch.object(monitor, "load_last_summary_marker", return_value=""),
+                        mock.patch.object(monitor, "_initial_report_marker", return_value=""),
+                        mock.patch.object(monitor, "due_summary_report_hour", return_value=4),
+                        mock.patch.object(
+                            monitor,
+                            "send_summary_report",
+                            return_value=delivery_succeeded,
+                        ),
+                        mock.patch.object(monitor, "save_last_summary_marker") as save_mock,
+                        mock.patch.object(
+                            monitor,
+                            "scan_chains_once",
+                            side_effect=KeyboardInterrupt,
+                        ),
+                    ):
+                        monitor.monitor_trending()
+
+                    if delivery_succeeded:
+                        save_mock.assert_called_once_with(4)
+                    else:
+                        save_mock.assert_not_called()
+
     def test_non_start_events_do_not_create_first_subscription(self):
         with tempfile.TemporaryDirectory() as tmp:
             load_runtime_modules(tmp)
