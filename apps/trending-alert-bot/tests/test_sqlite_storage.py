@@ -107,8 +107,7 @@ class SqliteStorageTests(unittest.TestCase):
                 conn.execute("DROP TABLE contract_pending_multipliers")
                 conn.execute("DROP TABLE narrative_analysis")
                 conn.execute("DROP TABLE contracts")
-                conn.execute(
-                    """
+                conn.execute("""
                     CREATE TABLE contracts (
                         chain TEXT NOT NULL,
                         chat_id INTEGER NOT NULL,
@@ -124,8 +123,7 @@ class SqliteStorageTests(unittest.TestCase):
                         last_notify_time TEXT NOT NULL DEFAULT '',
                         PRIMARY KEY (chain, chat_id, token_address)
                     )
-                    """
-                )
+                    """)
                 conn.execute(
                     "INSERT INTO contracts (chain, chat_id, token_address) "
                     "VALUES ('sol', 111, 'OLD')"
@@ -199,7 +197,9 @@ class SqliteStorageTests(unittest.TestCase):
             config, _, ContractStorage = load_storage_modules(tmp)
             storage = ContractStorage(chain="sol", chat_id=111)
 
-            storage.add_contract("TOKEN1", 5.0, {"marketCapUSD": "5000", "name": "One", "symbol": "ONE"})
+            storage.add_contract(
+                "TOKEN1", 5.0, {"marketCapUSD": "5000", "name": "One", "symbol": "ONE"}
+            )
             storage.update_telegram_message_id("TOKEN1", 111, 333)
             storage.update_telegram_message_id("TOKEN1", 222, 444)
             storage.update_notified_multiplier("TOKEN1", 2.5)
@@ -210,26 +210,36 @@ class SqliteStorageTests(unittest.TestCase):
             self.assertEqual(reloaded.get_telegram_message_id("TOKEN1", 111), 333)
             self.assertEqual(reloaded.get_telegram_message_id("TOKEN1", 222), 444)
             self.assertEqual(reloaded.get_notified_multipliers("TOKEN1"), [2.5])
-            self.assertEqual(reloaded.get_pending_multiplier("TOKEN1"), {"multiplier_int": 3, "count": 1})
+            self.assertEqual(
+                reloaded.get_pending_multiplier("TOKEN1"),
+                {"multiplier_int": 3, "count": 1},
+            )
 
             with sqlite3.connect(config.SQLITE_DB_FILE) as conn:
                 contract_columns = {
-                    row[1] for row in conn.execute("PRAGMA table_info(contracts)").fetchall()
+                    row[1]
+                    for row in conn.execute("PRAGMA table_info(contracts)").fetchall()
                 }
                 self.assertNotIn("telegram_message_ids_json", contract_columns)
                 self.assertNotIn("notified_multipliers_json", contract_columns)
                 self.assertNotIn("pending_multiplier_json", contract_columns)
 
                 self.assertEqual(
-                    conn.execute("SELECT COUNT(*) FROM contract_message_ids").fetchone()[0],
+                    conn.execute(
+                        "SELECT COUNT(*) FROM contract_message_ids"
+                    ).fetchone()[0],
                     2,
                 )
                 self.assertEqual(
-                    conn.execute("SELECT COUNT(*) FROM contract_notified_multipliers").fetchone()[0],
+                    conn.execute(
+                        "SELECT COUNT(*) FROM contract_notified_multipliers"
+                    ).fetchone()[0],
                     1,
                 )
                 self.assertEqual(
-                    conn.execute("SELECT COUNT(*) FROM contract_pending_multipliers").fetchone()[0],
+                    conn.execute(
+                        "SELECT COUNT(*) FROM contract_pending_multipliers"
+                    ).fetchone()[0],
                     1,
                 )
 
@@ -251,10 +261,27 @@ class SqliteStorageTests(unittest.TestCase):
             self.assertEqual(sol_222.get_contract("TOKEN2")["symbol"], "TWO")
 
             with sqlite3.connect(config.SQLITE_DB_FILE) as conn:
-                self.assertEqual(conn.execute("SELECT COUNT(*) FROM contracts").fetchone()[0], 1)
-                self.assertEqual(conn.execute("SELECT COUNT(*) FROM contract_message_ids").fetchone()[0], 1)
-                self.assertEqual(conn.execute("SELECT COUNT(*) FROM contract_notified_multipliers").fetchone()[0], 0)
-                self.assertEqual(conn.execute("SELECT COUNT(*) FROM contract_pending_multipliers").fetchone()[0], 0)
+                self.assertEqual(
+                    conn.execute("SELECT COUNT(*) FROM contracts").fetchone()[0], 1
+                )
+                self.assertEqual(
+                    conn.execute(
+                        "SELECT COUNT(*) FROM contract_message_ids"
+                    ).fetchone()[0],
+                    1,
+                )
+                self.assertEqual(
+                    conn.execute(
+                        "SELECT COUNT(*) FROM contract_notified_multipliers"
+                    ).fetchone()[0],
+                    0,
+                )
+                self.assertEqual(
+                    conn.execute(
+                        "SELECT COUNT(*) FROM contract_pending_multipliers"
+                    ).fetchone()[0],
+                    0,
+                )
 
 
 if __name__ == "__main__":

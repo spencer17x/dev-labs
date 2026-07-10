@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List
 
-
 CHECK_INTERVAL = 15
 NOTIFY_COOLDOWN_HOURS = 24
 MULTIPLIER_CONFIRMATIONS = 2
@@ -100,7 +99,9 @@ def load_runtime_config(target: str) -> BotRuntimeConfig:
     normalized_target = str(target or "").strip().lower()
     if normalized_target not in BOT_TARGETS:
         supported = ", ".join(sorted(BOT_TARGETS))
-        raise ValueError(f"unsupported target: {target}; supported targets: {supported}")
+        raise ValueError(
+            f"unsupported target: {target}; supported targets: {supported}"
+        )
 
     load_dotenv()
     token_env = _token_env_name(normalized_target)
@@ -122,11 +123,22 @@ def load_runtime_config(target: str) -> BotRuntimeConfig:
         multiplier_confirmations=MULTIPLIER_CONFIRMATIONS,
         notification_types=list(NOTIFICATION_TYPES),
         chain_allowlists=chain_allowlists,
-        narrative_enabled=_as_bool(os.getenv("NARRATIVE_ENABLED", "1" if NARRATIVE_ENABLED else "0")),
-        narrative_provider=os.getenv("NARRATIVE_PROVIDER", NARRATIVE_PROVIDER).strip().lower() or NARRATIVE_PROVIDER,
-        narrative_cache_ttl_hours=_env_int("NARRATIVE_CACHE_TTL_HOURS", NARRATIVE_CACHE_TTL_HOURS),
-        narrative_min_evidence=_env_int("NARRATIVE_MIN_EVIDENCE", NARRATIVE_MIN_EVIDENCE),
-        narrative_timeout_seconds=_env_int("NARRATIVE_TIMEOUT_SECONDS", NARRATIVE_TIMEOUT_SECONDS),
+        narrative_enabled=_as_bool(
+            os.getenv("NARRATIVE_ENABLED", "1" if NARRATIVE_ENABLED else "0")
+        ),
+        narrative_provider=os.getenv("NARRATIVE_PROVIDER", NARRATIVE_PROVIDER)
+        .strip()
+        .lower()
+        or NARRATIVE_PROVIDER,
+        narrative_cache_ttl_hours=_env_int(
+            "NARRATIVE_CACHE_TTL_HOURS", NARRATIVE_CACHE_TTL_HOURS
+        ),
+        narrative_min_evidence=_env_int(
+            "NARRATIVE_MIN_EVIDENCE", NARRATIVE_MIN_EVIDENCE
+        ),
+        narrative_timeout_seconds=_env_int(
+            "NARRATIVE_TIMEOUT_SECONDS", NARRATIVE_TIMEOUT_SECONDS
+        ),
         xai_api_key=os.getenv("XAI_API_KEY", "").strip(),
     )
 
@@ -139,8 +151,12 @@ def apply_runtime_env(cfg: BotRuntimeConfig):
     os.environ["BOT_CHECK_INTERVAL"] = str(cfg.check_interval)
     os.environ["BOT_NOTIFY_COOLDOWN_HOURS"] = str(cfg.notify_cooldown_hours)
     os.environ["BOT_MULTIPLIER_CONFIRMATIONS"] = str(cfg.multiplier_confirmations)
-    os.environ["BOT_NOTIFICATION_TYPES"] = json.dumps(cfg.notification_types or [], ensure_ascii=False)
-    os.environ["BOT_CHAIN_ALLOWLIST_JSON"] = json.dumps(cfg.chain_allowlists or {}, ensure_ascii=False)
+    os.environ["BOT_NOTIFICATION_TYPES"] = json.dumps(
+        cfg.notification_types or [], ensure_ascii=False
+    )
+    os.environ["BOT_CHAIN_ALLOWLIST_JSON"] = json.dumps(
+        cfg.chain_allowlists or {}, ensure_ascii=False
+    )
     os.environ["NARRATIVE_ENABLED"] = "1" if cfg.narrative_enabled else "0"
     os.environ["NARRATIVE_PROVIDER"] = cfg.narrative_provider
     os.environ["NARRATIVE_CACHE_TTL_HOURS"] = str(cfg.narrative_cache_ttl_hours)

@@ -10,7 +10,9 @@ from bot_app import apply_runtime_env, load_runtime_config, validate_runtime_con
 
 class BotAppConfigTests(unittest.TestCase):
     def test_single_chain_target_uses_env_token_convention(self):
-        with mock.patch.dict(os.environ, {"BSC_TELEGRAM_BOT_TOKEN": "123:test"}, clear=True):
+        with mock.patch.dict(
+            os.environ, {"BSC_TELEGRAM_BOT_TOKEN": "123:test"}, clear=True
+        ):
             cfg = load_runtime_config("bsc")
 
         self.assertEqual(cfg.chain, "bsc")
@@ -24,7 +26,9 @@ class BotAppConfigTests(unittest.TestCase):
         self.assertEqual(cfg.chain_allowlists, {"bsc": {}})
 
     def test_runtime_config_sets_narrative_defaults(self):
-        with mock.patch.dict(os.environ, {"BSC_TELEGRAM_BOT_TOKEN": "123:test"}, clear=True):
+        with mock.patch.dict(
+            os.environ, {"BSC_TELEGRAM_BOT_TOKEN": "123:test"}, clear=True
+        ):
             cfg = load_runtime_config("bsc")
 
         self.assertFalse(cfg.narrative_enabled)
@@ -98,7 +102,9 @@ class BotAppConfigTests(unittest.TestCase):
                 self.assertEqual(os.environ["XAI_API_KEY"], "abc")
 
     def test_validate_runtime_config_rejects_invalid_narrative_values(self):
-        with mock.patch.dict(os.environ, {"BSC_TELEGRAM_BOT_TOKEN": "123:test"}, clear=True):
+        with mock.patch.dict(
+            os.environ, {"BSC_TELEGRAM_BOT_TOKEN": "123:test"}, clear=True
+        ):
             cfg = load_runtime_config("bsc")
 
         invalid_cases = [
@@ -115,7 +121,9 @@ class BotAppConfigTests(unittest.TestCase):
                     validate_runtime_config(invalid_cfg)
 
     def test_multi_target_uses_multi_env_token_and_all_chains(self):
-        with mock.patch.dict(os.environ, {"MULTI_TELEGRAM_BOT_TOKEN": "456:test"}, clear=True):
+        with mock.patch.dict(
+            os.environ, {"MULTI_TELEGRAM_BOT_TOKEN": "456:test"}, clear=True
+        ):
             cfg = load_runtime_config("multi")
 
         self.assertEqual(cfg.chain, "bsc")
@@ -151,7 +159,9 @@ class BotAppConfigTests(unittest.TestCase):
 
             with (
                 mock.patch("bot_app._app_root", return_value=Path(tmp)),
-                mock.patch.dict(os.environ, {"BSC_TELEGRAM_BOT_TOKEN": "from-env"}, clear=True),
+                mock.patch.dict(
+                    os.environ, {"BSC_TELEGRAM_BOT_TOKEN": "from-env"}, clear=True
+                ),
             ):
                 sol_cfg = load_runtime_config("sol")
                 bsc_cfg = load_runtime_config("bsc")

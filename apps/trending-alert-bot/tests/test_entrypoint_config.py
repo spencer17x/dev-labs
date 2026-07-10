@@ -12,7 +12,6 @@ import main
 import check_config
 from bot_app import BotRuntimeConfig
 
-
 APP_ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_MODULE_NAMES = (
     "monitor",
@@ -130,7 +129,9 @@ class EntrypointConfigTests(unittest.TestCase):
                     remove_runtime_modules()
                     import api
 
-                    with mock.patch.object(api, "fetch_trending", side_effect=fake_fetch_trending):
+                    with mock.patch.object(
+                        api, "fetch_trending", side_effect=fake_fetch_trending
+                    ):
                         import chat_storage
                         import monitor
 
@@ -145,8 +146,12 @@ class EntrypointConfigTests(unittest.TestCase):
                         production_db_before = production_db.read_bytes()
 
                         with (
-                            mock.patch.object(main, "load_runtime_config", return_value=runtime_cfg),
-                            mock.patch.object(sqlite3, "connect", side_effect=recording_connect),
+                            mock.patch.object(
+                                main, "load_runtime_config", return_value=runtime_cfg
+                            ),
+                            mock.patch.object(
+                                sqlite3, "connect", side_effect=recording_connect
+                            ),
                             mock.patch.object(
                                 time,
                                 "sleep",
@@ -175,7 +180,9 @@ class EntrypointConfigTests(unittest.TestCase):
 
         with (
             mock.patch.dict(os.environ, {"BOT_DRY_RUN": "1"}),
-            mock.patch.object(main, "load_runtime_config", return_value=mock.sentinel.runtime_cfg),
+            mock.patch.object(
+                main, "load_runtime_config", return_value=mock.sentinel.runtime_cfg
+            ),
             mock.patch.object(main, "validate_runtime_config"),
             mock.patch.object(main, "apply_runtime_env"),
             mock.patch.object(

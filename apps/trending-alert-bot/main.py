@@ -6,7 +6,6 @@ import sys
 
 from bot_app import apply_runtime_env, load_runtime_config, validate_runtime_config
 
-
 _RUNTIME_MODULE_NAMES = (
     "monitor",
     "monitor_flow",

@@ -52,7 +52,9 @@ def _is_honeypot_contract(contract: dict) -> bool:
     return bool(_safe_dict(security.get("honeyPot")).get("value", False))
 
 
-def split_kol_positions(kol_list: Optional[List[dict]]) -> Tuple[List[dict], List[dict]]:
+def split_kol_positions(
+    kol_list: Optional[List[dict]],
+) -> Tuple[List[dict], List[dict]]:
     """仅保留持仓比例 >= 0.1% 的KOL"""
     holders: list = []
     leavers: list = []
@@ -86,7 +88,9 @@ def fetch_kol_list(contract: dict, chain: str, context: str = "") -> List[dict]:
         return []
 
 
-def load_kol_status(contract: dict, chain: str, context: str = "") -> Tuple[List[dict], List[dict]]:
+def load_kol_status(
+    contract: dict, chain: str, context: str = ""
+) -> Tuple[List[dict], List[dict]]:
     kol_list = fetch_kol_list(contract, chain, context=context)
     return split_kol_positions(kol_list)
 
@@ -97,8 +101,12 @@ def is_anomaly_contract(contract: dict) -> bool:
     if not create_time:
         return True
     try:
-        create_dt = datetime.fromtimestamp(int(create_time) / 1000, tz=beijing_now().tzinfo)
-        return create_dt.replace(tzinfo=None) < beijing_today_start().replace(tzinfo=None)
+        create_dt = datetime.fromtimestamp(
+            int(create_time) / 1000, tz=beijing_now().tzinfo
+        )
+        return create_dt.replace(tzinfo=None) < beijing_today_start().replace(
+            tzinfo=None
+        )
     except (TypeError, ValueError):
         return True
 
@@ -125,7 +133,9 @@ def check_multipliers(
         return
 
     telegram_message_ids = stored_contract.get("telegram_message_ids", {})
-    has_real_notification = any(msg_id != -1 for msg_id in telegram_message_ids.values())
+    has_real_notification = any(
+        msg_id != -1 for msg_id in telegram_message_ids.values()
+    )
     if not has_real_notification:
         return
 
@@ -194,7 +204,9 @@ def check_multipliers(
     storage.update_notified_multiplier(token_address, multiplier)
 
 
-def is_on_cooldown(storage: ContractStorage, token_address: str, hours: int = NOTIFY_COOLDOWN_HOURS) -> bool:
+def is_on_cooldown(
+    storage: ContractStorage, token_address: str, hours: int = NOTIFY_COOLDOWN_HOURS
+) -> bool:
     last_notify_time = storage.get_last_notify_time(token_address)
     if not last_notify_time:
         return False
@@ -249,7 +261,9 @@ def initialize_storage(storage: ContractStorage, chain: str):
         stored_contract = storage.get_contract(token_address)
         if stored_contract:
             telegram_message_ids = stored_contract.get("telegram_message_ids", {})
-            has_real_notification = any(msg_id != -1 for msg_id in telegram_message_ids.values())
+            has_real_notification = any(
+                msg_id != -1 for msg_id in telegram_message_ids.values()
+            )
             if not has_real_notification and not telegram_message_ids:
                 storage.update_telegram_message_id(token_address, -1, -1)
 
@@ -271,7 +285,10 @@ def _passes_base_filters(contract: dict, chain: str = "") -> bool:
 def _pick_trend_and_anomaly_contract(
     contracts: List[dict],
     chain: str,
-) -> Tuple[Optional[Tuple[dict, List[dict], List[dict]]], Optional[Tuple[dict, List[dict], List[dict]]]]:
+) -> Tuple[
+    Optional[Tuple[dict, List[dict], List[dict]]],
+    Optional[Tuple[dict, List[dict], List[dict]]],
+]:
     enable_trending = "trending" in NOTIFICATION_TYPES
     enable_anomaly = "anomaly" in NOTIFICATION_TYPES
     trend_contract = None
@@ -343,7 +360,9 @@ def _send_candidate_notification(
         storage.add_contract(token_address, current_price, contract)
 
     stored_contract = storage.get_contract(token_address)
-    has_trend_notification = stored_contract and stored_contract.get("telegram_message_ids", {})
+    has_trend_notification = stored_contract and stored_contract.get(
+        "telegram_message_ids", {}
+    )
     if has_trend_notification:
         return 0
     if is_on_cooldown(storage, token_address):
@@ -479,7 +498,9 @@ def _process_chat_contracts(
             tracked_contracts_count += 1
 
     if new_contracts_count > 0 or tracked_contracts_count > 0:
-        print(f"📊 [{chain.upper()}] 新合约: {new_contracts_count} | 追踪中: {tracked_contracts_count}")
+        print(
+            f"📊 [{chain.upper()}] 新合约: {new_contracts_count} | 追踪中: {tracked_contracts_count}"
+        )
 
 
 def _next_report_time_str(now: datetime) -> str:
@@ -494,10 +515,14 @@ def _next_report_time_str(now: datetime) -> str:
 
     if next_report_hour is None:
         next_report_hour = SUMMARY_REPORT_HOURS[0]
-        next_report_time = now.replace(hour=next_report_hour, minute=59, second=0, microsecond=0)
+        next_report_time = now.replace(
+            hour=next_report_hour, minute=59, second=0, microsecond=0
+        )
         next_report_time += timedelta(days=1)
     else:
-        next_report_time = now.replace(hour=next_report_hour, minute=59, second=0, microsecond=0)
+        next_report_time = now.replace(
+            hour=next_report_hour, minute=59, second=0, microsecond=0
+        )
 
     return next_report_time.strftime("%Y-%m-%d %H:%M")
 
@@ -529,7 +554,9 @@ def save_last_summary_marker(report_hour: int):
 def _load_latest_contract_map(chain: str) -> Dict[str, dict]:
     try:
         latest_contracts = fetch_trending(chain=chain).get("data", [])
-        return {c.get("tokenAddress"): c for c in latest_contracts if c.get("tokenAddress")}
+        return {
+            c.get("tokenAddress"): c for c in latest_contracts if c.get("tokenAddress")
+        }
     except Exception as e:
         print(f"❌ 获取 {chain} 链合约数据失败: {e}")
         return {}
@@ -548,7 +575,9 @@ def _fallback_contract_data(token_address: str, stored_data: dict) -> dict:
 _GAIN_THRESHOLDS = [("20%", 1.2), ("30%", 1.3), ("50%", 1.5), ("80%", 1.8)]
 
 
-def _best_multiplier(token_address: str, stored_data: dict, latest_contract_map: Dict[str, dict]) -> float:
+def _best_multiplier(
+    token_address: str, stored_data: dict, latest_contract_map: Dict[str, dict]
+) -> float:
     """返回合约当前最佳可知涨幅倍数（优先用实时价格，回退用已通知倍数）"""
     contract_data = latest_contract_map.get(token_address)
     if contract_data:
@@ -620,11 +649,20 @@ def _build_chain_stats(
     return {chain: stats}
 
 
-def scan_once(chain: str, active_chats: List[dict], storages: Dict[str, ContractStorage], chat_storage: ChatStorage = None) -> bool:
+def scan_once(
+    chain: str,
+    active_chats: List[dict],
+    storages: Dict[str, ContractStorage],
+    chat_storage: ChatStorage = None,
+) -> bool:
     response = fetch_trending(chain=chain)
     contracts = response.get("data", [])
-    filtered_contracts = [contract for contract in contracts if _passes_base_filters(contract, chain)]
-    trend_contract, anomaly_contract = _pick_trend_and_anomaly_contract(filtered_contracts, chain)
+    filtered_contracts = [
+        contract for contract in contracts if _passes_base_filters(contract, chain)
+    ]
+    trend_contract, anomaly_contract = _pick_trend_and_anomaly_contract(
+        filtered_contracts, chain
+    )
     narrative_results: Dict[Tuple[str, str], Optional[dict]] = {}
 
     for chat in active_chats:
@@ -682,9 +720,11 @@ def send_summary_report(
     for chat_id, chain_stats in chat_chain_stats.items():
         if chat_id not in active_chat_ids:
             continue
-        if report_marker and get_runtime_state(
-            _summary_report_chat_state_key(chat_id), ""
-        ) == report_marker:
+        if (
+            report_marker
+            and get_runtime_state(_summary_report_chat_state_key(chat_id), "")
+            == report_marker
+        ):
             continue
         msg = format_summary_report(chain_stats, next_report_time_str)
         print("\n" + "=" * 60)
@@ -740,9 +780,8 @@ def due_summary_report_hour(last_report_marker: str = "") -> int:
     for hour in SUMMARY_REPORT_HOURS:
         report_hour = (hour - 1) % 24
         is_due_window = (
-            (current_hour == report_hour and current_minute == 59)
-            or current_hour == hour
-        )
+            current_hour == report_hour and current_minute == 59
+        ) or current_hour == hour
         if is_due_window and summary_report_marker(hour, now) != last_report_marker:
             return hour
 

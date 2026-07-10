@@ -5,7 +5,6 @@ import threading
 from config import SQLITE_DB_FILE
 from timezone_utils import format_beijing_time
 
-
 _SCHEMA_LOCK = threading.RLock()
 CONTRACT_SCHEMA_VERSION = 2
 _CONTRACT_COLUMNS = {
@@ -40,8 +39,7 @@ def _table_columns(conn: sqlite3.Connection, table_name: str) -> set:
 
 
 def _create_contracts_table(conn: sqlite3.Connection, table_name: str = "contracts"):
-    conn.execute(
-        f"""
+    conn.execute(f"""
         CREATE TABLE IF NOT EXISTS {table_name} (
             chain TEXT NOT NULL,
             chat_id INTEGER NOT NULL,
@@ -54,13 +52,11 @@ def _create_contracts_table(conn: sqlite3.Connection, table_name: str = "contrac
             last_notify_time TEXT NOT NULL DEFAULT '',
             PRIMARY KEY (chain, chat_id, token_address)
         )
-        """
-    )
+        """)
 
 
 def _create_contract_relation_tables(conn: sqlite3.Connection):
-    conn.execute(
-        """
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS contract_message_ids (
             chain TEXT NOT NULL,
             chat_id INTEGER NOT NULL,
@@ -72,10 +68,8 @@ def _create_contract_relation_tables(conn: sqlite3.Connection):
                 REFERENCES contracts(chain, chat_id, token_address)
                 ON DELETE CASCADE
         )
-        """
-    )
-    conn.execute(
-        """
+        """)
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS contract_notified_multipliers (
             chain TEXT NOT NULL,
             chat_id INTEGER NOT NULL,
@@ -87,10 +81,8 @@ def _create_contract_relation_tables(conn: sqlite3.Connection):
                 REFERENCES contracts(chain, chat_id, token_address)
                 ON DELETE CASCADE
         )
-        """
-    )
-    conn.execute(
-        """
+        """)
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS contract_pending_multipliers (
             chain TEXT NOT NULL,
             chat_id INTEGER NOT NULL,
@@ -102,8 +94,7 @@ def _create_contract_relation_tables(conn: sqlite3.Connection):
                 REFERENCES contracts(chain, chat_id, token_address)
                 ON DELETE CASCADE
         )
-        """
-    )
+        """)
 
 
 def _table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
@@ -140,8 +131,7 @@ def _recreate_tracking_schema(conn: sqlite3.Connection):
 
 
 def _create_narrative_analysis_table(conn: sqlite3.Connection):
-    conn.execute(
-        """
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS narrative_analysis (
             chain TEXT NOT NULL,
             token_address TEXT NOT NULL,
@@ -158,15 +148,13 @@ def _create_narrative_analysis_table(conn: sqlite3.Connection):
             expires_at TEXT NOT NULL,
             PRIMARY KEY (chain, token_address, provider)
         )
-        """
-    )
+        """)
 
 
 def ensure_schema():
     with _SCHEMA_LOCK:
         with connect() as conn:
-            conn.execute(
-                """
+            conn.execute("""
                 CREATE TABLE IF NOT EXISTS telegram_chats (
                     chat_id INTEGER PRIMARY KEY,
                     type TEXT NOT NULL DEFAULT 'unknown',
@@ -181,17 +169,14 @@ def ensure_schema():
                     message_count INTEGER NOT NULL DEFAULT 0,
                     notification_mode TEXT NOT NULL DEFAULT 'all'
                 )
-                """
-            )
-            conn.execute(
-                """
+                """)
+            conn.execute("""
                 CREATE TABLE IF NOT EXISTS runtime_state (
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL DEFAULT '',
                     updated_at TEXT NOT NULL DEFAULT ''
                 )
-                """
-            )
+                """)
             if _contract_schema_is_current(conn):
                 _create_contracts_table(conn)
                 _create_contract_relation_tables(conn)

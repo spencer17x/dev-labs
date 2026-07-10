@@ -106,7 +106,7 @@ def fetch_kol_holders(
     pair: str,
     chain: str = "sol",
     authorization: str = "",
-    info_token: str = ""
+    info_token: str = "",
 ) -> dict:
     """
     获取代币持有的KOL信息

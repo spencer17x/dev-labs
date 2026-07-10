@@ -90,8 +90,12 @@ class ReviewRegressionTests(unittest.TestCase):
 
             monitor_flow.DRY_RUN = True
             monitor_flow.MULTIPLIER_CONFIRMATIONS = 1
-            with mock.patch.object(monitor_flow, "load_kol_status", return_value=([], [])):
-                monitor_flow.check_multipliers(sample_contract(priceUSD="2.0"), storage, "sol", chat_id=111)
+            with mock.patch.object(
+                monitor_flow, "load_kol_status", return_value=([], [])
+            ):
+                monitor_flow.check_multipliers(
+                    sample_contract(priceUSD="2.0"), storage, "sol", chat_id=111
+                )
 
             self.assertEqual(storage.get_notified_multipliers("TOKEN1"), [])
 
@@ -106,13 +110,22 @@ class ReviewRegressionTests(unittest.TestCase):
             monitor_flow.DRY_RUN = False
             monitor_flow.MULTIPLIER_CONFIRMATIONS = 2
             with (
-                mock.patch.object(monitor_flow, "load_kol_status", return_value=([], [])),
-                mock.patch.object(monitor_flow.notifier, "send_with_reply_sync", return_value=False),
+                mock.patch.object(
+                    monitor_flow, "load_kol_status", return_value=([], [])
+                ),
+                mock.patch.object(
+                    monitor_flow.notifier, "send_with_reply_sync", return_value=False
+                ),
             ):
-                monitor_flow.check_multipliers(sample_contract(priceUSD="2.0"), storage, "sol", chat_id=111)
+                monitor_flow.check_multipliers(
+                    sample_contract(priceUSD="2.0"), storage, "sol", chat_id=111
+                )
 
             self.assertEqual(storage.get_notified_multipliers("TOKEN1"), [])
-            self.assertEqual(storage.get_pending_multiplier("TOKEN1"), {"multiplier_int": 2, "count": 1})
+            self.assertEqual(
+                storage.get_pending_multiplier("TOKEN1"),
+                {"multiplier_int": 2, "count": 1},
+            )
 
     def test_honeypot_contract_clears_pending_and_skips_multiplier(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -160,7 +173,13 @@ class ReviewRegressionTests(unittest.TestCase):
                     links={"web": "https://example.com?a=1&b=<x>"},
                 ),
                 "sol",
-                kol_holders=[{"name": "Alice & <Team>", "holdValueUSD": "12", "holdPercent": "0.5"}],
+                kol_holders=[
+                    {
+                        "name": "Alice & <Team>",
+                        "holdValueUSD": "12",
+                        "holdPercent": "0.5",
+                    }
+                ],
             )
 
             self.assertIn("&lt;BAD&amp;&gt;", msg)
@@ -196,7 +215,9 @@ class ReviewRegressionTests(unittest.TestCase):
             _, _, _, notifier, _ = load_runtime_modules(tmp)
 
             for kwargs in ({}, {"narrative": None}):
-                msg = notifier.format_initial_notification(sample_contract(), "sol", **kwargs)
+                msg = notifier.format_initial_notification(
+                    sample_contract(), "sol", **kwargs
+                )
 
                 self.assertIn("[SOL] 📈 趋势通知", msg)
                 self.assertIn("💎 SAFE (Safe Token)", msg)
@@ -229,7 +250,9 @@ class ReviewRegressionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             _, _, _, notifier, _ = load_runtime_modules(tmp)
 
-            msg = notifier.format_initial_notification(sample_contract(), "sol", narrative="narrative")
+            msg = notifier.format_initial_notification(
+                sample_contract(), "sol", narrative="narrative"
+            )
 
             self.assertNotIn("🧠 叙事", msg)
 
@@ -253,7 +276,9 @@ class ReviewRegressionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             _, _, _, notifier, _ = load_runtime_modules(tmp)
 
-            msg = notifier.format_initial_notification(sample_contract(), "sol", None, None, True)
+            msg = notifier.format_initial_notification(
+                sample_contract(), "sol", None, None, True
+            )
 
             self.assertIn("[SOL] ⚡️ 异动通知", msg)
             self.assertNotIn("🧠 叙事", msg)
@@ -275,8 +300,14 @@ class ReviewRegressionTests(unittest.TestCase):
             monitor_flow.ENABLE_TELEGRAM = False
             monitor_flow.DRY_RUN = True
             with (
-                mock.patch.object(monitor_flow, "analyze_contract_narrative", return_value=fake_analysis) as narrative_mock,
-                mock.patch.object(monitor_flow, "format_initial_notification", return_value="msg") as format_mock,
+                mock.patch.object(
+                    monitor_flow,
+                    "analyze_contract_narrative",
+                    return_value=fake_analysis,
+                ) as narrative_mock,
+                mock.patch.object(
+                    monitor_flow, "format_initial_notification", return_value="msg"
+                ) as format_mock,
             ):
                 sent = monitor_flow._send_candidate_notification(
                     storage,
@@ -292,7 +323,9 @@ class ReviewRegressionTests(unittest.TestCase):
             narrative_mock.assert_called_once()
             self.assertEqual(format_mock.call_args.kwargs["narrative"]["score"], 66)
 
-    def test_candidate_notification_continues_when_narrative_analysis_returns_none(self):
+    def test_candidate_notification_continues_when_narrative_analysis_returns_none(
+        self,
+    ):
         with tempfile.TemporaryDirectory() as tmp:
             _, _, monitor_flow, _, ContractStorage = load_runtime_modules(tmp)
             storage = ContractStorage(chain="sol", chat_id=111)
@@ -301,8 +334,12 @@ class ReviewRegressionTests(unittest.TestCase):
             monitor_flow.ENABLE_TELEGRAM = False
             monitor_flow.DRY_RUN = True
             with (
-                mock.patch.object(monitor_flow, "analyze_contract_narrative", return_value=None) as narrative_mock,
-                mock.patch.object(monitor_flow, "format_initial_notification", return_value="msg") as format_mock,
+                mock.patch.object(
+                    monitor_flow, "analyze_contract_narrative", return_value=None
+                ) as narrative_mock,
+                mock.patch.object(
+                    monitor_flow, "format_initial_notification", return_value="msg"
+                ) as format_mock,
             ):
                 sent = monitor_flow._send_candidate_notification(
                     storage,
@@ -367,8 +404,14 @@ class ReviewRegressionTests(unittest.TestCase):
             monitor_flow.ENABLE_TELEGRAM = False
             monitor_flow.DRY_RUN = True
             with (
-                mock.patch.object(monitor_flow, "analyze_contract_narrative", return_value=fake_analysis),
-                mock.patch.object(monitor_flow, "format_initial_notification", return_value="msg") as format_mock,
+                mock.patch.object(
+                    monitor_flow,
+                    "analyze_contract_narrative",
+                    return_value=fake_analysis,
+                ),
+                mock.patch.object(
+                    monitor_flow, "format_initial_notification", return_value="msg"
+                ) as format_mock,
                 mock.patch("builtins.print") as print_mock,
             ):
                 sent = monitor_flow._send_candidate_notification(
@@ -403,8 +446,12 @@ class ReviewRegressionTests(unittest.TestCase):
             storage.update_telegram_message_id("TOKEN1", 111, 222)
 
             with (
-                mock.patch.object(monitor_flow, "analyze_contract_narrative") as narrative_mock,
-                mock.patch.object(monitor_flow, "format_initial_notification") as format_mock,
+                mock.patch.object(
+                    monitor_flow, "analyze_contract_narrative"
+                ) as narrative_mock,
+                mock.patch.object(
+                    monitor_flow, "format_initial_notification"
+                ) as format_mock,
             ):
                 sent = monitor_flow._send_candidate_notification(
                     storage,
@@ -428,9 +475,15 @@ class ReviewRegressionTests(unittest.TestCase):
             storage.add_contract("TOKEN1", 1.0, contract)
 
             with (
-                mock.patch.object(monitor_flow, "is_on_cooldown", return_value=True) as cooldown_mock,
-                mock.patch.object(monitor_flow, "analyze_contract_narrative") as narrative_mock,
-                mock.patch.object(monitor_flow, "format_initial_notification") as format_mock,
+                mock.patch.object(
+                    monitor_flow, "is_on_cooldown", return_value=True
+                ) as cooldown_mock,
+                mock.patch.object(
+                    monitor_flow, "analyze_contract_narrative"
+                ) as narrative_mock,
+                mock.patch.object(
+                    monitor_flow, "format_initial_notification"
+                ) as format_mock,
             ):
                 sent = monitor_flow._send_candidate_notification(
                     storage,
@@ -456,27 +509,43 @@ class ReviewRegressionTests(unittest.TestCase):
                 sample_contract(tokenAddress="TOKEN2", priceUSD="2.0"),
             ]
 
-            with mock.patch.object(monitor_flow, "fetch_trending", return_value={"data": contracts}):
+            with mock.patch.object(
+                monitor_flow, "fetch_trending", return_value={"data": contracts}
+            ):
                 monitor_flow.initialize_storage(storage, "sol")
 
-            self.assertEqual(storage.get_contract("TOKEN1")["telegram_message_ids"], {"-1": -1})
-            self.assertEqual(storage.get_contract("TOKEN2")["telegram_message_ids"], {"-1": -1})
+            self.assertEqual(
+                storage.get_contract("TOKEN1")["telegram_message_ids"], {"-1": -1}
+            )
+            self.assertEqual(
+                storage.get_contract("TOKEN2")["telegram_message_ids"], {"-1": -1}
+            )
 
     def test_summary_report_is_due_after_missing_exact_59_minute(self):
         with tempfile.TemporaryDirectory() as tmp:
             _, _, monitor_flow, _, _ = load_runtime_modules(tmp)
-            now = dt.datetime(2026, 5, 5, 4, 5, tzinfo=dt.timezone(dt.timedelta(hours=8)))
+            now = dt.datetime(
+                2026, 5, 5, 4, 5, tzinfo=dt.timezone(dt.timedelta(hours=8))
+            )
 
             with mock.patch.object(monitor_flow, "beijing_now", return_value=now):
-                self.assertEqual(monitor_flow.due_summary_report_hour(last_report_marker=""), 4)
-                self.assertTrue(monitor_flow.should_send_summary_report(last_report_marker=""))
+                self.assertEqual(
+                    monitor_flow.due_summary_report_hour(last_report_marker=""), 4
+                )
+                self.assertTrue(
+                    monitor_flow.should_send_summary_report(last_report_marker="")
+                )
                 marker = monitor_flow.summary_report_marker(4)
-                self.assertEqual(monitor_flow.due_summary_report_hour(last_report_marker=marker), -1)
+                self.assertEqual(
+                    monitor_flow.due_summary_report_hour(last_report_marker=marker), -1
+                )
 
     def test_summary_report_marker_is_persisted_to_sqlite(self):
         with tempfile.TemporaryDirectory() as tmp:
             _, _, monitor_flow, _, _ = load_runtime_modules(tmp)
-            now = dt.datetime(2026, 5, 5, 4, 5, tzinfo=dt.timezone(dt.timedelta(hours=8)))
+            now = dt.datetime(
+                2026, 5, 5, 4, 5, tzinfo=dt.timezone(dt.timedelta(hours=8))
+            )
 
             with mock.patch.object(monitor_flow, "beijing_now", return_value=now):
                 expected_marker = monitor_flow.summary_report_marker(4)
@@ -485,7 +554,9 @@ class ReviewRegressionTests(unittest.TestCase):
             self.assertEqual(monitor_flow.load_last_summary_marker(), expected_marker)
 
             with mock.patch.object(monitor_flow, "beijing_now", return_value=now):
-                self.assertEqual(monitor_flow.due_summary_report_hour(expected_marker), -1)
+                self.assertEqual(
+                    monitor_flow.due_summary_report_hour(expected_marker), -1
+                )
 
     def test_add_chat_preserves_existing_notification_mode(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -503,7 +574,9 @@ class ReviewRegressionTests(unittest.TestCase):
             _, _, monitor_flow, _, _ = load_runtime_modules(tmp)
             bad_contract = sample_contract(priceUSD="N/A")
 
-            with mock.patch.object(monitor_flow, "fetch_trending", return_value={"data": [bad_contract]}):
+            with mock.patch.object(
+                monitor_flow, "fetch_trending", return_value={"data": [bad_contract]}
+            ):
                 self.assertFalse(monitor_flow.scan_once("sol", [], {}))
 
     def test_base_filters_ignore_audit_holder_percentages(self):
@@ -544,7 +617,9 @@ class ReviewRegressionTests(unittest.TestCase):
             import monitor
 
             storages = {}
-            with mock.patch.object(monitor, "initialize_storage", side_effect=RuntimeError("api down")):
+            with mock.patch.object(
+                monitor, "initialize_storage", side_effect=RuntimeError("api down")
+            ):
                 monitor._bootstrap_storages("sol", set(), storages, [{"chat_id": 111}])
 
             self.assertIn("sol:111", storages)
@@ -554,7 +629,9 @@ class ReviewRegressionTests(unittest.TestCase):
             load_runtime_modules(tmp)
             import monitor
 
-            with mock.patch.object(monitor, "scan_once", side_effect=[RuntimeError("bsc down"), True]) as scan_mock:
+            with mock.patch.object(
+                monitor, "scan_once", side_effect=[RuntimeError("bsc down"), True]
+            ) as scan_mock:
                 found = monitor.scan_chains_once(["bsc", "sol"], [], {}, None)
 
             self.assertTrue(found)
@@ -566,9 +643,14 @@ class ReviewRegressionTests(unittest.TestCase):
             import telegram_bot
 
             notifier = telegram_bot.TelegramNotifier()
-            with mock.patch.object(
-                notifier, "_setup_application", side_effect=RuntimeError("invalid token")
-            ), mock.patch("traceback.print_exc"):
+            with (
+                mock.patch.object(
+                    notifier,
+                    "_setup_application",
+                    side_effect=RuntimeError("invalid token"),
+                ),
+                mock.patch("traceback.print_exc"),
+            ):
                 with self.assertRaises(telegram_bot.TelegramRuntimeError):
                     notifier.start_bot()
 
@@ -602,7 +684,9 @@ class ReviewRegressionTests(unittest.TestCase):
                 mock.patch.object(monitor, "SILENT_INIT", False),
                 mock.patch.object(monitor, "_initial_report_marker", return_value=""),
                 mock.patch.object(monitor, "load_last_summary_marker", return_value=""),
-                mock.patch.object(monitor.notifier, "ensure_healthy", side_effect=worker_error),
+                mock.patch.object(
+                    monitor.notifier, "ensure_healthy", side_effect=worker_error
+                ),
                 mock.patch.object(monitor.time, "sleep") as sleep_mock,
             ):
                 with self.assertRaises(telegram_bot.TelegramRuntimeError):
@@ -624,7 +708,9 @@ class ReviewRegressionTests(unittest.TestCase):
                 mock.patch.object(monitor, "ENABLE_TELEGRAM", True),
                 mock.patch.object(monitor, "SILENT_INIT", True),
                 mock.patch.object(monitor, "initialize_storage") as initialize_mock,
-                mock.patch.object(monitor, "scan_chains_once", return_value=False) as scan_mock,
+                mock.patch.object(
+                    monitor, "scan_chains_once", return_value=False
+                ) as scan_mock,
                 mock.patch.object(monitor, "send_summary_report") as report_mock,
                 mock.patch.object(monitor, "due_summary_report_hour", return_value=4),
                 mock.patch.object(monitor, "load_last_summary_marker", return_value=""),
@@ -669,13 +755,23 @@ class ReviewRegressionTests(unittest.TestCase):
             monitor_flow.ENABLE_TELEGRAM = True
             monitor_flow.DRY_RUN = False
             with (
-                mock.patch.object(monitor_flow, "ChatStorage", return_value=fake_chat_storage),
-                mock.patch.object(monitor_flow, "_load_latest_contract_map", return_value={}),
-                mock.patch.object(monitor_flow, "_build_chain_stats", return_value=stats),
-                mock.patch.object(monitor_flow, "format_summary_report", return_value="report"),
+                mock.patch.object(
+                    monitor_flow, "ChatStorage", return_value=fake_chat_storage
+                ),
+                mock.patch.object(
+                    monitor_flow, "_load_latest_contract_map", return_value={}
+                ),
+                mock.patch.object(
+                    monitor_flow, "_build_chain_stats", return_value=stats
+                ),
+                mock.patch.object(
+                    monitor_flow, "format_summary_report", return_value="report"
+                ),
                 mock.patch.object(monitor_flow.notifier, "send_sync") as send_mock,
             ):
-                monitor_flow.send_summary_report({"sol:111": object(), "sol:222": object()})
+                monitor_flow.send_summary_report(
+                    {"sol:111": object(), "sol:222": object()}
+                )
 
             send_mock.assert_called_once_with("report", chat_id=111)
 
@@ -710,10 +806,18 @@ class ReviewRegressionTests(unittest.TestCase):
             monitor_flow.ENABLE_TELEGRAM = True
             monitor_flow.DRY_RUN = False
             with (
-                mock.patch.object(monitor_flow, "ChatStorage", return_value=fake_chat_storage),
-                mock.patch.object(monitor_flow, "_load_latest_contract_map", return_value={}),
-                mock.patch.object(monitor_flow, "_build_chain_stats", return_value=stats),
-                mock.patch.object(monitor_flow, "format_summary_report", return_value="report"),
+                mock.patch.object(
+                    monitor_flow, "ChatStorage", return_value=fake_chat_storage
+                ),
+                mock.patch.object(
+                    monitor_flow, "_load_latest_contract_map", return_value={}
+                ),
+                mock.patch.object(
+                    monitor_flow, "_build_chain_stats", return_value=stats
+                ),
+                mock.patch.object(
+                    monitor_flow, "format_summary_report", return_value="report"
+                ),
                 mock.patch.object(
                     monitor_flow.notifier,
                     "send_sync",
@@ -728,15 +832,11 @@ class ReviewRegressionTests(unittest.TestCase):
 
                 self.assertFalse(first_result)
                 self.assertEqual(
-                    monitor_flow.get_runtime_state(
-                        "last_summary_report_marker:111"
-                    ),
+                    monitor_flow.get_runtime_state("last_summary_report_marker:111"),
                     report_marker,
                 )
                 self.assertEqual(
-                    monitor_flow.get_runtime_state(
-                        "last_summary_report_marker:222"
-                    ),
+                    monitor_flow.get_runtime_state("last_summary_report_marker:222"),
                     "",
                 )
 
@@ -762,21 +862,31 @@ class ReviewRegressionTests(unittest.TestCase):
                     chat_storage = mock.Mock()
                     chat_storage.get_active_chats.return_value = [{"chat_id": 111}]
                     with (
-                        mock.patch.object(monitor, "ChatStorage", return_value=chat_storage),
+                        mock.patch.object(
+                            monitor, "ChatStorage", return_value=chat_storage
+                        ),
                         mock.patch.object(monitor, "_startup_telegram"),
                         mock.patch.object(monitor, "_bootstrap_storages"),
                         mock.patch.object(monitor, "ENABLE_TELEGRAM", False),
                         mock.patch.object(monitor, "DRY_RUN", False),
                         mock.patch.object(monitor, "SILENT_INIT", False),
-                        mock.patch.object(monitor, "load_last_summary_marker", return_value=""),
-                        mock.patch.object(monitor, "_initial_report_marker", return_value=""),
-                        mock.patch.object(monitor, "due_summary_report_hour", return_value=4),
+                        mock.patch.object(
+                            monitor, "load_last_summary_marker", return_value=""
+                        ),
+                        mock.patch.object(
+                            monitor, "_initial_report_marker", return_value=""
+                        ),
+                        mock.patch.object(
+                            monitor, "due_summary_report_hour", return_value=4
+                        ),
                         mock.patch.object(
                             monitor,
                             "send_summary_report",
                             return_value=delivery_succeeded,
                         ),
-                        mock.patch.object(monitor, "save_last_summary_marker") as save_mock,
+                        mock.patch.object(
+                            monitor, "save_last_summary_marker"
+                        ) as save_mock,
                         mock.patch.object(
                             monitor,
                             "scan_chains_once",
@@ -795,7 +905,9 @@ class ReviewRegressionTests(unittest.TestCase):
             load_runtime_modules(tmp)
             import telegram_bot
 
-            notifier = telegram_bot.TelegramNotifier.__new__(telegram_bot.TelegramNotifier)
+            notifier = telegram_bot.TelegramNotifier.__new__(
+                telegram_bot.TelegramNotifier
+            )
             notifier.chat_storage = mock.Mock()
             notifier.chat_storage.get_chat.return_value = None
 
@@ -808,7 +920,11 @@ class ReviewRegressionTests(unittest.TestCase):
                 last_name=None,
             )
             update = SimpleNamespace(effective_chat=chat)
-            asyncio.run(telegram_bot.TelegramNotifier._handle_any_message(notifier, update, SimpleNamespace()))
+            asyncio.run(
+                telegram_bot.TelegramNotifier._handle_any_message(
+                    notifier, update, SimpleNamespace()
+                )
+            )
 
             notifier.chat_storage.add_chat.assert_not_called()
 
@@ -817,7 +933,9 @@ class ReviewRegressionTests(unittest.TestCase):
             load_runtime_modules(tmp)
             import telegram_bot
 
-            notifier = telegram_bot.TelegramNotifier.__new__(telegram_bot.TelegramNotifier)
+            notifier = telegram_bot.TelegramNotifier.__new__(
+                telegram_bot.TelegramNotifier
+            )
             notifier.chat_storage = mock.Mock()
             notifier.chat_storage.get_chat.return_value = None
             notifier._get_chat_type_name = lambda chat_type: "群组"
@@ -837,8 +955,14 @@ class ReviewRegressionTests(unittest.TestCase):
                     new_chat_member=SimpleNamespace(status="member"),
                 )
             )
-            context = SimpleNamespace(bot=SimpleNamespace(send_message=mock.AsyncMock()))
-            asyncio.run(telegram_bot.TelegramNotifier._handle_chat_member_updated(notifier, update, context))
+            context = SimpleNamespace(
+                bot=SimpleNamespace(send_message=mock.AsyncMock())
+            )
+            asyncio.run(
+                telegram_bot.TelegramNotifier._handle_chat_member_updated(
+                    notifier, update, context
+                )
+            )
 
             notifier.chat_storage.add_chat.assert_not_called()
 

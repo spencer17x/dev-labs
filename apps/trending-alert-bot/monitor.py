@@ -55,7 +55,9 @@ def normalize_clear_targets(raw_value: Optional[str]) -> List[str]:
     return selections
 
 
-def _bootstrap_storages(chain: str, clear_targets: set, storages: dict, active_chats: List[dict]):
+def _bootstrap_storages(
+    chain: str, clear_targets: set, storages: dict, active_chats: List[dict]
+):
     for chat in active_chats:
         chat_id = chat["chat_id"]
         storage_key = make_storage_key(chat_id, chain)
@@ -98,12 +100,20 @@ def _active_chats(chat_storage: ChatStorage) -> List[dict]:
     return active_chats
 
 
-def scan_chains_once(chains: List[str], active_chats: List[dict], storages: dict, chat_storage: ChatStorage) -> bool:
+def scan_chains_once(
+    chains: List[str],
+    active_chats: List[dict],
+    storages: dict,
+    chat_storage: ChatStorage,
+) -> bool:
     found_any_anomaly = False
     for chain in chains:
         print(f"🔎 扫描链: {chain.upper()}")
         try:
-            found_any_anomaly = scan_once(chain, active_chats, storages, chat_storage) or found_any_anomaly
+            found_any_anomaly = (
+                scan_once(chain, active_chats, storages, chat_storage)
+                or found_any_anomaly
+            )
         except Exception as e:
             print(f"⚠️  [{chain.upper()}] 本轮扫描失败，跳过该链: {e}")
     return found_any_anomaly
@@ -120,7 +130,9 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
     chat_storage = ChatStorage()
     storages = {}
 
-    print(f"🤖 Bot 启动 | 链: {', '.join([c.upper() for c in chains])} | 间隔: {CHECK_INTERVAL}s")
+    print(
+        f"🤖 Bot 启动 | 链: {', '.join([c.upper() for c in chains])} | 间隔: {CHECK_INTERVAL}s"
+    )
     print(f"🧩 Runtime | data_dir: {STORAGE_DIR}")
     print(f"📊 策略: {', '.join(NOTIFICATION_TYPES)} + 整数倍通知(所有符合条件)")
     print(f"📱 Telegram: {'✓' if ENABLE_TELEGRAM else '✗'}")
@@ -130,7 +142,10 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
     _startup_telegram(chat_storage)
     if ENABLE_TELEGRAM and not DRY_RUN:
         from monitor_flow import get_summary_report_for_chat
-        notifier.set_report_generator(lambda chat_id: get_summary_report_for_chat(chat_id, storages))
+
+        notifier.set_report_generator(
+            lambda chat_id: get_summary_report_for_chat(chat_id, storages)
+        )
     print()
 
     active_chats = _active_chats(chat_storage)
@@ -141,7 +156,9 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
         print(f"\n⏳ 等待 {CHECK_INTERVAL} 秒后开始监控...\n")
         time.sleep(CHECK_INTERVAL)
 
-    last_summary_marker = "" if DRY_RUN else load_last_summary_marker() or _initial_report_marker()
+    last_summary_marker = (
+        "" if DRY_RUN else load_last_summary_marker() or _initial_report_marker()
+    )
     last_cleanup_day = beijing_now().day
 
     while True:
@@ -165,13 +182,21 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
                 continue
 
             current_time = beijing_now()
-            if current_time.day != last_cleanup_day and current_time.hour == 0 and current_time.minute >= 5:
+            if (
+                current_time.day != last_cleanup_day
+                and current_time.hour == 0
+                and current_time.minute >= 5
+            ):
                 print("\n🧹 开始清理旧数据...")
                 total_deleted = 0
                 for storage_key, storage in storages.items():
                     deleted = storage.cleanup_old_data(days_to_keep=7)
                     if deleted > 0:
-                        chain = storage_key.split(":", 1)[0] if ":" in storage_key else (chains[0] if chains else "unknown")
+                        chain = (
+                            storage_key.split(":", 1)[0]
+                            if ":" in storage_key
+                            else (chains[0] if chains else "unknown")
+                        )
                         print(f"  • {chain.upper()}: 清理 {deleted} 个合约")
                         total_deleted += deleted
                 if total_deleted > 0:
@@ -188,7 +213,9 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
                         save_last_summary_marker(report_time_hour)
                         last_summary_marker = summary_report_marker(report_time_hour)
 
-            found_any_anomaly = scan_chains_once(chains, active_chats, storages, chat_storage)
+            found_any_anomaly = scan_chains_once(
+                chains, active_chats, storages, chat_storage
+            )
 
             if DRY_RUN:
                 print("🧪 Dry-run 完成，退出")
