@@ -628,6 +628,70 @@ class NarrativeServiceTests(unittest.TestCase):
             self.assertIsNone(result)
             save.assert_not_called()
 
+    def test_cache_without_current_evidence_policy_is_refreshed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            load_narrative_modules(tmp, {"NARRATIVE_MIN_EVIDENCE": "3"})
+            import narrative_service
+            from narrative_provider import BaseNarrativeProvider
+            from narrative_types import (
+                EvidenceItem,
+                NarrativeAnalysis,
+                NarrativeLLMResult,
+            )
+
+            class RefreshProvider(BaseNarrativeProvider):
+                provider_name = "mock"
+
+                def __init__(self):
+                    self.calls = 0
+
+                def analyze(self, narrative_input):
+                    self.calls += 1
+                    return (
+                        NarrativeLLMResult(
+                            narrative_tags=["fresh"],
+                            summary="Fresh cited evidence.",
+                            confidence="medium",
+                        ),
+                        [
+                            EvidenceItem(url=f"https://x.com/a/status/{index}")
+                            for index in range(3)
+                        ],
+                    )
+
+            invalid_raw_results = [
+                {"evidence_count": 2},
+                {},
+                {"evidence_count": "3"},
+            ]
+            for raw_result in invalid_raw_results:
+                with self.subTest(raw_result=raw_result):
+                    cached = NarrativeAnalysis(
+                        provider="mock",
+                        score=99,
+                        confidence="high",
+                        tags=["stale"],
+                        summary="Cached without current evidence policy.",
+                        raw_result=raw_result,
+                    )
+                    provider = RefreshProvider()
+                    with mock.patch.object(
+                        narrative_service,
+                        "load_cached_analysis",
+                        return_value=cached,
+                    ), mock.patch.object(
+                        narrative_service, "_get_provider", return_value=provider
+                    ), mock.patch.object(
+                        narrative_service, "save_analysis"
+                    ) as save:
+                        result = narrative_service.analyze_contract_narrative(
+                            self._contract(), "sol", []
+                        )
+
+                    self.assertEqual(result.summary, "Fresh cited evidence.")
+                    self.assertEqual(provider.calls, 1)
+                    save.assert_called_once()
+
     def test_successful_result_is_cached(self):
         with tempfile.TemporaryDirectory() as tmp:
             load_narrative_modules(tmp)

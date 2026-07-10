@@ -25,6 +25,14 @@ def _get_provider():
     return build_provider(NARRATIVE_PROVIDER, XAI_API_KEY, NARRATIVE_TIMEOUT_SECONDS)
 
 
+def _cache_meets_evidence_policy(cached: NarrativeAnalysis) -> bool:
+    raw_result = cached.raw_result
+    if not isinstance(raw_result, dict):
+        return False
+    evidence_count = raw_result.get("evidence_count")
+    return type(evidence_count) is int and evidence_count >= NARRATIVE_MIN_EVIDENCE
+
+
 def build_narrative_input(
     contract: dict, chain: str, kol_holders: List[dict]
 ) -> NarrativeInput:
@@ -57,7 +65,7 @@ def analyze_contract_narrative(
     provider_key = NARRATIVE_PROVIDER
     try:
         cached = load_cached_analysis(chain, token_address, provider_key)
-        if cached:
+        if cached and _cache_meets_evidence_policy(cached):
             return cached
     except Exception as e:
         print(
