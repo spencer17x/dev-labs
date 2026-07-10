@@ -3,6 +3,7 @@ from typing import List, Optional
 from config import (
     NARRATIVE_CACHE_TTL_HOURS,
     NARRATIVE_ENABLED,
+    NARRATIVE_MIN_EVIDENCE,
     NARRATIVE_PROVIDER,
     NARRATIVE_TIMEOUT_SECONDS,
     XAI_API_KEY,
@@ -69,6 +70,13 @@ def analyze_contract_narrative(
         provider = _get_provider()
         llm_result, evidence = provider.analyze(narrative_input)
         evidence_items = list(evidence or [])
+        if len(evidence_items) < NARRATIVE_MIN_EVIDENCE:
+            print(
+                f"⚠️ [{chain.upper()}] narrative evidence below minimum: "
+                f"{contract.get('symbol', 'N/A')} | {token_address} | "
+                f"{len(evidence_items)}/{NARRATIVE_MIN_EVIDENCE}"
+            )
+            return None
         score = compute_narrative_score(llm_result, evidence_items)
         analysis = NarrativeAnalysis(
             provider=provider.provider_name,

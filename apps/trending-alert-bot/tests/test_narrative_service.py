@@ -66,6 +66,36 @@ class NarrativeProviderTests(unittest.TestCase):
         else:
             self.fail("NarrativeProviderError not raised")
 
+    def _structured_output(
+        self,
+        evidence_url,
+        *,
+        text="TOKEN1",
+        influencer_hits=None,
+        **evidence_overrides,
+    ):
+        evidence = {
+            "url": evidence_url,
+            "text": text,
+            "author_handle": "example",
+            "author_id": "1",
+            "created_at": "2026-07-10T01:00:00Z",
+            "like_count": 1,
+            "repost_count": 0,
+            "reply_count": 0,
+            "quote_count": 0,
+        }
+        evidence.update(evidence_overrides)
+        return {
+            "narrative_tags": ["meme"],
+            "summary": "Cited token discussion.",
+            "confidence": "medium",
+            "influencer_hits": influencer_hits or [],
+            "risk_flags": [],
+            "evidence_links": [evidence_url],
+            "evidence": [evidence],
+        }
+
     def test_mock_provider_returns_structured_result_and_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
             narrative_provider, NarrativeInput = load_narrative_modules(tmp)
@@ -97,17 +127,17 @@ class NarrativeProviderTests(unittest.TestCase):
                             {
                                 "type": "output_text",
                                 "text": json.dumps(
-                                    {
-                                        "narrative_tags": ["meme"],
-                                        "summary": "Meme discussion.",
-                                        "confidence": "medium",
-                                        "influencer_hits": [],
-                                        "risk_flags": [],
-                                        "evidence_links": [
-                                            "https://x.com/example/status/1"
-                                        ],
-                                    }
+                                    self._structured_output(
+                                        "https://x.com/example/status/1",
+                                        text="Meme discussion for TOKEN1.",
+                                    )
                                 ),
+                                "annotations": [
+                                    {
+                                        "type": "url_citation",
+                                        "url": "https://x.com/example/status/1",
+                                    }
+                                ],
                             }
                         ]
                     }
@@ -132,7 +162,136 @@ class NarrativeProviderTests(unittest.TestCase):
             self.assertEqual(result.narrative_tags, ["meme"])
             self.assertEqual(result.confidence, "medium")
             self.assertEqual(evidence[0].url, "https://x.com/example/status/1")
-            self.assertFalse(evidence[0].exact_token_match)
+            self.assertTrue(evidence[0].exact_token_match)
+
+    def test_xai_provider_accepts_only_cited_structured_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            narrative_provider, NarrativeInput = load_narrative_modules(
+                tmp,
+                {"NARRATIVE_PROVIDER": "xai", "XAI_API_KEY": "key"},
+            )
+            evidence_url = "https://X.com/Alice/status/123/?s=20"
+            cited_url = "https://x.com/Alice/status/123"
+            uncited_url = "https://x.com/elonmusk/status/456"
+            output = self._structured_output(
+                evidence_url,
+                text="Safe Token is live at TOKEN1.",
+                influencer_hits=[
+                    {
+                        "account": "@alice",
+                        "hit_type": "author",
+                        "strength": "high",
+                        "evidence_url": evidence_url,
+                    },
+                    {
+                        "account": "@elonmusk",
+                        "hit_type": "author",
+                        "strength": "high",
+                        "evidence_url": evidence_url,
+                    },
+                    {
+                        "account": "@elonmusk",
+                        "hit_type": "mentioned_by_others",
+                        "strength": "low",
+                        "evidence_url": evidence_url,
+                    },
+                    {
+                        "account": "@elonmusk",
+                        "hit_type": "author",
+                        "strength": "high",
+                        "evidence_url": uncited_url,
+                    },
+                ],
+                author_handle="spoofed",
+                author_id="42",
+                like_count=-10,
+                repost_count="-2",
+                reply_count=None,
+                quote_count="bad",
+            )
+            output["evidence_links"] = [uncited_url]
+            fake_response = {
+                "output": [
+                    {
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": json.dumps(output),
+                                "annotations": [
+                                    {"type": "url_citation", "url": cited_url}
+                                ],
+                            }
+                        ]
+                    }
+                ]
+            }
+            provider = narrative_provider.XaiNarrativeProvider(
+                api_key="key", timeout_seconds=20
+            )
+
+            with mock.patch.object(
+                provider, "_post_response", return_value=fake_response
+            ) as post_response:
+                result, evidence = provider.analyze(
+                    NarrativeInput(
+                        chain="sol",
+                        token_address="TOKEN1",
+                        symbol="SAFE",
+                        name="Safe Token",
+                    )
+                )
+
+            payload = post_response.call_args.args[0]
+            response_format = payload["text"]["format"]
+            self.assertEqual(payload["include"], ["no_inline_citations"])
+            self.assertEqual(response_format["type"], "json_schema")
+            self.assertTrue(response_format["strict"])
+            self.assertIn("evidence", response_format["schema"]["required"])
+            self.assertEqual(len(evidence), 1)
+            self.assertEqual(evidence[0].url, cited_url)
+            self.assertEqual(evidence[0].author_handle, "alice")
+            self.assertTrue(evidence[0].exact_token_match)
+            self.assertTrue(evidence[0].symbol_or_name_match)
+            self.assertEqual(evidence[0].like_count, 0)
+            self.assertEqual(evidence[0].repost_count, 0)
+            self.assertEqual(evidence[0].reply_count, 0)
+            self.assertEqual(evidence[0].quote_count, 0)
+            self.assertEqual(result.evidence_links, [cited_url])
+            self.assertEqual(
+                [(hit.account, hit.hit_type) for hit in result.influencer_hits],
+                [
+                    ("@alice", "author"),
+                    ("@elonmusk", "mentioned_by_others"),
+                ],
+            )
+
+            from narrative_scoring import compute_narrative_score
+
+            self.assertGreater(compute_narrative_score(result, evidence), 20)
+
+    def test_xai_provider_rejects_uncited_structured_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            narrative_provider, NarrativeInput = load_narrative_modules(
+                tmp,
+                {"NARRATIVE_PROVIDER": "xai", "XAI_API_KEY": "key"},
+            )
+            evidence_url = "https://x.com/alice/status/123"
+            fake_response = {
+                "output_text": json.dumps(self._structured_output(evidence_url))
+            }
+            provider = narrative_provider.XaiNarrativeProvider(
+                api_key="key", timeout_seconds=20
+            )
+
+            with mock.patch.object(
+                provider, "_post_response", return_value=fake_response
+            ):
+                result, evidence = provider.analyze(
+                    NarrativeInput(chain="sol", token_address="TOKEN1")
+                )
+
+            self.assertEqual(evidence, [])
+            self.assertEqual(result.evidence_links, [])
 
     def test_xai_provider_parses_top_level_output_text(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -143,14 +302,17 @@ class NarrativeProviderTests(unittest.TestCase):
             fake_response = {
                 "output_text": json.dumps(
                     {
+                        **self._structured_output(
+                            "https://x.com/example/status/2",
+                            text="AI discussion for TOKEN1.",
+                            author_id="2",
+                        ),
                         "narrative_tags": ["ai"],
                         "summary": "AI discussion.",
                         "confidence": "high",
-                        "influencer_hits": [],
-                        "risk_flags": [],
-                        "evidence_links": ["https://x.com/example/status/2"],
                     }
-                )
+                ),
+                "citations": ["https://x.com/example/status/2"],
             }
             provider = narrative_provider.XaiNarrativeProvider(
                 api_key="key", timeout_seconds=20
@@ -431,6 +593,41 @@ class NarrativeServiceTests(unittest.TestCase):
 
             self.assertIsNone(result)
 
+    def test_insufficient_evidence_returns_none_without_caching(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            load_narrative_modules(tmp, {"NARRATIVE_MIN_EVIDENCE": "3"})
+            import narrative_service
+            from narrative_provider import BaseNarrativeProvider
+            from narrative_types import EvidenceItem, NarrativeLLMResult
+
+            class TwoEvidenceProvider(BaseNarrativeProvider):
+                provider_name = "mock"
+
+                def analyze(self, narrative_input):
+                    return (
+                        NarrativeLLMResult(
+                            narrative_tags=["meme"],
+                            summary="Only two cited posts.",
+                            confidence="medium",
+                        ),
+                        [
+                            EvidenceItem(url="https://x.com/a/status/1"),
+                            EvidenceItem(url="https://x.com/b/status/2"),
+                        ],
+                    )
+
+            with mock.patch.object(
+                narrative_service,
+                "_get_provider",
+                return_value=TwoEvidenceProvider(),
+            ), mock.patch.object(narrative_service, "save_analysis") as save:
+                result = narrative_service.analyze_contract_narrative(
+                    self._contract(), "sol", []
+                )
+
+            self.assertIsNone(result)
+            save.assert_not_called()
+
     def test_successful_result_is_cached(self):
         with tempfile.TemporaryDirectory() as tmp:
             load_narrative_modules(tmp)
@@ -474,9 +671,15 @@ class NarrativeServiceTests(unittest.TestCase):
                 "volume": "100",
             }
 
-            with mock.patch.object(narrative_service, "_get_provider", return_value=provider):
-                first = narrative_service.analyze_contract_narrative(contract, "sol", [])
-                second = narrative_service.analyze_contract_narrative(contract, "sol", [])
+            with mock.patch.object(
+                narrative_service, "_get_provider", return_value=provider
+            ):
+                first = narrative_service.analyze_contract_narrative(
+                    contract, "sol", []
+                )
+                second = narrative_service.analyze_contract_narrative(
+                    contract, "sol", []
+                )
 
             self.assertIsNotNone(first)
             self.assertEqual(second.score, first.score)
