@@ -35,6 +35,73 @@ def load_storage_modules(data_dir: str):
 
 
 class SqliteStorageTests(unittest.TestCase):
+    def test_incompatible_contract_schema_is_recreated_but_chats_survive(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, chat_storage, _ = load_storage_modules(tmp)
+            chat_storage.ChatStorage().add_chat(
+                111, {"type": "group", "title": "Keep Me"}
+            )
+            import db_storage
+
+            with db_storage.connect() as conn:
+                conn.execute("DROP TABLE contract_message_ids")
+                conn.execute("DROP TABLE contract_notified_multipliers")
+                conn.execute("DROP TABLE contract_pending_multipliers")
+                conn.execute("DROP TABLE narrative_analysis")
+                conn.execute("DROP TABLE contracts")
+                conn.execute(
+                    """
+                    CREATE TABLE contracts (
+                        chain TEXT NOT NULL,
+                        chat_id INTEGER NOT NULL,
+                        token_address TEXT NOT NULL,
+                        initial_price REAL NOT NULL DEFAULT 0,
+                        initial_market_cap REAL NOT NULL DEFAULT 0,
+                        push_time TEXT NOT NULL DEFAULT '',
+                        notified_multipliers_json TEXT NOT NULL DEFAULT '[]',
+                        name TEXT NOT NULL DEFAULT '',
+                        symbol TEXT NOT NULL DEFAULT '',
+                        telegram_message_ids_json TEXT NOT NULL DEFAULT '{}',
+                        pending_multiplier_json TEXT NOT NULL DEFAULT '',
+                        last_notify_time TEXT NOT NULL DEFAULT '',
+                        PRIMARY KEY (chain, chat_id, token_address)
+                    )
+                    """
+                )
+                conn.execute(
+                    "INSERT INTO contracts (chain, chat_id, token_address) "
+                    "VALUES ('sol', 111, 'OLD')"
+                )
+                conn.execute("PRAGMA user_version = 1")
+
+            db_storage.ensure_schema()
+
+            with db_storage.connect() as conn:
+                self.assertIsNotNone(
+                    conn.execute(
+                        "SELECT 1 FROM telegram_chats WHERE chat_id = 111"
+                    ).fetchone()
+                )
+                self.assertIsNone(
+                    conn.execute(
+                        "SELECT 1 FROM contracts WHERE token_address = 'OLD'"
+                    ).fetchone()
+                )
+                self.assertEqual(
+                    conn.execute("PRAGMA user_version").fetchone()[0],
+                    db_storage.CONTRACT_SCHEMA_VERSION,
+                )
+                for table in (
+                    "contract_message_ids",
+                    "contract_notified_multipliers",
+                    "contract_pending_multipliers",
+                ):
+                    parents = {
+                        row["table"]
+                        for row in conn.execute(f"PRAGMA foreign_key_list({table})")
+                    }
+                    self.assertEqual(parents, {"contracts"})
+
     def test_chat_storage_ignores_legacy_json_and_writes_sqlite_only(self):
         with tempfile.TemporaryDirectory() as tmp:
             legacy_path = Path(tmp) / "telegram_chats.json"
