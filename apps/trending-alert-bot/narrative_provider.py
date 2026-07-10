@@ -87,13 +87,30 @@ def _safe_nonnegative_int(value) -> int:
         return 0
 
 
+def _has_supported_x_origin(parsed) -> bool:
+    if parsed.scheme.lower() not in {"http", "https"}:
+        return False
+    if parsed.username is not None or parsed.password is not None:
+        return False
+    host = (parsed.hostname or "").lower()
+    if host not in _X_HOSTS:
+        return False
+    try:
+        port = parsed.port
+    except ValueError:
+        return False
+    if port is None:
+        return True
+    return (parsed.scheme.lower(), port) in {("http", 80), ("https", 443)}
+
+
 def _normalize_url(value: str) -> str:
     parsed = urlsplit(str(value).strip())
     scheme = parsed.scheme.lower()
     netloc = parsed.netloc.lower()
     if scheme not in {"http", "https"} or not netloc:
         return ""
-    if netloc in _X_HOSTS:
+    if _has_supported_x_origin(parsed):
         author, status_id = _x_status_parts(value)
         if status_id:
             if author:
@@ -114,7 +131,7 @@ def _normalize_url(value: str) -> str:
 def _x_status_parts(value: str) -> Tuple[str, str]:
     parsed = urlsplit(value)
     parts = [part for part in parsed.path.split("/") if part]
-    if parsed.netloc.lower() not in _X_HOSTS:
+    if not _has_supported_x_origin(parsed):
         return "", ""
     if len(parts) >= 3 and parts[1].lower() == "status":
         status_id = parts[2]
@@ -221,6 +238,30 @@ def _extract_citation_urls(response_json: dict) -> Set[str]:
     return urls
 
 
+def _citation_urls_by_identity(cited_urls: Set[str]) -> Dict[str, str]:
+    grouped: Dict[str, List[str]] = {}
+    for url in cited_urls:
+        identity = _evidence_identity(url)
+        if identity:
+            grouped.setdefault(identity, []).append(url)
+
+    canonical = {}
+    for identity, urls in grouped.items():
+        if not identity.startswith("x-status:"):
+            canonical[identity] = sorted(urls)[0]
+            continue
+
+        status_id = identity.split(":", 1)[1]
+        authors = {author for url in urls if (author := _x_author_from_url(url))}
+        if len(authors) == 1:
+            canonical[identity] = (
+                f"https://x.com/{next(iter(authors))}/status/{status_id}"
+            )
+        else:
+            canonical[identity] = f"https://x.com/i/status/{status_id}"
+    return canonical
+
+
 def _build_evidence(
     raw_evidence,
     cited_urls: Set[str],
@@ -231,21 +272,20 @@ def _build_evidence(
     if not isinstance(raw_evidence, list):
         return accepted, by_identity
 
-    cited_identities = {
-        identity for url in cited_urls if (identity := _evidence_identity(url))
-    }
+    cited_by_identity = _citation_urls_by_identity(cited_urls)
 
     for row in raw_evidence:
         if not isinstance(row, dict):
             continue
-        url = _normalize_url(row.get("url", ""))
-        identity = _evidence_identity(url)
-        if not url or identity not in cited_identities or identity in by_identity:
+        model_url = _normalize_url(row.get("url", ""))
+        identity = _evidence_identity(model_url)
+        citation_url = cited_by_identity.get(identity)
+        if not model_url or not citation_url or identity in by_identity:
             continue
         text = str(row.get("text") or "")
-        author_handle = _x_author_from_url(url)
+        author_handle = _x_author_from_url(citation_url)
         item = EvidenceItem(
-            url=url,
+            url=citation_url,
             author_handle=author_handle,
             author_id="",
             text=text,

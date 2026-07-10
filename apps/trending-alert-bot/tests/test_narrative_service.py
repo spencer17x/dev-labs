@@ -300,7 +300,7 @@ class NarrativeProviderTests(unittest.TestCase):
                 tmp,
                 {"NARRATIVE_PROVIDER": "xai", "XAI_API_KEY": "key"},
             )
-            first_url = "https://twitter.com/Alice/status/123?s=20"
+            first_url = "https://twitter.com:443/Alice/status/123?s=20"
             alias_url = "https://x.com/alice/status/123/photo/1"
             output = self._structured_output(first_url)
             duplicate = dict(output["evidence"][0])
@@ -324,6 +324,45 @@ class NarrativeProviderTests(unittest.TestCase):
             self.assertEqual(len(evidence), 1)
             self.assertEqual(evidence[0].url, "https://x.com/alice/status/123")
             self.assertEqual(result.evidence_links, ["https://x.com/alice/status/123"])
+
+    def test_xai_provider_binds_author_to_cited_status_url(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            narrative_provider, NarrativeInput = load_narrative_modules(
+                tmp,
+                {"NARRATIVE_PROVIDER": "xai", "XAI_API_KEY": "key"},
+            )
+            cited_url = "https://x.com/alice/status/123"
+            model_url = "https://x.com/elonmusk/status/123"
+            output = self._structured_output(
+                model_url,
+                author_handle="elonmusk",
+                influencer_hits=[
+                    {
+                        "account": "elonmusk",
+                        "hit_type": "author",
+                        "strength": "high",
+                        "evidence_url": model_url,
+                    }
+                ],
+            )
+            fake_response = {
+                "output_text": json.dumps(output),
+                "citations": [cited_url],
+            }
+            provider = narrative_provider.XaiNarrativeProvider(
+                api_key="key", timeout_seconds=20
+            )
+
+            with mock.patch.object(
+                provider, "_post_response", return_value=fake_response
+            ):
+                result, evidence = provider.analyze(
+                    NarrativeInput(chain="sol", token_address="TOKEN1")
+                )
+
+            self.assertEqual(evidence[0].url, cited_url)
+            self.assertEqual(evidence[0].author_handle, "alice")
+            self.assertEqual(result.influencer_hits, [])
 
     def test_xai_provider_rejects_unverified_direct_author(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -846,7 +885,7 @@ class NarrativeServiceTests(unittest.TestCase):
                 )
 
             self.assertIsNotNone(first)
-            self.assertEqual(first.raw_result.get("evidence_policy_version"), 2)
+            self.assertEqual(first.raw_result.get("evidence_policy_version"), 3)
             self.assertEqual(second.score, first.score)
             self.assertEqual(provider.calls, 1)
 
