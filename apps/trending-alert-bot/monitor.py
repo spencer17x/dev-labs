@@ -233,5 +233,8 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
             break
         except Exception as e:
             print(f"❌ 发生错误: {e}")
+            if DRY_RUN:
+                print("🧪 Dry-run 失败，退出")
+                raise
             print(f"⏳ {CHECK_INTERVAL} 秒后重试...\n")
             time.sleep(CHECK_INTERVAL)

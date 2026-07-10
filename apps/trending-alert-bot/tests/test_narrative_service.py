@@ -171,7 +171,7 @@ class NarrativeProviderTests(unittest.TestCase):
                 {"NARRATIVE_PROVIDER": "xai", "XAI_API_KEY": "key"},
             )
             evidence_url = "https://X.com/Alice/status/123/?s=20"
-            cited_url = "https://x.com/Alice/status/123"
+            cited_url = "https://x.com/alice/status/123"
             uncited_url = "https://x.com/elonmusk/status/456"
             output = self._structured_output(
                 evidence_url,
@@ -250,6 +250,7 @@ class NarrativeProviderTests(unittest.TestCase):
             self.assertEqual(len(evidence), 1)
             self.assertEqual(evidence[0].url, cited_url)
             self.assertEqual(evidence[0].author_handle, "alice")
+            self.assertEqual(evidence[0].author_id, "")
             self.assertTrue(evidence[0].exact_token_match)
             self.assertTrue(evidence[0].symbol_or_name_match)
             self.assertEqual(evidence[0].like_count, 0)
@@ -292,6 +293,104 @@ class NarrativeProviderTests(unittest.TestCase):
 
             self.assertEqual(evidence, [])
             self.assertEqual(result.evidence_links, [])
+
+    def test_xai_provider_deduplicates_x_status_aliases(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            narrative_provider, NarrativeInput = load_narrative_modules(
+                tmp,
+                {"NARRATIVE_PROVIDER": "xai", "XAI_API_KEY": "key"},
+            )
+            first_url = "https://twitter.com/Alice/status/123?s=20"
+            alias_url = "https://x.com/alice/status/123/photo/1"
+            output = self._structured_output(first_url)
+            duplicate = dict(output["evidence"][0])
+            duplicate["url"] = alias_url
+            output["evidence"].append(duplicate)
+            fake_response = {
+                "output_text": json.dumps(output),
+                "citations": [first_url, alias_url],
+            }
+            provider = narrative_provider.XaiNarrativeProvider(
+                api_key="key", timeout_seconds=20
+            )
+
+            with mock.patch.object(
+                provider, "_post_response", return_value=fake_response
+            ):
+                result, evidence = provider.analyze(
+                    NarrativeInput(chain="sol", token_address="TOKEN1")
+                )
+
+            self.assertEqual(len(evidence), 1)
+            self.assertEqual(evidence[0].url, "https://x.com/alice/status/123")
+            self.assertEqual(result.evidence_links, ["https://x.com/alice/status/123"])
+
+    def test_xai_provider_rejects_unverified_direct_author(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            narrative_provider, NarrativeInput = load_narrative_modules(
+                tmp,
+                {"NARRATIVE_PROVIDER": "xai", "XAI_API_KEY": "key"},
+            )
+            evidence_url = "https://x.com/i/web/status/123"
+            output = self._structured_output(
+                evidence_url,
+                author_handle="elonmusk",
+                influencer_hits=[
+                    {
+                        "account": "elonmusk",
+                        "hit_type": "author",
+                        "strength": "high",
+                        "evidence_url": evidence_url,
+                    }
+                ],
+            )
+            fake_response = {
+                "output_text": json.dumps(output),
+                "citations": [evidence_url],
+            }
+            provider = narrative_provider.XaiNarrativeProvider(
+                api_key="key", timeout_seconds=20
+            )
+
+            with mock.patch.object(
+                provider, "_post_response", return_value=fake_response
+            ):
+                result, evidence = provider.analyze(
+                    NarrativeInput(chain="sol", token_address="TOKEN1")
+                )
+
+            self.assertEqual(len(evidence), 1)
+            self.assertEqual(result.influencer_hits, [])
+
+    def test_xai_provider_matches_token_address_with_chain_case_rules(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            narrative_provider, NarrativeInput = load_narrative_modules(
+                tmp,
+                {"NARRATIVE_PROVIDER": "xai", "XAI_API_KEY": "key"},
+            )
+            evidence_url = "https://x.com/alice/status/123"
+            fake_response = {
+                "output_text": json.dumps(
+                    self._structured_output(evidence_url, text="buy abcd now")
+                ),
+                "citations": [evidence_url],
+            }
+            provider = narrative_provider.XaiNarrativeProvider(
+                api_key="key", timeout_seconds=20
+            )
+
+            with mock.patch.object(
+                provider, "_post_response", return_value=fake_response
+            ):
+                _, sol_evidence = provider.analyze(
+                    NarrativeInput(chain="sol", token_address="AbCd")
+                )
+                _, eth_evidence = provider.analyze(
+                    NarrativeInput(chain="eth", token_address="AbCd")
+                )
+
+            self.assertFalse(sol_evidence[0].exact_token_match)
+            self.assertTrue(eth_evidence[0].exact_token_match)
 
     def test_xai_provider_parses_top_level_output_text(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -747,7 +846,7 @@ class NarrativeServiceTests(unittest.TestCase):
                 )
 
             self.assertIsNotNone(first)
-            self.assertEqual(first.raw_result.get("evidence_policy_version"), 1)
+            self.assertEqual(first.raw_result.get("evidence_policy_version"), 2)
             self.assertEqual(second.score, first.score)
             self.assertEqual(provider.calls, 1)
 

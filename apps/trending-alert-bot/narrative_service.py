@@ -13,7 +13,7 @@ from narrative_scoring import compute_narrative_score
 from narrative_storage import load_cached_analysis, save_analysis
 from narrative_types import NarrativeAnalysis, NarrativeInput
 
-NARRATIVE_EVIDENCE_POLICY_VERSION = 1
+NARRATIVE_EVIDENCE_POLICY_VERSION = 2
 
 
 def _safe_float(value) -> float:

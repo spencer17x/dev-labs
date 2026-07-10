@@ -736,6 +736,36 @@ class ReviewRegressionTests(unittest.TestCase):
             scan_mock.assert_called_once()
             self.assertEqual(scan_mock.call_args.args[1], [{"chat_id": 0}])
 
+    def test_dry_run_loop_setup_failure_exits_without_sleep_or_retry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            load_runtime_modules(tmp)
+            import monitor
+
+            initial_chat_storage = mock.Mock()
+            initial_chat_storage.get_active_chats.return_value = []
+            with (
+                mock.patch.object(
+                    monitor,
+                    "ChatStorage",
+                    side_effect=[
+                        initial_chat_storage,
+                        RuntimeError("chat load failed"),
+                    ],
+                ),
+                mock.patch.object(monitor, "DRY_RUN", True),
+                mock.patch.object(monitor, "_startup_telegram"),
+                mock.patch.object(monitor, "_bootstrap_storages"),
+                mock.patch.object(
+                    monitor.time,
+                    "sleep",
+                    side_effect=AssertionError("dry-run must not retry"),
+                ) as sleep_mock,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "chat load failed"):
+                    monitor.monitor_trending()
+
+            sleep_mock.assert_not_called()
+
     def test_summary_report_skips_inactive_chats(self):
         with tempfile.TemporaryDirectory() as tmp:
             _, _, monitor_flow, _, _ = load_runtime_modules(tmp)

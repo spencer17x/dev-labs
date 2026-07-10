@@ -77,6 +77,8 @@ _NARRATIVE_RESPONSE_SCHEMA = {
     "additionalProperties": False,
 }
 
+_X_HOSTS = {"x.com", "www.x.com", "twitter.com", "www.twitter.com"}
+
 
 def _safe_nonnegative_int(value) -> int:
     try:
@@ -87,12 +89,21 @@ def _safe_nonnegative_int(value) -> int:
 
 def _normalize_url(value: str) -> str:
     parsed = urlsplit(str(value).strip())
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+    scheme = parsed.scheme.lower()
+    netloc = parsed.netloc.lower()
+    if scheme not in {"http", "https"} or not netloc:
         return ""
+    if netloc in _X_HOSTS:
+        author, status_id = _x_status_parts(value)
+        if status_id:
+            if author:
+                return f"https://x.com/{author}/status/{status_id}"
+            return f"https://x.com/i/status/{status_id}"
+        netloc = "x.com"
     return urlunsplit(
         (
-            parsed.scheme.lower(),
-            parsed.netloc.lower(),
+            scheme,
+            netloc,
             parsed.path.rstrip("/"),
             "",
             "",
@@ -100,25 +111,52 @@ def _normalize_url(value: str) -> str:
     )
 
 
-def _x_author_from_url(value: str) -> str:
+def _x_status_parts(value: str) -> Tuple[str, str]:
     parsed = urlsplit(value)
     parts = [part for part in parsed.path.split("/") if part]
-    if parsed.netloc.lower() in {
-        "x.com",
-        "www.x.com",
-        "twitter.com",
-        "www.twitter.com",
-    }:
-        if len(parts) >= 3 and parts[1] == "status" and parts[0].lower() != "i":
-            return parts[0].lstrip("@").lower()
-    return ""
+    if parsed.netloc.lower() not in _X_HOSTS:
+        return "", ""
+    if len(parts) >= 3 and parts[1].lower() == "status":
+        status_id = parts[2]
+        if status_id.isdigit() and parts[0].lower() != "i":
+            return parts[0].lstrip("@").lower(), status_id
+    if (
+        len(parts) >= 4
+        and parts[0].lower() == "i"
+        and parts[1].lower() == "web"
+        and parts[2].lower() == "status"
+        and parts[3].isdigit()
+    ):
+        return "", parts[3]
+    if (
+        len(parts) >= 3
+        and parts[0].lower() == "i"
+        and parts[1].lower() == "status"
+        and parts[2].isdigit()
+    ):
+        return "", parts[2]
+    return "", ""
+
+
+def _x_author_from_url(value: str) -> str:
+    return _x_status_parts(value)[0]
+
+
+def _evidence_identity(value: str) -> str:
+    normalized = _normalize_url(value)
+    if not normalized:
+        return ""
+    _, status_id = _x_status_parts(normalized)
+    if status_id:
+        return f"x-status:{status_id}"
+    return normalized
 
 
 def _normalize_handle(value: str) -> str:
     return str(value or "").strip().lstrip("@").lower()
 
 
-def _contains_exact_value(text: str, value: str) -> bool:
+def _contains_exact_value(text: str, value: str, *, ignore_case: bool = True) -> bool:
     needle = str(value or "").strip()
     if not needle:
         return False
@@ -126,7 +164,7 @@ def _contains_exact_value(text: str, value: str) -> bool:
         re.search(
             rf"(?<![A-Za-z0-9]){re.escape(needle)}(?![A-Za-z0-9])",
             str(text or ""),
-            flags=re.IGNORECASE,
+            flags=re.IGNORECASE if ignore_case else 0,
         )
     )
 
@@ -189,24 +227,27 @@ def _build_evidence(
     narrative_input: NarrativeInput,
 ) -> Tuple[List[EvidenceItem], Dict[str, EvidenceItem]]:
     accepted = []
-    by_url = {}
+    by_identity = {}
     if not isinstance(raw_evidence, list):
-        return accepted, by_url
+        return accepted, by_identity
+
+    cited_identities = {
+        identity for url in cited_urls if (identity := _evidence_identity(url))
+    }
 
     for row in raw_evidence:
         if not isinstance(row, dict):
             continue
         url = _normalize_url(row.get("url", ""))
-        if not url or url not in cited_urls or url in by_url:
+        identity = _evidence_identity(url)
+        if not url or identity not in cited_identities or identity in by_identity:
             continue
         text = str(row.get("text") or "")
-        author_handle = _x_author_from_url(url) or _normalize_handle(
-            row.get("author_handle", "")
-        )
+        author_handle = _x_author_from_url(url)
         item = EvidenceItem(
             url=url,
             author_handle=author_handle,
-            author_id=str(row.get("author_id") or "").strip(),
+            author_id="",
             text=text,
             created_at=str(row.get("created_at") or "").strip(),
             like_count=_safe_nonnegative_int(row.get("like_count")),
@@ -214,7 +255,9 @@ def _build_evidence(
             reply_count=_safe_nonnegative_int(row.get("reply_count")),
             quote_count=_safe_nonnegative_int(row.get("quote_count")),
             exact_token_match=_contains_exact_value(
-                text, narrative_input.token_address
+                text,
+                narrative_input.token_address,
+                ignore_case=str(narrative_input.chain).strip().lower() != "sol",
             ),
             symbol_or_name_match=(
                 _contains_exact_value(text, narrative_input.symbol)
@@ -222,26 +265,27 @@ def _build_evidence(
             ),
         )
         accepted.append(item)
-        by_url[url] = item
-    return accepted, by_url
+        by_identity[identity] = item
+    return accepted, by_identity
 
 
 def _validated_influencer_hits(
-    hits: List[InfluencerHit], evidence_by_url: Dict[str, EvidenceItem]
+    hits: List[InfluencerHit], evidence_by_identity: Dict[str, EvidenceItem]
 ) -> List[InfluencerHit]:
     accepted = []
     for hit in hits:
-        evidence_url = _normalize_url(hit.evidence_url)
-        evidence = evidence_by_url.get(evidence_url)
+        evidence_identity = _evidence_identity(hit.evidence_url)
+        evidence = evidence_by_identity.get(evidence_identity)
         if evidence is None:
             continue
         hit_type = str(hit.hit_type).strip().lower()
         if hit_type == "mentioned_by_others":
             pass
         elif hit_type in {"author", "reply", "quote"}:
-            if not evidence.author_handle or _normalize_handle(
+            verified_author = _x_author_from_url(evidence.url)
+            if not verified_author or _normalize_handle(
                 hit.account
-            ) != _normalize_handle(evidence.author_handle):
+            ) != _normalize_handle(verified_author):
                 continue
         else:
             continue
@@ -250,7 +294,7 @@ def _validated_influencer_hits(
                 account=hit.account,
                 hit_type=hit_type,
                 strength=hit.strength,
-                evidence_url=evidence_url,
+                evidence_url=evidence.url,
             )
         )
     return accepted
@@ -381,14 +425,14 @@ class XaiNarrativeProvider(BaseNarrativeProvider):
             raise NarrativeProviderError(
                 "xai response contained invalid narrative JSON"
             ) from exc
-        evidence, evidence_by_url = _build_evidence(
+        evidence, evidence_by_identity = _build_evidence(
             parsed.get("evidence"),
             _extract_citation_urls(response_json),
             narrative_input,
         )
         llm_result.evidence_links = [item.url for item in evidence]
         llm_result.influencer_hits = _validated_influencer_hits(
-            llm_result.influencer_hits, evidence_by_url
+            llm_result.influencer_hits, evidence_by_identity
         )
         return llm_result, evidence
 
