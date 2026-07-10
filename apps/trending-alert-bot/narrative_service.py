@@ -13,6 +13,8 @@ from narrative_scoring import compute_narrative_score
 from narrative_storage import load_cached_analysis, save_analysis
 from narrative_types import NarrativeAnalysis, NarrativeInput
 
+NARRATIVE_EVIDENCE_POLICY_VERSION = 1
+
 
 def _safe_float(value) -> float:
     try:
@@ -29,8 +31,14 @@ def _cache_meets_evidence_policy(cached: NarrativeAnalysis) -> bool:
     raw_result = cached.raw_result
     if not isinstance(raw_result, dict):
         return False
+    policy_version = raw_result.get("evidence_policy_version")
     evidence_count = raw_result.get("evidence_count")
-    return type(evidence_count) is int and evidence_count >= NARRATIVE_MIN_EVIDENCE
+    return (
+        type(policy_version) is int
+        and policy_version == NARRATIVE_EVIDENCE_POLICY_VERSION
+        and type(evidence_count) is int
+        and evidence_count >= NARRATIVE_MIN_EVIDENCE
+    )
 
 
 def build_narrative_input(
@@ -98,6 +106,7 @@ def analyze_contract_narrative(
             raw_result={
                 "llm_result": llm_result.to_json(),
                 "evidence_count": len(evidence_items),
+                "evidence_policy_version": NARRATIVE_EVIDENCE_POLICY_VERSION,
             },
         )
     except (NarrativeProviderError, ValueError, TypeError) as e:

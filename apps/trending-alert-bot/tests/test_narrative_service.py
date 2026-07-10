@@ -663,6 +663,7 @@ class NarrativeServiceTests(unittest.TestCase):
                 {"evidence_count": 2},
                 {},
                 {"evidence_count": "3"},
+                {"evidence_count": 3},
             ]
             for raw_result in invalid_raw_results:
                 with self.subTest(raw_result=raw_result):
@@ -746,6 +747,7 @@ class NarrativeServiceTests(unittest.TestCase):
                 )
 
             self.assertIsNotNone(first)
+            self.assertEqual(first.raw_result.get("evidence_policy_version"), 1)
             self.assertEqual(second.score, first.score)
             self.assertEqual(provider.calls, 1)
 
