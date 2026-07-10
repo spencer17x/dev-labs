@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 def load_storage_modules(data_dir: str):
@@ -35,6 +36,63 @@ def load_storage_modules(data_dir: str):
 
 
 class SqliteStorageTests(unittest.TestCase):
+    def test_schema_recheck_after_lock_preserves_competing_migrator_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            load_storage_modules(tmp)
+            import db_storage
+
+            with db_storage.connect() as conn:
+                conn.execute("PRAGMA user_version = 1")
+
+            original_connect = db_storage.connect
+            state = {"interleaved": False}
+
+            class InterleavingConnection:
+                def __init__(self):
+                    self._connection = original_connect()
+
+                def __enter__(self):
+                    self._connection.__enter__()
+                    return self
+
+                def __exit__(self, *args):
+                    return self._connection.__exit__(*args)
+
+                def __getattr__(self, name):
+                    return getattr(self._connection, name)
+
+                def execute(self, statement, parameters=()):
+                    if (
+                        statement.strip() == "BEGIN IMMEDIATE"
+                        and not state["interleaved"]
+                    ):
+                        state["interleaved"] = True
+                        with original_connect() as competitor:
+                            competitor.execute("BEGIN IMMEDIATE")
+                            db_storage._recreate_tracking_schema(competitor)
+                            competitor.execute(
+                                "INSERT INTO contracts "
+                                "(chain, chat_id, token_address) "
+                                "VALUES ('sol', 111, 'CONCURRENT')"
+                            )
+                            competitor.commit()
+                    return self._connection.execute(statement, parameters)
+
+            with patch.object(
+                db_storage,
+                "connect",
+                side_effect=lambda: InterleavingConnection(),
+            ):
+                db_storage.ensure_schema()
+
+            self.assertTrue(state["interleaved"])
+            with original_connect() as conn:
+                self.assertIsNotNone(
+                    conn.execute(
+                        "SELECT 1 FROM contracts WHERE token_address = 'CONCURRENT'"
+                    ).fetchone()
+                )
+
     def test_incompatible_contract_schema_is_recreated_but_chats_survive(self):
         with tempfile.TemporaryDirectory() as tmp:
             _, chat_storage, _ = load_storage_modules(tmp)

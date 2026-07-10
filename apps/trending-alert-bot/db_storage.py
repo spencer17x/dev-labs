@@ -200,7 +200,12 @@ def ensure_schema():
 
             conn.execute("BEGIN IMMEDIATE")
             try:
-                _recreate_tracking_schema(conn)
+                if _contract_schema_is_current(conn):
+                    _create_contracts_table(conn)
+                    _create_contract_relation_tables(conn)
+                    _create_narrative_analysis_table(conn)
+                else:
+                    _recreate_tracking_schema(conn)
                 conn.commit()
             except Exception:
                 conn.rollback()
