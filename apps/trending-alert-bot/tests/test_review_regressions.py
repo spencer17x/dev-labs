@@ -471,6 +471,56 @@ class ReviewRegressionTests(unittest.TestCase):
             self.assertTrue(found)
             self.assertEqual(scan_mock.call_count, 2)
 
+    def test_telegram_startup_failure_reaches_main_thread(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            load_runtime_modules(tmp)
+            import telegram_bot
+
+            notifier = telegram_bot.TelegramNotifier()
+            with mock.patch.object(
+                notifier, "_setup_application", side_effect=RuntimeError("invalid token")
+            ), mock.patch("traceback.print_exc"):
+                with self.assertRaises(telegram_bot.TelegramRuntimeError):
+                    notifier.start_bot()
+
+    def test_telegram_health_rejects_dead_ready_worker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            load_runtime_modules(tmp)
+            import telegram_bot
+
+            notifier = telegram_bot.TelegramNotifier()
+            notifier._ready_event.set()
+            notifier.bot_loop = mock.Mock()
+            notifier.bot_thread = mock.Mock()
+            notifier.bot_thread.is_alive.return_value = False
+
+            with self.assertRaises(telegram_bot.TelegramRuntimeError):
+                notifier.ensure_healthy()
+
+    def test_monitor_does_not_retry_dead_telegram_worker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            load_runtime_modules(tmp)
+            import monitor
+            import telegram_bot
+
+            chat_storage = mock.Mock()
+            chat_storage.get_active_chats.return_value = []
+            worker_error = telegram_bot.TelegramRuntimeError("worker died")
+
+            with (
+                mock.patch.object(monitor, "ChatStorage", return_value=chat_storage),
+                mock.patch.object(monitor, "_startup_telegram"),
+                mock.patch.object(monitor, "SILENT_INIT", False),
+                mock.patch.object(monitor, "_initial_report_marker", return_value=""),
+                mock.patch.object(monitor, "load_last_summary_marker", return_value=""),
+                mock.patch.object(monitor.notifier, "ensure_healthy", side_effect=worker_error),
+                mock.patch.object(monitor.time, "sleep") as sleep_mock,
+            ):
+                with self.assertRaises(telegram_bot.TelegramRuntimeError):
+                    monitor.monitor_trending()
+
+            sleep_mock.assert_not_called()
+
     def test_summary_report_skips_inactive_chats(self):
         with tempfile.TemporaryDirectory() as tmp:
             _, _, monitor_flow, _, _ = load_runtime_modules(tmp)

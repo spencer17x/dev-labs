@@ -31,6 +31,10 @@ def _require_telegram_sdk():
         raise RuntimeError("python-telegram-bot is required to start the Telegram bot")
 
 
+class TelegramRuntimeError(RuntimeError):
+    """Raised when the Telegram worker cannot accept notifications."""
+
+
 class TelegramNotifier:
     def __init__(self):
         self.enabled = ENABLE_TELEGRAM
@@ -40,6 +44,7 @@ class TelegramNotifier:
         self.bot_loop = None
         self._report_generator = None
         self._ready_event = threading.Event()
+        self._worker_error = None
 
     def set_report_generator(self, fn):
         self._report_generator = fn
@@ -475,6 +480,9 @@ class TelegramNotifier:
         if not self.enabled:
             return
 
+        self._ready_event.clear()
+        self._worker_error = None
+
         def run_bot():
             self.bot_loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self.bot_loop)
@@ -488,6 +496,8 @@ class TelegramNotifier:
                 self._ready_event.set()
                 self.bot_loop.run_forever()
             except Exception as e:
+                self._worker_error = e
+                self._ready_event.set()
                 print(f"❌ Bot 线程错误: {e}")
                 import traceback
                 traceback.print_exc()
@@ -505,9 +515,22 @@ class TelegramNotifier:
         self.bot_thread = threading.Thread(target=run_bot, daemon=True)
         self.bot_thread.start()
 
-        self._ready_event.wait(timeout=30)
-        if not self._ready_event.is_set():
-            print("⚠️ Bot 启动超时，可能无法发送启动通知")
+        if not self._ready_event.wait(timeout=30):
+            raise TelegramRuntimeError("Telegram worker startup timed out")
+        self.ensure_healthy()
+
+    def ensure_healthy(self) -> None:
+        if not self.enabled:
+            return
+        if self._worker_error is not None:
+            raise TelegramRuntimeError("Telegram worker failed") from self._worker_error
+        if (
+            not self._ready_event.is_set()
+            or not self.bot_thread
+            or not self.bot_thread.is_alive()
+            or self.bot_loop is None
+        ):
+            raise TelegramRuntimeError("Telegram worker is not running")
 
     def stop_bot(self):
         if not self.bot_loop:

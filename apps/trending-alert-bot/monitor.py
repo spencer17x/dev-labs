@@ -139,6 +139,14 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
 
     while True:
         try:
+            if ENABLE_TELEGRAM and not DRY_RUN:
+                notifier.ensure_healthy()
+        except KeyboardInterrupt:
+            print("\n\n👋 机器人已停止")
+            notifier.stop_bot()
+            break
+
+        try:
             scan_time = beijing_now().strftime("%H:%M:%S")
             print(f"\n🔍 [{scan_time}] 扫描趋势榜...")
 
