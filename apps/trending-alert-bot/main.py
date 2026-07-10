@@ -1,8 +1,25 @@
 """趋势通知机器人入口"""
 
 import argparse
+import os
+import sys
 
 from bot_app import apply_runtime_env, load_runtime_config, validate_runtime_config
+
+
+_RUNTIME_MODULE_NAMES = (
+    "monitor",
+    "monitor_flow",
+    "telegram_bot",
+    "storage",
+    "chat_storage",
+    "db_storage",
+    "narrative_service",
+    "narrative_storage",
+    "narrative_provider",
+    "notifier",
+    "config",
+)
 
 
 def parse_args():
@@ -28,6 +45,9 @@ def parse_args():
 
 
 def _run_monitor(clear_storage: str):
+    for module_name in _RUNTIME_MODULE_NAMES:
+        sys.modules.pop(module_name, None)
+
     from monitor import monitor_trending, normalize_clear_targets
 
     monitor_trending(normalize_clear_targets(clear_storage))
@@ -37,13 +57,12 @@ def run(cli_args):
     runtime_cfg = load_runtime_config(cli_args.target)
     validate_runtime_config(runtime_cfg)
     apply_runtime_env(runtime_cfg)
+    os.environ["BOT_DRY_RUN"] = "1" if cli_args.dry_run else "0"
 
     if cli_args.dry_run:
-        import os
         import tempfile
 
         with tempfile.TemporaryDirectory(prefix="trending-alert-dry-run-") as data_dir:
-            os.environ["BOT_DRY_RUN"] = "1"
             os.environ["BOT_DATA_DIR"] = data_dir
             _run_monitor(cli_args.clear_storage)
         return
