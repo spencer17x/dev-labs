@@ -27,16 +27,29 @@ def parse_args():
     return parser.parse_args()
 
 
-if __name__ == "__main__":
-    cli_args = parse_args()
+def _run_monitor(clear_storage: str):
+    from monitor import monitor_trending, normalize_clear_targets
+
+    monitor_trending(normalize_clear_targets(clear_storage))
+
+
+def run(cli_args):
     runtime_cfg = load_runtime_config(cli_args.target)
     validate_runtime_config(runtime_cfg)
     apply_runtime_env(runtime_cfg)
+
     if cli_args.dry_run:
         import os
-        os.environ["BOT_DRY_RUN"] = "1"
+        import tempfile
 
-    from monitor import monitor_trending, normalize_clear_targets
+        with tempfile.TemporaryDirectory(prefix="trending-alert-dry-run-") as data_dir:
+            os.environ["BOT_DRY_RUN"] = "1"
+            os.environ["BOT_DATA_DIR"] = data_dir
+            _run_monitor(cli_args.clear_storage)
+        return
 
-    clear_targets = normalize_clear_targets(cli_args.clear_storage)
-    monitor_trending(clear_targets)
+    _run_monitor(cli_args.clear_storage)
+
+
+if __name__ == "__main__":
+    run(parse_args())

@@ -47,6 +47,11 @@ def _safe_dict(value) -> Dict:
     return {}
 
 
+def _is_honeypot_contract(contract: dict) -> bool:
+    security = _safe_dict(contract.get("security"))
+    return bool(_safe_dict(security.get("honeyPot")).get("value", False))
+
+
 def split_kol_positions(kol_list: Optional[List[dict]]) -> Tuple[List[dict], List[dict]]:
     """仅保留持仓比例 >= 0.1% 的KOL"""
     holders: list = []
@@ -105,9 +110,14 @@ def check_multipliers(
     chat_id: Optional[int] = None,
 ):
     token_address = contract.get("tokenAddress")
-    current_price = _safe_float(contract.get("priceUSD"))
+    if not token_address:
+        return
+    if _is_honeypot_contract(contract):
+        storage.clear_pending_multiplier(token_address)
+        return
 
-    if not token_address or current_price <= 0:
+    current_price = _safe_float(contract.get("priceUSD"))
+    if current_price <= 0:
         return
 
     stored_contract = storage.get_contract(token_address)
@@ -253,9 +263,7 @@ def _passes_base_filters(contract: dict, chain: str = "") -> bool:
     launch_from = contract.get("launchFrom") or ""
     if not launch_from and chain != "eth":
         return False
-    security = _safe_dict(contract.get("security"))
-    honey_pot = _safe_dict(security.get("honeyPot"))
-    if honey_pot.get("value", False):
+    if _is_honeypot_contract(contract):
         return False
     return True
 

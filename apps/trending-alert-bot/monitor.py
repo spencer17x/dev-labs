@@ -63,7 +63,7 @@ def _bootstrap_storages(chain: str, clear_targets: set, storages: dict, active_c
         if chain in clear_targets:
             storages[storage_key].clear_all()
             print(f"🗑️ 已清理 {chain.upper()} SQLite 合约缓存: chat_id={chat_id}")
-        if SILENT_INIT:
+        if SILENT_INIT and not DRY_RUN:
             try:
                 initialize_storage(storages[storage_key], chain)
             except Exception as e:
@@ -89,6 +89,13 @@ def _initial_report_marker() -> str:
         if now.hour == report_hour and now.minute == 59:
             return summary_report_marker(hour, now)
     return ""
+
+
+def _active_chats(chat_storage: ChatStorage) -> List[dict]:
+    active_chats = chat_storage.get_active_chats()
+    if DRY_RUN and not active_chats:
+        return [{"chat_id": 0}]
+    return active_chats
 
 
 def scan_chains_once(chains: List[str], active_chats: List[dict], storages: dict, chat_storage: ChatStorage) -> bool:
@@ -126,15 +133,15 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
         notifier.set_report_generator(lambda chat_id: get_summary_report_for_chat(chat_id, storages))
     print()
 
-    active_chats = chat_storage.get_active_chats()
+    active_chats = _active_chats(chat_storage)
     for chain in chains:
         _bootstrap_storages(chain, clear_targets, storages, active_chats)
 
-    if SILENT_INIT:
+    if SILENT_INIT and not DRY_RUN:
         print(f"\n⏳ 等待 {CHECK_INTERVAL} 秒后开始监控...\n")
         time.sleep(CHECK_INTERVAL)
 
-    last_summary_marker = load_last_summary_marker() or _initial_report_marker()
+    last_summary_marker = "" if DRY_RUN else load_last_summary_marker() or _initial_report_marker()
     last_cleanup_day = beijing_now().day
 
     while True:
@@ -151,7 +158,7 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
             print(f"\n🔍 [{scan_time}] 扫描趋势榜...")
 
             chat_storage = ChatStorage()
-            active_chats = chat_storage.get_active_chats()
+            active_chats = _active_chats(chat_storage)
             if not active_chats:
                 print("⚠️  当前没有活跃聊天，跳过本轮")
                 time.sleep(CHECK_INTERVAL)
@@ -173,19 +180,20 @@ def monitor_trending(clear_storage: Optional[List[str]] = None):
                     print("✅ 无需清理\n")
                 last_cleanup_day = current_time.day
 
-            report_time_hour = due_summary_report_hour(last_summary_marker)
-            if report_time_hour != -1:
-                print(f"\n📊 发送 {report_time_hour}:00 汇总报告...")
-                send_summary_report(storages)
-                save_last_summary_marker(report_time_hour)
-                last_summary_marker = summary_report_marker(report_time_hour)
+            if not DRY_RUN:
+                report_time_hour = due_summary_report_hour(last_summary_marker)
+                if report_time_hour != -1:
+                    print(f"\n📊 发送 {report_time_hour}:00 汇总报告...")
+                    send_summary_report(storages)
+                    save_last_summary_marker(report_time_hour)
+                    last_summary_marker = summary_report_marker(report_time_hour)
 
             found_any_anomaly = scan_chains_once(chains, active_chats, storages, chat_storage)
 
-            print(f"⏳ 等待 {CHECK_INTERVAL}s...")
             if DRY_RUN:
                 print("🧪 Dry-run 完成，退出")
                 break
+            print(f"⏳ 等待 {CHECK_INTERVAL}s...")
             time.sleep(CHECK_INTERVAL)
 
             if not found_any_anomaly:

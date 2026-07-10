@@ -114,6 +114,39 @@ class ReviewRegressionTests(unittest.TestCase):
             self.assertEqual(storage.get_notified_multipliers("TOKEN1"), [])
             self.assertEqual(storage.get_pending_multiplier("TOKEN1"), {"multiplier_int": 2, "count": 1})
 
+    def test_honeypot_contract_clears_pending_and_skips_multiplier(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, _, monitor_flow, _, ContractStorage = load_runtime_modules(tmp)
+            storage = ContractStorage(chain="sol", chat_id=111)
+            storage.add_contract("TOKEN1", 1.0, sample_contract(priceUSD="1.0"))
+            storage.update_telegram_message_id("TOKEN1", 111, 222)
+            storage.update_pending_multiplier("TOKEN1", 2, 1)
+            honeypot = sample_contract(
+                priceUSD="2.0",
+                security={"honeyPot": {"value": True}},
+            )
+
+            monitor_flow.DRY_RUN = False
+            monitor_flow.MULTIPLIER_CONFIRMATIONS = 1
+            with (
+                mock.patch.object(
+                    monitor_flow,
+                    "load_kol_status",
+                    return_value=([], []),
+                ) as kol_mock,
+                mock.patch.object(
+                    monitor_flow.notifier,
+                    "send_with_reply_sync",
+                    return_value=True,
+                ) as send_mock,
+            ):
+                monitor_flow.check_multipliers(honeypot, storage, "sol", chat_id=111)
+
+            kol_mock.assert_not_called()
+            send_mock.assert_not_called()
+            self.assertIsNone(storage.get_pending_multiplier("TOKEN1"))
+            self.assertEqual(storage.get_notified_multipliers("TOKEN1"), [])
+
     def test_notification_html_escapes_external_fields(self):
         with tempfile.TemporaryDirectory() as tmp:
             _, _, _, notifier, _ = load_runtime_modules(tmp)
@@ -520,6 +553,46 @@ class ReviewRegressionTests(unittest.TestCase):
                     monitor.monitor_trending()
 
             sleep_mock.assert_not_called()
+
+    def test_dry_run_without_chats_scans_once_without_silent_init(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            load_runtime_modules(tmp)
+            import monitor
+
+            chat_storage = mock.Mock()
+            chat_storage.get_active_chats.return_value = []
+
+            with (
+                mock.patch.object(monitor, "ChatStorage", return_value=chat_storage),
+                mock.patch.object(monitor, "DRY_RUN", True),
+                mock.patch.object(monitor, "ENABLE_TELEGRAM", True),
+                mock.patch.object(monitor, "SILENT_INIT", True),
+                mock.patch.object(monitor, "initialize_storage") as initialize_mock,
+                mock.patch.object(monitor, "scan_chains_once", return_value=False) as scan_mock,
+                mock.patch.object(monitor, "send_summary_report") as report_mock,
+                mock.patch.object(monitor, "due_summary_report_hour", return_value=4),
+                mock.patch.object(monitor, "load_last_summary_marker", return_value=""),
+                mock.patch.object(monitor, "_initial_report_marker", return_value=""),
+                mock.patch.object(monitor.notifier, "start_bot") as start_mock,
+                mock.patch.object(monitor.notifier, "ensure_healthy") as health_mock,
+                mock.patch.object(
+                    monitor.time,
+                    "sleep",
+                    side_effect=AssertionError("dry-run must not sleep"),
+                ) as sleep_mock,
+            ):
+                try:
+                    monitor.monitor_trending()
+                except AssertionError as exc:
+                    self.fail(str(exc))
+
+            initialize_mock.assert_not_called()
+            start_mock.assert_not_called()
+            health_mock.assert_not_called()
+            report_mock.assert_not_called()
+            sleep_mock.assert_not_called()
+            scan_mock.assert_called_once()
+            self.assertEqual(scan_mock.call_args.args[1], [{"chat_id": 0}])
 
     def test_summary_report_skips_inactive_chats(self):
         with tempfile.TemporaryDirectory() as tmp:
