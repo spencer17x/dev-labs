@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from types import SimpleNamespace
@@ -681,6 +682,7 @@ class ReviewRegressionTests(unittest.TestCase):
             notifier.bot_thread.is_alive.return_value = False
 
             with mock.patch.object(notifier, "restart_bot") as restart_mock:
+
                 def _recover():
                     notifier._worker_error = None
                     notifier._ready_event.set()
@@ -715,6 +717,7 @@ class ReviewRegressionTests(unittest.TestCase):
                 ),
                 mock.patch.object(notifier, "restart_bot") as restart_mock,
             ):
+
                 def _recover():
                     notifier.app.updater.running = True
                     notifier.bot_thread.is_alive.return_value = True
@@ -891,6 +894,7 @@ class ReviewRegressionTests(unittest.TestCase):
 
             monitor_flow.ENABLE_TELEGRAM = True
             monitor_flow.DRY_RUN = False
+            first_attempt_at = dt.datetime(2026, 7, 11, 4, 0, 0)
             with (
                 mock.patch.object(
                     monitor_flow, "ChatStorage", return_value=fake_chat_storage
@@ -908,6 +912,15 @@ class ReviewRegressionTests(unittest.TestCase):
                     monitor_flow.notifier,
                     "send_sync",
                     side_effect=send_report,
+                ),
+                mock.patch.object(
+                    monitor_flow,
+                    "beijing_now",
+                    side_effect=[
+                        first_attempt_at,
+                        first_attempt_at,
+                        first_attempt_at + dt.timedelta(minutes=1),
+                    ],
                 ),
             ):
                 first_result = monitor_flow.send_summary_report(
@@ -986,34 +999,6 @@ class ReviewRegressionTests(unittest.TestCase):
                     else:
                         save_mock.assert_not_called()
 
-    def test_non_start_events_do_not_create_first_subscription(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            load_runtime_modules(tmp)
-            import telegram_bot
-
-            notifier = telegram_bot.TelegramNotifier.__new__(
-                telegram_bot.TelegramNotifier
-            )
-            notifier.chat_storage = mock.Mock()
-            notifier.chat_storage.get_chat.return_value = None
-
-            chat = SimpleNamespace(
-                id=111,
-                type="group",
-                title="Group",
-                username=None,
-                first_name=None,
-                last_name=None,
-            )
-            update = SimpleNamespace(effective_chat=chat)
-            asyncio.run(
-                telegram_bot.TelegramNotifier._handle_any_message(
-                    notifier, update, SimpleNamespace()
-                )
-            )
-
-            notifier.chat_storage.add_chat.assert_not_called()
-
     def test_join_event_does_not_create_first_subscription(self):
         with tempfile.TemporaryDirectory() as tmp:
             load_runtime_modules(tmp)
@@ -1051,6 +1036,387 @@ class ReviewRegressionTests(unittest.TestCase):
             )
 
             notifier.chat_storage.add_chat.assert_not_called()
+
+    def test_telegram_application_uses_bounded_concurrency_without_catch_all(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            load_runtime_modules(tmp)
+            import telegram_bot
+            from telegram.ext import MessageHandler
+
+            notifier = telegram_bot.TelegramNotifier()
+            builder = mock.Mock()
+            for method_name in (
+                "token",
+                "concurrent_updates",
+                "connect_timeout",
+                "read_timeout",
+                "write_timeout",
+                "pool_timeout",
+                "get_updates_connect_timeout",
+                "get_updates_read_timeout",
+                "get_updates_write_timeout",
+                "get_updates_pool_timeout",
+            ):
+                getattr(builder, method_name).return_value = builder
+            app = mock.Mock()
+            builder.build.return_value = app
+
+            with mock.patch.object(
+                telegram_bot.Application, "builder", return_value=builder
+            ):
+                notifier._setup_application()
+
+            builder.concurrent_updates.assert_called_once_with(16)
+            handlers = [call.args[0] for call in app.add_handler.call_args_list]
+            self.assertFalse(
+                any(isinstance(handler, MessageHandler) for handler in handlers)
+            )
+
+    def test_report_generation_does_not_block_the_event_loop(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            load_runtime_modules(tmp)
+            import telegram_bot
+
+            notifier = telegram_bot.TelegramNotifier.__new__(
+                telegram_bot.TelegramNotifier
+            )
+            events = []
+
+            def generate_report(chat_id):
+                time.sleep(0.05)
+                events.append("report")
+                return "report"
+
+            notifier._report_generator = generate_report
+            reply_text = mock.AsyncMock()
+            update = SimpleNamespace(
+                effective_chat=SimpleNamespace(id=111),
+                message=SimpleNamespace(reply_text=reply_text),
+            )
+
+            async def run_test():
+                report_task = asyncio.create_task(
+                    telegram_bot.TelegramNotifier._cmd_report(
+                        notifier, update, SimpleNamespace()
+                    )
+                )
+                await asyncio.sleep(0.01)
+                events.append("tick")
+                await report_task
+
+            asyncio.run(run_test())
+
+            self.assertEqual(events, ["tick", "report"])
+            reply_text.assert_awaited_once_with(
+                "report", parse_mode="HTML", disable_web_page_preview=True
+            )
+
+    def test_concurrent_report_commands_share_one_generation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            load_runtime_modules(tmp)
+            import telegram_bot
+
+            notifier = telegram_bot.TelegramNotifier.__new__(
+                telegram_bot.TelegramNotifier
+            )
+            generation_count = 0
+            generation_lock = threading.Lock()
+
+            def generate_report(chat_id):
+                nonlocal generation_count
+                with generation_lock:
+                    generation_count += 1
+                time.sleep(0.05)
+                return "report"
+
+            notifier._report_generator = generate_report
+            notifier._report_tasks = {}
+
+            async def run_test():
+                updates = [
+                    SimpleNamespace(
+                        effective_chat=SimpleNamespace(id=111),
+                        message=SimpleNamespace(reply_text=mock.AsyncMock()),
+                    )
+                    for _ in range(2)
+                ]
+                await asyncio.gather(
+                    *(
+                        telegram_bot.TelegramNotifier._cmd_report(
+                            notifier, update, SimpleNamespace()
+                        )
+                        for update in updates
+                    )
+                )
+                return updates
+
+            updates = asyncio.run(run_test())
+
+            self.assertEqual(generation_count, 1)
+            for update in updates:
+                update.message.reply_text.assert_awaited_once_with(
+                    "report", parse_mode="HTML", disable_web_page_preview=True
+                )
+
+    def test_status_storage_access_does_not_block_the_event_loop(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            load_runtime_modules(tmp)
+            import telegram_bot
+
+            notifier = telegram_bot.TelegramNotifier.__new__(
+                telegram_bot.TelegramNotifier
+            )
+            events = []
+            chat_storage = mock.Mock()
+
+            def get_chat(chat_id):
+                time.sleep(0.05)
+                events.append("storage")
+                return {"chat_id": chat_id}
+
+            chat_storage.get_chat.side_effect = get_chat
+            chat_storage.get_active_chats.return_value = [{"chat_id": 111}]
+            chat_storage.get_notification_mode.return_value = "all"
+            notifier.chat_storage = chat_storage
+            notifier._format_mode = lambda mode: mode
+            reply_text = mock.AsyncMock()
+            update = SimpleNamespace(
+                effective_chat=SimpleNamespace(
+                    id=111,
+                    type="group",
+                    title="Group",
+                    username=None,
+                    first_name=None,
+                    last_name=None,
+                ),
+                message=SimpleNamespace(reply_text=reply_text),
+            )
+
+            async def run_test():
+                status_task = asyncio.create_task(
+                    telegram_bot.TelegramNotifier._cmd_status(
+                        notifier, update, SimpleNamespace()
+                    )
+                )
+                await asyncio.sleep(0.01)
+                events.append("tick")
+                await status_task
+
+            asyncio.run(run_test())
+
+            self.assertEqual(events, ["tick", "storage"])
+            reply_text.assert_awaited_once()
+
+    def test_sync_send_timeout_cancels_scheduled_coroutine(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            load_runtime_modules(tmp)
+            import telegram_bot
+
+            notifier = telegram_bot.TelegramNotifier.__new__(
+                telegram_bot.TelegramNotifier
+            )
+            notifier.enabled = True
+            notifier.bot_loop = object()
+            scheduled = mock.Mock()
+            scheduled.result.side_effect = TimeoutError
+
+            def schedule(coroutine, loop):
+                coroutine.close()
+                return scheduled
+
+            with mock.patch.object(
+                telegram_bot.asyncio,
+                "run_coroutine_threadsafe",
+                side_effect=schedule,
+            ):
+                result = telegram_bot.TelegramNotifier.send_sync(
+                    notifier, "message", chat_id=111
+                )
+
+            self.assertEqual(result, {})
+            scheduled.cancel.assert_called_once_with()
+
+    def test_sync_reply_send_timeout_cancels_scheduled_coroutine(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            load_runtime_modules(tmp)
+            import telegram_bot
+
+            notifier = telegram_bot.TelegramNotifier.__new__(
+                telegram_bot.TelegramNotifier
+            )
+            notifier.enabled = True
+            notifier.bot_loop = object()
+            notifier.chat_storage = mock.Mock()
+            notifier.chat_storage.get_active_chats.return_value = [{"chat_id": 111}]
+            storage = mock.Mock()
+            storage.get_telegram_message_id.return_value = None
+            scheduled = mock.Mock()
+            scheduled.result.side_effect = TimeoutError
+
+            def schedule(coroutine, loop):
+                coroutine.close()
+                return scheduled
+
+            with mock.patch.object(
+                telegram_bot.asyncio,
+                "run_coroutine_threadsafe",
+                side_effect=schedule,
+            ):
+                result = telegram_bot.TelegramNotifier.send_with_reply_sync(
+                    notifier,
+                    "message",
+                    "token",
+                    storage,
+                    chat_id=111,
+                )
+
+            self.assertFalse(result)
+            scheduled.cancel.assert_called_once_with()
+
+    def test_manual_report_loads_distinct_chains_concurrently(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, _, monitor_flow, _, _ = load_runtime_modules(tmp)
+            active_loads = 0
+            max_active_loads = 0
+            active_lock = threading.Lock()
+
+            def load_chain(chain):
+                nonlocal active_loads, max_active_loads
+                with active_lock:
+                    active_loads += 1
+                    max_active_loads = max(max_active_loads, active_loads)
+                time.sleep(0.05)
+                with active_lock:
+                    active_loads -= 1
+                return {}
+
+            with (
+                mock.patch.object(
+                    monitor_flow,
+                    "_load_latest_contract_map",
+                    side_effect=load_chain,
+                ),
+                mock.patch.object(
+                    monitor_flow,
+                    "_build_chain_stats",
+                    side_effect=lambda storage, chain, latest: {chain: {}},
+                ),
+                mock.patch.object(
+                    monitor_flow, "format_summary_report", return_value="report"
+                ),
+            ):
+                result = monitor_flow.get_summary_report_for_chat(
+                    111,
+                    {"sol:111": object(), "base:111": object()},
+                )
+
+            self.assertEqual(result, "report")
+            self.assertEqual(max_active_loads, 2)
+
+    def test_direct_send_migrates_group_and_retries_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            load_runtime_modules(tmp)
+            import telegram_bot
+            from telegram.error import ChatMigrated
+
+            notifier = telegram_bot.TelegramNotifier.__new__(
+                telegram_bot.TelegramNotifier
+            )
+            notifier.enabled = True
+            notifier.chat_storage = mock.Mock()
+            bot = SimpleNamespace(
+                send_message=mock.AsyncMock(
+                    side_effect=[
+                        ChatMigrated(-100222),
+                        SimpleNamespace(message_id=9),
+                    ]
+                )
+            )
+            notifier.app = SimpleNamespace(bot=bot)
+            notifier._build_inline_keyboard = lambda token_address, chain: None
+
+            result = asyncio.run(
+                telegram_bot.TelegramNotifier.send_message(
+                    notifier, "message", chat_id=111
+                )
+            )
+
+            self.assertEqual(result, {111: 9})
+            notifier.chat_storage.migrate_chat.assert_called_once_with(111, -100222)
+            self.assertEqual(
+                [call.kwargs["chat_id"] for call in bot.send_message.await_args_list],
+                [111, -100222],
+            )
+
+    def test_permanent_destination_error_deactivates_chat(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            load_runtime_modules(tmp)
+            import telegram_bot
+            from telegram.error import Forbidden
+
+            notifier = telegram_bot.TelegramNotifier.__new__(
+                telegram_bot.TelegramNotifier
+            )
+            notifier.enabled = True
+            notifier.chat_storage = mock.Mock()
+            notifier.app = SimpleNamespace(
+                bot=SimpleNamespace(
+                    send_message=mock.AsyncMock(
+                        side_effect=Forbidden("bot was kicked from the group chat")
+                    )
+                )
+            )
+            notifier._build_inline_keyboard = lambda token_address, chain: None
+
+            result = asyncio.run(
+                telegram_bot.TelegramNotifier.send_message(
+                    notifier, "message", chat_id=111
+                )
+            )
+
+            self.assertEqual(result, {})
+            notifier.chat_storage.remove_chat.assert_called_once_with(111)
+
+    def test_failed_summary_delivery_backs_off_instead_of_retrying_each_scan(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, _, monitor_flow, _, _ = load_runtime_modules(tmp)
+            fake_chat_storage = mock.Mock()
+            fake_chat_storage.get_active_chats.return_value = [{"chat_id": 111}]
+            now = dt.datetime(2026, 7, 11, 4, 0, 0)
+
+            monitor_flow.ENABLE_TELEGRAM = True
+            monitor_flow.DRY_RUN = False
+            with (
+                mock.patch.object(
+                    monitor_flow, "ChatStorage", return_value=fake_chat_storage
+                ),
+                mock.patch.object(
+                    monitor_flow, "_load_latest_contract_map", return_value={}
+                ) as load_mock,
+                mock.patch.object(
+                    monitor_flow,
+                    "_build_chain_stats",
+                    return_value={"sol": {}},
+                ),
+                mock.patch.object(
+                    monitor_flow, "format_summary_report", return_value="report"
+                ),
+                mock.patch.object(monitor_flow, "beijing_now", return_value=now),
+                mock.patch.object(
+                    monitor_flow.notifier, "send_sync", return_value={}
+                ) as send_mock,
+            ):
+                first_result = monitor_flow.send_summary_report(
+                    {"sol:111": object()}, report_hour=4
+                )
+                second_result = monitor_flow.send_summary_report(
+                    {"sol:111": object()}, report_hour=4
+                )
+
+            self.assertFalse(first_result)
+            self.assertFalse(second_result)
+            send_mock.assert_called_once_with("report", chat_id=111)
+            load_mock.assert_called_once_with("sol")
 
 
 if __name__ == "__main__":

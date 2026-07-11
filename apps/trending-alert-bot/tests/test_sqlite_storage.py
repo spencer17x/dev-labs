@@ -36,6 +36,96 @@ def load_storage_modules(data_dir: str):
 
 
 class SqliteStorageTests(unittest.TestCase):
+    def test_chat_storage_point_operations_do_not_reload_full_table(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, chat_storage, _ = load_storage_modules(tmp)
+            storage = chat_storage.ChatStorage()
+            storage.add_chat(111, {"type": "group", "title": "Fast Group"})
+
+            with patch.object(
+                storage,
+                "_load_unlocked",
+                side_effect=AssertionError("full table reload"),
+            ):
+                self.assertEqual(storage.get_chat(111)["title"], "Fast Group")
+                self.assertEqual(storage.get_notification_mode(111), "all")
+                storage.increment_message_count(111)
+                self.assertTrue(storage.set_notification_mode(111, "anomaly"))
+                storage.remove_chat(111)
+
+            reloaded = chat_storage.ChatStorage()
+            self.assertFalse(reloaded.get_chat(111)["active"])
+            self.assertEqual(reloaded.get_chat(111)["message_count"], 1)
+            self.assertEqual(reloaded.get_chat(111)["notification_mode"], "anomaly")
+
+    def test_chat_storage_migrates_subscription_to_supergroup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, chat_storage, ContractStorage = load_storage_modules(tmp)
+            import db_storage
+
+            storage = chat_storage.ChatStorage()
+            storage.add_chat(111, {"type": "group", "title": "Migrated Group"})
+            storage.set_notification_mode(111, "trending")
+            storage.increment_message_count(111)
+            contracts = ContractStorage(chain="sol", chat_id=111)
+            contracts.add_contract(
+                "TOKEN1",
+                1.0,
+                {"name": "One", "symbol": "ONE", "marketCapUSD": 1000},
+            )
+            contracts.update_telegram_message_id("TOKEN1", 111, 333)
+            contracts.update_notified_multiplier("TOKEN1", 2.0)
+            contracts.update_pending_multiplier("TOKEN1", 3, 1)
+            db_storage.set_runtime_state("last_summary_report_marker:111", "marker")
+            db_storage.set_runtime_state("summary_report_retry:111", "retry")
+
+            self.assertTrue(storage.migrate_chat(111, -100222))
+
+            reloaded = chat_storage.ChatStorage()
+            self.assertIsNone(reloaded.get_chat(111))
+            migrated = reloaded.get_chat(-100222)
+            self.assertEqual(migrated["type"], "supergroup")
+            self.assertEqual(migrated["title"], "Migrated Group")
+            self.assertEqual(migrated["notification_mode"], "trending")
+            self.assertEqual(migrated["message_count"], 1)
+            self.assertTrue(migrated["active"])
+
+            migrated_contracts = ContractStorage(chain="sol", chat_id=-100222)
+            self.assertEqual(migrated_contracts.get_contract("TOKEN1")["symbol"], "ONE")
+            self.assertEqual(
+                migrated_contracts.get_telegram_message_id("TOKEN1", -100222),
+                333,
+            )
+            self.assertEqual(
+                migrated_contracts.get_notified_multipliers("TOKEN1"),
+                [2.0],
+            )
+            self.assertEqual(
+                migrated_contracts.get_pending_multiplier("TOKEN1"),
+                {"multiplier_int": 3, "count": 1},
+            )
+            self.assertEqual(
+                db_storage.get_runtime_state("last_summary_report_marker:-100222"),
+                "marker",
+            )
+            self.assertEqual(
+                db_storage.get_runtime_state("summary_report_retry:-100222"),
+                "retry",
+            )
+
+    def test_sqlite_connections_use_wal_and_bounded_busy_timeout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            load_storage_modules(tmp)
+            import db_storage
+
+            with db_storage.connect() as conn:
+                self.assertEqual(
+                    conn.execute("PRAGMA journal_mode").fetchone()[0], "wal"
+                )
+                self.assertEqual(
+                    conn.execute("PRAGMA busy_timeout").fetchone()[0], 5000
+                )
+
     def test_schema_recheck_after_lock_preserves_competing_migrator_rows(self):
         with tempfile.TemporaryDirectory() as tmp:
             load_storage_modules(tmp)

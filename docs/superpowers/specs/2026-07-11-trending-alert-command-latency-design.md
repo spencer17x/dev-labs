@@ -20,7 +20,7 @@ Keep existing command results, alert selection, report contents, and schedules w
 
 Configure a bounded update concurrency of 16. Run blocking storage and report-generator calls with `asyncio.to_thread()`. Keep commands semantically identical: `/report` still returns the same formatted report and errors, while other updates can be handled during report generation.
 
-Remove the catch-all message handler because it has no subscription side effect. Subscription remains explicit through `/start`, while bot membership changes continue through `MY_CHAT_MEMBER` updates.
+Remove the catch-all message handler because it has no subscription side effect. Existing command behavior remains unchanged: `/start`, `/status`, and `/setmode` can initialize a chat, while bot membership changes continue through `MY_CHAT_MEMBER` updates.
 
 ### Report generation
 
@@ -30,7 +30,7 @@ Collect the distinct chains needed by a report, then load their latest contract 
 
 On synchronous send timeout, cancel the scheduled coroutine. Classify Telegram destination failures in the notifier:
 
-- group migration updates the stored subscription from the old chat ID to the new supergroup ID and retries once;
+- group migration atomically moves the subscription, contract/relation history, and per-chat report state to the new supergroup ID, then retries once;
 - permanent destination errors deactivate the subscription;
 - transient network and rate-limit errors remain retryable.
 
@@ -42,7 +42,7 @@ Replace full-table reloads for point reads, mode reads/writes, removal, and mess
 
 ### Observability
 
-Log command queue/handler duration and report generation duration without logging chat IDs or message contents. These timings distinguish Telegram transport delay from local handler delay.
+Log `/report` handler duration without logging chat IDs or message contents. This directly exposes the slow path while avoiding noisy logs for lightweight commands.
 
 ## Error Handling
 
@@ -60,7 +60,6 @@ Log command queue/handler duration and report generation duration without loggin
 - timed-out synchronous sends cancel their future.
 - catch-all group messages are not registered.
 - failed scheduled delivery is skipped until its retry time; successful chats are not resent.
-- migration and permanent-destination handling update subscription state correctly.
+- migration preserves chat-scoped notification/report state, and permanent-destination handling updates subscription state correctly.
 - ChatStorage point operations use targeted SQL and preserve behavior.
 - the full unittest suite and Python compilation pass.
-

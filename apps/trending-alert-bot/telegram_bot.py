@@ -12,11 +12,9 @@ try:
         CommandHandler,
         ChatMemberHandler,
         ContextTypes,
-        MessageHandler,
         TypeHandler,
-        filters,
     )
-    from telegram.error import TelegramError
+    from telegram.error import BadRequest, ChatMigrated, Forbidden, TelegramError
 except ModuleNotFoundError:
     Update = None
     InlineKeyboardButton = None
@@ -25,12 +23,20 @@ except ModuleNotFoundError:
     CommandHandler = None
     ChatMemberHandler = None
     ContextTypes = None
-    MessageHandler = None
     TypeHandler = None
-    filters = None
 
     class TelegramError(Exception):
         pass
+
+    class BadRequest(TelegramError):
+        pass
+
+    class Forbidden(TelegramError):
+        pass
+
+    class ChatMigrated(TelegramError):
+        def __init__(self, new_chat_id: int):
+            self.new_chat_id = new_chat_id
 
 
 from config import (
@@ -70,6 +76,7 @@ class TelegramNotifier:
         self.bot_thread = None
         self.bot_loop = None
         self._report_generator = None
+        self._report_tasks = {}
         self._ready_event = threading.Event()
         self._worker_error = None
         self._started_at = 0.0
@@ -79,12 +86,31 @@ class TelegramNotifier:
     def set_report_generator(self, fn):
         self._report_generator = fn
 
+    async def _generate_report(self, chat_id: int) -> str:
+        tasks = getattr(self, "_report_tasks", None)
+        if tasks is None:
+            tasks = self._report_tasks = {}
+        task = tasks.get(chat_id)
+        if task is None:
+            task = asyncio.create_task(
+                asyncio.to_thread(self._report_generator, chat_id)
+            )
+            tasks[chat_id] = task
+
+            def clear_completed(completed_task):
+                if tasks.get(chat_id) is completed_task:
+                    tasks.pop(chat_id, None)
+
+            task.add_done_callback(clear_completed)
+        return await asyncio.shield(task)
+
     def _setup_application(self):
         _require_telegram_sdk()
         # Separate getUpdates client timeouts so long-poll survives proxy latency.
         self.app = (
             Application.builder()
             .token(TELEGRAM_BOT_TOKEN)
+            .concurrent_updates(16)
             .connect_timeout(_HTTP_CONNECT_TIMEOUT)
             .read_timeout(_HTTP_READ_TIMEOUT)
             .write_timeout(_HTTP_WRITE_TIMEOUT)
@@ -103,7 +129,6 @@ class TelegramNotifier:
         self.app.add_handler(CommandHandler("setmode", self._cmd_setmode))
         self.app.add_handler(CommandHandler("report", self._cmd_report))
         self.app.add_handler(CommandHandler("help", self._cmd_help))
-        self.app.add_handler(MessageHandler(filters.ALL, self._handle_any_message))
 
         # 添加聊天成员状态变化处理器
         self.app.add_handler(
@@ -127,8 +152,8 @@ class TelegramNotifier:
             "first_name": chat.first_name,
             "last_name": chat.last_name,
         }
-        self.chat_storage.add_chat(chat.id, chat_info)
-        mode = self.chat_storage.get_notification_mode(chat.id)
+        await asyncio.to_thread(self.chat_storage.add_chat, chat.id, chat_info)
+        mode = await asyncio.to_thread(self.chat_storage.get_notification_mode, chat.id)
         mode_desc = self._format_mode(mode)
 
         welcome_msg = f"""🤖 Bot 已启动
@@ -164,7 +189,7 @@ class TelegramNotifier:
         chat = update.effective_chat
         if not chat:
             return
-        mode = self.chat_storage.get_notification_mode(chat.id)
+        mode = await asyncio.to_thread(self.chat_storage.get_notification_mode, chat.id)
         mode_desc = self._format_mode(mode)
         available = [
             m for m in VALID_NOTIFICATION_MODES if m == "all" or m in NOTIFICATION_TYPES
@@ -209,7 +234,7 @@ class TelegramNotifier:
             )
             return
 
-        if not self.chat_storage.get_chat(chat.id):
+        if not await asyncio.to_thread(self.chat_storage.get_chat, chat.id):
             chat_info = {
                 "type": chat.type,
                 "title": chat.title,
@@ -217,9 +242,11 @@ class TelegramNotifier:
                 "first_name": chat.first_name,
                 "last_name": chat.last_name,
             }
-            self.chat_storage.add_chat(chat.id, chat_info)
+            await asyncio.to_thread(self.chat_storage.add_chat, chat.id, chat_info)
 
-        ok = self.chat_storage.set_notification_mode(chat.id, new_mode)
+        ok = await asyncio.to_thread(
+            self.chat_storage.set_notification_mode, chat.id, new_mode
+        )
         if ok:
             mode_desc = self._format_mode(new_mode)
             await update.message.reply_text(f"✅ 通知模式已切换为: {mode_desc}")
@@ -228,7 +255,7 @@ class TelegramNotifier:
 
     async def _cmd_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat = update.effective_chat
-        if chat and not self.chat_storage.get_chat(chat.id):
+        if chat and not await asyncio.to_thread(self.chat_storage.get_chat, chat.id):
             chat_info = {
                 "type": chat.type,
                 "title": chat.title,
@@ -236,10 +263,15 @@ class TelegramNotifier:
                 "first_name": chat.first_name,
                 "last_name": chat.last_name,
             }
-            self.chat_storage.add_chat(chat.id, chat_info)
+            await asyncio.to_thread(self.chat_storage.add_chat, chat.id, chat_info)
 
-        active_count = len(self.chat_storage.get_active_chats())
-        mode = self.chat_storage.get_notification_mode(chat.id) if chat else "all"
+        active_chats = await asyncio.to_thread(self.chat_storage.get_active_chats)
+        active_count = len(active_chats)
+        mode = (
+            await asyncio.to_thread(self.chat_storage.get_notification_mode, chat.id)
+            if chat
+            else "all"
+        )
         mode_desc = self._format_mode(mode)
 
         msg = f"""📊 状态: 正常
@@ -255,13 +287,16 @@ class TelegramNotifier:
         if not self._report_generator:
             await update.message.reply_text("❌ 报告功能暂不可用")
             return
+        started_at = time.monotonic()
         try:
-            msg = self._report_generator(chat.id)
+            msg = await self._generate_report(chat.id)
             await update.message.reply_text(
                 msg, parse_mode="HTML", disable_web_page_preview=True
             )
         except Exception as e:
             await update.message.reply_text(f"❌ 生成报告失败: {e}")
+        finally:
+            print(f"ℹ️ /report handled in {time.monotonic() - started_at:.3f}s")
 
     async def _cmd_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg = """🤖 可用命令:
@@ -285,7 +320,7 @@ class TelegramNotifier:
             "member",
             "administrator",
         ]:
-            existing_chat = self.chat_storage.get_chat(chat.id)
+            existing_chat = await asyncio.to_thread(self.chat_storage.get_chat, chat.id)
             if not existing_chat:
                 chat_name = chat.title or chat.first_name or "未知"
                 welcome_msg = f"""👋 已加入 {self._get_chat_type_name(chat.type)} '{chat_name}'
@@ -305,7 +340,7 @@ class TelegramNotifier:
                 "first_name": chat.first_name,
                 "last_name": chat.last_name,
             }
-            self.chat_storage.add_chat(chat.id, chat_info)
+            await asyncio.to_thread(self.chat_storage.add_chat, chat.id, chat_info)
 
             chat_name = chat.title or chat.first_name or "未知"
             welcome_msg = f"""👋 已添加到 {self._get_chat_type_name(chat.type)} '{chat_name}'
@@ -322,17 +357,7 @@ class TelegramNotifier:
             "left",
             "kicked",
         ]:
-            self.chat_storage.remove_chat(chat.id)
-
-    async def _handle_any_message(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ):
-        """自动恢复群组记录：任意消息触发时补写聊天信息"""
-        chat = update.effective_chat
-        if not chat:
-            return
-        if self.chat_storage.get_chat(chat.id):
-            return
+            await asyncio.to_thread(self.chat_storage.remove_chat, chat.id)
 
     def _get_chat_type_name(self, chat_type: str) -> str:
         type_map = {
@@ -377,6 +402,43 @@ class TelegramNotifier:
 
         return InlineKeyboardMarkup(rows)
 
+    @staticmethod
+    def _is_permanent_destination_error(error: TelegramError) -> bool:
+        if isinstance(error, Forbidden):
+            return True
+        if not isinstance(error, BadRequest):
+            return False
+        message = str(error).lower()
+        return any(
+            marker in message
+            for marker in (
+                "chat not found",
+                "bot was kicked",
+                "user is deactivated",
+                "channel direct messages topic must be specified",
+                "message thread not found",
+            )
+        )
+
+    async def _send_to_chat(self, send_fn, chat_id: int, **kwargs):
+        try:
+            return await send_fn(chat_id=chat_id, **kwargs), chat_id
+        except ChatMigrated as error:
+            new_chat_id = error.new_chat_id
+            await asyncio.to_thread(
+                self.chat_storage.migrate_chat, chat_id, new_chat_id
+            )
+            try:
+                return await send_fn(chat_id=new_chat_id, **kwargs), new_chat_id
+            except TelegramError as retry_error:
+                if self._is_permanent_destination_error(retry_error):
+                    await asyncio.to_thread(self.chat_storage.remove_chat, new_chat_id)
+                raise
+        except TelegramError as error:
+            if self._is_permanent_destination_error(error):
+                await asyncio.to_thread(self.chat_storage.remove_chat, chat_id)
+            raise
+
     async def send_message(
         self,
         message: str,
@@ -395,19 +457,22 @@ class TelegramNotifier:
             reply_markup = self._build_inline_keyboard(token_address, chain)
 
             if chat_id is not None:
-                sent_msg = await bot.send_message(
-                    chat_id=chat_id,
+                sent_msg, actual_chat_id = await self._send_to_chat(
+                    bot.send_message,
+                    chat_id,
                     text=message,
                     disable_web_page_preview=True,
                     reply_to_message_id=reply_to_message_id,
                     parse_mode="HTML",
                     reply_markup=reply_markup,
                 )
-                self.chat_storage.increment_message_count(chat_id)
+                await asyncio.to_thread(
+                    self.chat_storage.increment_message_count, actual_chat_id
+                )
                 message_ids[chat_id] = sent_msg.message_id
                 return message_ids
 
-            active_chats = self.chat_storage.get_active_chats()
+            active_chats = await asyncio.to_thread(self.chat_storage.get_active_chats)
 
             if not active_chats:
                 print("⚠️  没有活跃的聊天，消息未发送")
@@ -420,15 +485,19 @@ class TelegramNotifier:
                     if i > 0:
                         await asyncio.sleep(0.5)
 
-                    sent_msg = await bot.send_message(
-                        chat_id=chat["chat_id"],
+                    sent_msg, actual_chat_id = await self._send_to_chat(
+                        bot.send_message,
+                        chat["chat_id"],
                         text=message,
                         disable_web_page_preview=True,
                         reply_to_message_id=reply_to_message_id,
                         parse_mode="HTML",
                         reply_markup=reply_markup,
                     )
-                    self.chat_storage.increment_message_count(chat["chat_id"])
+                    await asyncio.to_thread(
+                        self.chat_storage.increment_message_count,
+                        actual_chat_id,
+                    )
                     message_ids[chat["chat_id"]] = sent_msg.message_id
                     success_count += 1
                 except TelegramError as e:
@@ -461,18 +530,21 @@ class TelegramNotifier:
             reply_markup = self._build_inline_keyboard(token_address, chain)
 
             if chat_id is not None:
-                sent_msg = await bot.send_photo(
-                    chat_id=chat_id,
+                sent_msg, actual_chat_id = await self._send_to_chat(
+                    bot.send_photo,
+                    chat_id,
                     photo=photo_url,
                     caption=caption,
                     parse_mode="HTML",
                     reply_markup=reply_markup,
                 )
-                self.chat_storage.increment_message_count(chat_id)
+                await asyncio.to_thread(
+                    self.chat_storage.increment_message_count, actual_chat_id
+                )
                 message_ids[chat_id] = sent_msg.message_id
                 return message_ids
 
-            active_chats = self.chat_storage.get_active_chats()
+            active_chats = await asyncio.to_thread(self.chat_storage.get_active_chats)
 
             if not active_chats:
                 print("⚠️  没有活跃的聊天，消息未发送")
@@ -485,14 +557,18 @@ class TelegramNotifier:
                     if i > 0:
                         await asyncio.sleep(0.5)
 
-                    sent_msg = await bot.send_photo(
-                        chat_id=chat["chat_id"],
+                    sent_msg, actual_chat_id = await self._send_to_chat(
+                        bot.send_photo,
+                        chat["chat_id"],
                         photo=photo_url,
                         caption=caption,
                         parse_mode="HTML",
                         reply_markup=reply_markup,
                     )
-                    self.chat_storage.increment_message_count(chat["chat_id"])
+                    await asyncio.to_thread(
+                        self.chat_storage.increment_message_count,
+                        actual_chat_id,
+                    )
                     message_ids[chat["chat_id"]] = sent_msg.message_id
                     success_count += 1
                 except TelegramError as e:
@@ -522,16 +598,22 @@ class TelegramNotifier:
             return {}
 
         try:
-            future = asyncio.run_coroutine_threadsafe(
+            return self._run_coroutine_sync(
                 self.send_message(
                     message, chat_id, reply_to_message_id, token_address, chain
-                ),
-                self.bot_loop,
+                )
             )
-            return future.result(timeout=10)
         except Exception as e:
             print(f"❌ 同步发送失败: {e}")
             return {}
+
+    def _run_coroutine_sync(self, coroutine, timeout: float = 10):
+        future = asyncio.run_coroutine_threadsafe(coroutine, self.bot_loop)
+        try:
+            return future.result(timeout=timeout)
+        except TimeoutError:
+            future.cancel()
+            raise
 
     def send_photo_sync(
         self,
@@ -546,11 +628,9 @@ class TelegramNotifier:
             return {}
 
         try:
-            future = asyncio.run_coroutine_threadsafe(
-                self.send_photo(photo_url, caption, chat_id, token_address, chain),
-                self.bot_loop,
+            return self._run_coroutine_sync(
+                self.send_photo(photo_url, caption, chat_id, token_address, chain)
             )
-            return future.result(timeout=10)
         except Exception as e:
             print(f"❌ 同步发送图片失败: {e} | url={photo_url}")
             return {}
@@ -583,11 +663,9 @@ class TelegramNotifier:
                 cid = chat["chat_id"]
                 reply_to_id = storage.get_telegram_message_id(token_address, cid)
 
-                future = asyncio.run_coroutine_threadsafe(
-                    self.send_message(message, cid, reply_to_id, token_address, chain),
-                    self.bot_loop,
+                message_ids = self._run_coroutine_sync(
+                    self.send_message(message, cid, reply_to_id, token_address, chain)
                 )
-                message_ids = future.result(timeout=10)
                 if cid not in message_ids:
                     all_sent = False
 
@@ -625,14 +703,13 @@ class TelegramNotifier:
         now = time.time()
         if self._started_at <= 0 or (now - self._started_at) < _BACKLOG_GRACE_SECONDS:
             return False
-        if self._last_update_at and (now - self._last_update_at) < _BACKLOG_STALE_SECONDS:
+        if (
+            self._last_update_at
+            and (now - self._last_update_at) < _BACKLOG_STALE_SECONDS
+        ):
             return False
         try:
-            future = asyncio.run_coroutine_threadsafe(
-                self.app.bot.get_webhook_info(),
-                self.bot_loop,
-            )
-            info = future.result(timeout=15)
+            info = self._run_coroutine_sync(self.app.bot.get_webhook_info(), timeout=15)
             pending = int(getattr(info, "pending_update_count", 0) or 0)
         except Exception as e:
             print(f"⚠️ Telegram backlog check failed: {e}")

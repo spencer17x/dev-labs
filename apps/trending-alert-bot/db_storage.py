@@ -25,10 +25,24 @@ _RELATION_TABLES = (
 )
 
 
+class _ClosingConnection(sqlite3.Connection):
+    def __exit__(self, exc_type, exc_value, traceback):
+        try:
+            return super().__exit__(exc_type, exc_value, traceback)
+        finally:
+            self.close()
+
+
 def connect() -> sqlite3.Connection:
     os.makedirs(os.path.dirname(SQLITE_DB_FILE), exist_ok=True)
-    conn = sqlite3.connect(SQLITE_DB_FILE, timeout=30)
+    conn = sqlite3.connect(
+        SQLITE_DB_FILE,
+        timeout=5,
+        factory=_ClosingConnection,
+    )
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA busy_timeout = 5000")
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
 

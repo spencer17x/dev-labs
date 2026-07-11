@@ -1,6 +1,8 @@
 """监控业务流程与通知编排。"""
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
+import json
 from typing import Dict, List, Optional, Tuple
 
 from api import fetch_trending, fetch_kol_holders
@@ -26,6 +28,10 @@ from notifier import (
 from storage import ContractStorage
 from telegram_bot import notifier
 from timezone_utils import beijing_now, beijing_today_start, parse_time_to_beijing
+
+_REPORT_FETCH_EXECUTOR = ThreadPoolExecutor(
+    max_workers=5, thread_name_prefix="report-fetch"
+)
 
 
 def make_storage_key(chat_id: int, chain: str = "") -> str:
@@ -529,10 +535,59 @@ def _next_report_time_str(now: datetime) -> str:
 
 _SUMMARY_REPORT_STATE_KEY = "last_summary_report_marker"
 _SUMMARY_REPORT_CHAT_STATE_PREFIX = "last_summary_report_marker:"
+_SUMMARY_REPORT_RETRY_STATE_PREFIX = "summary_report_retry:"
+_SUMMARY_REPORT_RETRY_BASE_SECONDS = 30
+_SUMMARY_REPORT_RETRY_MAX_SECONDS = 600
 
 
 def _summary_report_chat_state_key(chat_id: int) -> str:
     return f"{_SUMMARY_REPORT_CHAT_STATE_PREFIX}{chat_id}"
+
+
+def _summary_report_retry_state_key(chat_id: int) -> str:
+    return f"{_SUMMARY_REPORT_RETRY_STATE_PREFIX}{chat_id}"
+
+
+def _load_summary_report_retry(chat_id: int, report_marker: str) -> dict:
+    raw_state = get_runtime_state(_summary_report_retry_state_key(chat_id), "")
+    if not raw_state:
+        return {}
+    try:
+        state = json.loads(raw_state)
+    except (TypeError, ValueError):
+        return {}
+    if state.get("marker") != report_marker:
+        return {}
+    return state
+
+
+def _summary_report_retry_due(chat_id: int, report_marker: str, now: datetime) -> bool:
+    state = _load_summary_report_retry(chat_id, report_marker)
+    return not state or now.timestamp() >= float(state.get("retry_at", 0))
+
+
+def _record_summary_report_failure(chat_id: int, report_marker: str, now: datetime):
+    state = _load_summary_report_retry(chat_id, report_marker)
+    attempts = int(state.get("attempts", 0)) + 1
+    delay = min(
+        _SUMMARY_REPORT_RETRY_MAX_SECONDS,
+        _SUMMARY_REPORT_RETRY_BASE_SECONDS * (2 ** (attempts - 1)),
+    )
+    set_runtime_state(
+        _summary_report_retry_state_key(chat_id),
+        json.dumps(
+            {
+                "marker": report_marker,
+                "attempts": attempts,
+                "retry_at": now.timestamp() + delay,
+            },
+            separators=(",", ":"),
+        ),
+    )
+
+
+def _clear_summary_report_retry(chat_id: int):
+    set_runtime_state(_summary_report_retry_state_key(chat_id), "")
 
 
 def summary_report_marker(report_hour: int, now: Optional[datetime] = None) -> str:
@@ -560,6 +615,18 @@ def _load_latest_contract_map(chain: str) -> Dict[str, dict]:
     except Exception as e:
         print(f"❌ 获取 {chain} 链合约数据失败: {e}")
         return {}
+
+
+def _load_latest_contract_maps(chains) -> Dict[str, Dict[str, dict]]:
+    distinct_chains = list(dict.fromkeys(chains))
+    if not distinct_chains:
+        return {}
+    if len(distinct_chains) == 1:
+        chain = distinct_chains[0]
+        return {chain: _load_latest_contract_map(chain)}
+
+    loaded_maps = _REPORT_FETCH_EXECUTOR.map(_load_latest_contract_map, distinct_chains)
+    return dict(zip(distinct_chains, loaded_maps))
 
 
 def _fallback_contract_data(token_address: str, stored_data: dict) -> dict:
@@ -697,10 +764,10 @@ def send_summary_report(
         summary_report_marker(report_hour, now) if report_hour is not None else ""
     )
     next_report_time_str = _next_report_time_str(now)
-    chain_latest_map: Dict[str, Dict[str, dict]] = {}
     chat_chain_stats: Dict[int, Dict[str, dict]] = {}
     active_chat_ids = {chat["chat_id"] for chat in ChatStorage().get_active_chats()}
     all_succeeded = True
+    storage_rows = []
 
     for storage_key, storage in storages.items():
         if ":" in storage_key:
@@ -709,15 +776,10 @@ def send_summary_report(
         else:
             chain = CHAINS[0] if CHAINS else "unknown"
             chat_id = int(storage_key)
+        storage_rows.append((chain, chat_id, storage))
 
-        if chain not in chain_latest_map:
-            chain_latest_map[chain] = _load_latest_contract_map(chain)
-        chain_stats = _build_chain_stats(storage, chain, chain_latest_map[chain])
-        if chat_id not in chat_chain_stats:
-            chat_chain_stats[chat_id] = {}
-        chat_chain_stats[chat_id].update(chain_stats)
-
-    for chat_id, chain_stats in chat_chain_stats.items():
+    due_chat_ids = set()
+    for chat_id in {chat_id for _, chat_id, _ in storage_rows}:
         if chat_id not in active_chat_ids:
             continue
         if (
@@ -726,6 +788,23 @@ def send_summary_report(
             == report_marker
         ):
             continue
+        if report_marker and not _summary_report_retry_due(chat_id, report_marker, now):
+            all_succeeded = False
+            continue
+        due_chat_ids.add(chat_id)
+
+    storage_rows = [row for row in storage_rows if row[1] in due_chat_ids]
+    if not storage_rows:
+        return all_succeeded
+
+    chain_latest_map = _load_latest_contract_maps(chain for chain, _, _ in storage_rows)
+    for chain, chat_id, storage in storage_rows:
+        chain_stats = _build_chain_stats(storage, chain, chain_latest_map[chain])
+        if chat_id not in chat_chain_stats:
+            chat_chain_stats[chat_id] = {}
+        chat_chain_stats[chat_id].update(chain_stats)
+
+    for chat_id, chain_stats in chat_chain_stats.items():
         msg = format_summary_report(chain_stats, next_report_time_str)
         print("\n" + "=" * 60)
         print(msg)
@@ -735,12 +814,15 @@ def send_summary_report(
             message_ids = notifier.send_sync(msg, chat_id=chat_id)
             if chat_id not in message_ids:
                 all_succeeded = False
+                if report_marker:
+                    _record_summary_report_failure(chat_id, report_marker, now)
                 continue
             if report_marker:
                 set_runtime_state(
                     _summary_report_chat_state_key(chat_id),
                     report_marker,
                 )
+                _clear_summary_report_retry(chat_id)
 
     return all_succeeded
 
@@ -749,8 +831,8 @@ def get_summary_report_for_chat(chat_id: int, storages: dict) -> str:
     """按 chat_id 生成当日汇总报告文本（用于 /report 指令）"""
     now = beijing_now()
     next_report_time_str = _next_report_time_str(now)
-    chain_latest_map: Dict[str, Dict[str, dict]] = {}
     chain_stats: Dict[str, dict] = {}
+    storage_rows = []
 
     for storage_key, storage in storages.items():
         if ":" in storage_key:
@@ -761,9 +843,10 @@ def get_summary_report_for_chat(chat_id: int, storages: dict) -> str:
             chain = CHAINS[0] if CHAINS else "unknown"
             if int(storage_key) != chat_id:
                 continue
+        storage_rows.append((chain, storage))
 
-        if chain not in chain_latest_map:
-            chain_latest_map[chain] = _load_latest_contract_map(chain)
+    chain_latest_map = _load_latest_contract_maps(chain for chain, _ in storage_rows)
+    for chain, storage in storage_rows:
         chain_stats.update(_build_chain_stats(storage, chain, chain_latest_map[chain]))
 
     if not chain_stats:
