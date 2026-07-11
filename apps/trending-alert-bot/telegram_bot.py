@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import time
 from typing import Optional, List, Dict
 
 try:
@@ -12,6 +13,7 @@ try:
         ChatMemberHandler,
         ContextTypes,
         MessageHandler,
+        TypeHandler,
         filters,
     )
     from telegram.error import TelegramError
@@ -24,6 +26,7 @@ except ModuleNotFoundError:
     ChatMemberHandler = None
     ContextTypes = None
     MessageHandler = None
+    TypeHandler = None
     filters = None
 
     class TelegramError(Exception):
@@ -37,6 +40,17 @@ from config import (
     NOTIFICATION_TYPES,
 )
 from chat_storage import ChatStorage, VALID_NOTIFICATION_MODES
+
+# Long-poll must stay under HTTP read timeout; leave headroom for Socks proxies.
+_GET_UPDATES_TIMEOUT = 20
+_GET_UPDATES_READ_TIMEOUT = 35.0
+_HTTP_CONNECT_TIMEOUT = 15.0
+_HTTP_READ_TIMEOUT = 30.0
+_HTTP_WRITE_TIMEOUT = 30.0
+_HTTP_POOL_TIMEOUT = 10.0
+_BACKLOG_GRACE_SECONDS = 45.0
+_BACKLOG_STALE_SECONDS = 90.0
+_WORKER_START_TIMEOUT = 45.0
 
 
 def _require_telegram_sdk():
@@ -58,13 +72,31 @@ class TelegramNotifier:
         self._report_generator = None
         self._ready_event = threading.Event()
         self._worker_error = None
+        self._started_at = 0.0
+        self._last_update_at = 0.0
+        self._restart_lock = threading.Lock()
 
     def set_report_generator(self, fn):
         self._report_generator = fn
 
     def _setup_application(self):
         _require_telegram_sdk()
-        self.app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+        # Separate getUpdates client timeouts so long-poll survives proxy latency.
+        self.app = (
+            Application.builder()
+            .token(TELEGRAM_BOT_TOKEN)
+            .connect_timeout(_HTTP_CONNECT_TIMEOUT)
+            .read_timeout(_HTTP_READ_TIMEOUT)
+            .write_timeout(_HTTP_WRITE_TIMEOUT)
+            .pool_timeout(_HTTP_POOL_TIMEOUT)
+            .get_updates_connect_timeout(_HTTP_CONNECT_TIMEOUT)
+            .get_updates_read_timeout(_GET_UPDATES_READ_TIMEOUT)
+            .get_updates_write_timeout(_HTTP_WRITE_TIMEOUT)
+            .get_updates_pool_timeout(_HTTP_POOL_TIMEOUT)
+            .build()
+        )
+        # Heartbeat on every inbound update (commands, membership, etc.).
+        self.app.add_handler(TypeHandler(Update, self._track_update), group=-1)
         self.app.add_handler(CommandHandler("start", self._cmd_start))
         self.app.add_handler(CommandHandler("status", self._cmd_status))
         self.app.add_handler(CommandHandler("mode", self._cmd_mode))
@@ -79,6 +111,12 @@ class TelegramNotifier:
                 self._handle_chat_member_updated, ChatMemberHandler.MY_CHAT_MEMBER
             )
         )
+
+    async def _track_update(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self._last_update_at = time.time()
+
+    def _on_polling_error(self, error: TelegramError):
+        print(f"⚠️ Telegram polling error: {error}")
 
     async def _cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat = update.effective_chat
@@ -558,12 +596,68 @@ class TelegramNotifier:
             print(f"❌ 同步发送（带引用）失败: {e}")
             return False
 
+    def _updater_running(self) -> bool:
+        app = self.app
+        if app is None:
+            return False
+        updater = getattr(app, "updater", None)
+        if updater is None:
+            return False
+        return bool(getattr(updater, "running", False))
+
+    def _is_worker_alive(self) -> bool:
+        if self._worker_error is not None:
+            return False
+        if not self._ready_event.is_set():
+            return False
+        if not self.bot_thread or not self.bot_thread.is_alive():
+            return False
+        if self.bot_loop is None:
+            return False
+        if not self._updater_running():
+            return False
+        return True
+
+    def _polling_backlog_stale(self) -> bool:
+        """Detect getUpdates stuck: Telegram has pending updates but we never receive them."""
+        if not self.app or not self.bot_loop:
+            return False
+        now = time.time()
+        if self._started_at <= 0 or (now - self._started_at) < _BACKLOG_GRACE_SECONDS:
+            return False
+        if self._last_update_at and (now - self._last_update_at) < _BACKLOG_STALE_SECONDS:
+            return False
+        try:
+            future = asyncio.run_coroutine_threadsafe(
+                self.app.bot.get_webhook_info(),
+                self.bot_loop,
+            )
+            info = future.result(timeout=15)
+            pending = int(getattr(info, "pending_update_count", 0) or 0)
+        except Exception as e:
+            print(f"⚠️ Telegram backlog check failed: {e}")
+            return False
+        if pending <= 0:
+            return False
+        print(
+            f"⚠️ Telegram pending updates not draining: pending={pending} "
+            f"last_update_age="
+            f"{'never' if not self._last_update_at else f'{now - self._last_update_at:.0f}s'}"
+        )
+        return True
+
     def start_bot(self):
         if not self.enabled:
             return
 
+        if self.bot_thread and self.bot_thread.is_alive():
+            # Already running; let ensure_healthy decide whether to recover.
+            return
+
         self._ready_event.clear()
         self._worker_error = None
+        self._last_update_at = 0.0
+        self._started_at = 0.0
 
         def run_bot():
             self.bot_loop = asyncio.new_event_loop()
@@ -575,9 +669,17 @@ class TelegramNotifier:
                 self.bot_loop.run_until_complete(self.app.initialize())
                 self.bot_loop.run_until_complete(self.app.start())
                 self.bot_loop.run_until_complete(
-                    self.app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+                    self.app.updater.start_polling(
+                        allowed_updates=Update.ALL_TYPES,
+                        timeout=_GET_UPDATES_TIMEOUT,
+                        drop_pending_updates=False,
+                        bootstrap_retries=-1,
+                        error_callback=self._on_polling_error,
+                    )
                 )
+                self._started_at = time.time()
                 self._ready_event.set()
+                print("✅ Telegram polling started")
                 self.bot_loop.run_forever()
             except Exception as e:
                 self._worker_error = e
@@ -588,45 +690,98 @@ class TelegramNotifier:
                 traceback.print_exc()
             finally:
                 try:
-                    if self.app:
-                        self.bot_loop.run_until_complete(self.app.updater.stop())
+                    if self.app and self.bot_loop and not self.bot_loop.is_closed():
+                        if self._updater_running():
+                            self.bot_loop.run_until_complete(self.app.updater.stop())
                         self.bot_loop.run_until_complete(self.app.stop())
                         self.bot_loop.run_until_complete(self.app.shutdown())
-                except:
+                except Exception:
                     pass
-                self.bot_loop.close()
+                try:
+                    if self.bot_loop and not self.bot_loop.is_closed():
+                        self.bot_loop.close()
+                except Exception:
+                    pass
                 self.bot_loop = None
+                self.app = None
 
-        self.bot_thread = threading.Thread(target=run_bot, daemon=True)
+        self.bot_thread = threading.Thread(
+            target=run_bot, daemon=True, name="telegram-bot-worker"
+        )
         self.bot_thread.start()
 
-        if not self._ready_event.wait(timeout=30):
+        if not self._ready_event.wait(timeout=_WORKER_START_TIMEOUT):
             raise TelegramRuntimeError("Telegram worker startup timed out")
-        self.ensure_healthy()
-
-    def ensure_healthy(self) -> None:
-        if not self.enabled:
-            return
-        if self._worker_error is not None:
-            raise TelegramRuntimeError("Telegram worker failed") from self._worker_error
-        if (
-            not self._ready_event.is_set()
-            or not self.bot_thread
-            or not self.bot_thread.is_alive()
-            or self.bot_loop is None
-        ):
+        # Startup path: report failure immediately; runtime path self-heals.
+        if not self._is_worker_alive():
+            err = self._worker_error
+            if err is not None:
+                raise TelegramRuntimeError("Telegram worker failed") from err
             raise TelegramRuntimeError("Telegram worker is not running")
 
+    def restart_bot(self):
+        """Stop and start the Telegram worker to recover from dead polling."""
+        with self._restart_lock:
+            print("🔄 Restarting Telegram worker...")
+            self.stop_bot()
+            # Brief pause so Telegram releases getUpdates offset/session cleanly.
+            time.sleep(1.0)
+            self.start_bot()
+
+    def ensure_healthy(self, *, allow_restart: bool = True) -> None:
+        if not self.enabled:
+            return
+
+        alive = self._is_worker_alive()
+        backlog_stale = alive and self._polling_backlog_stale()
+        if alive and not backlog_stale:
+            return
+
+        if not allow_restart:
+            if self._worker_error is not None:
+                raise TelegramRuntimeError(
+                    "Telegram worker failed"
+                ) from self._worker_error
+            if backlog_stale:
+                raise TelegramRuntimeError("Telegram polling backlog not draining")
+            raise TelegramRuntimeError("Telegram worker is not running")
+
+        reason = "backlog not draining" if backlog_stale else "worker not alive"
+        print(f"⚠️ Telegram unhealthy ({reason}); attempting auto-restart")
+        try:
+            self.restart_bot()
+        except TelegramRuntimeError:
+            raise
+        except Exception as e:
+            raise TelegramRuntimeError("Telegram worker restart failed") from e
+
+        if not self._is_worker_alive():
+            err = self._worker_error
+            if err is not None:
+                raise TelegramRuntimeError(
+                    "Telegram worker failed after restart"
+                ) from err
+            raise TelegramRuntimeError("Telegram worker is not running after restart")
+        print("✅ Telegram worker recovered")
+
     def stop_bot(self):
-        if not self.bot_loop:
+        loop = self.bot_loop
+        thread = self.bot_thread
+        if not loop and not thread:
             return
 
         try:
-            self.bot_loop.call_soon_threadsafe(self.bot_loop.stop)
-            if self.bot_thread and self.bot_thread.is_alive():
-                self.bot_thread.join(timeout=5)
+            if loop and not loop.is_closed():
+                loop.call_soon_threadsafe(loop.stop)
+            if thread and thread.is_alive():
+                thread.join(timeout=10)
         except Exception as e:
             print(f"⚠️  停止 Bot 时出错: {e}")
+        finally:
+            self.bot_thread = None
+            # Worker finally clears these; force-reset if the thread never did.
+            self.bot_loop = None
+            self.app = None
 
 
 notifier = TelegramNotifier()

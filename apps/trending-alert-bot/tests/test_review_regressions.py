@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -666,7 +667,62 @@ class ReviewRegressionTests(unittest.TestCase):
             notifier.bot_thread.is_alive.return_value = False
 
             with self.assertRaises(telegram_bot.TelegramRuntimeError):
-                notifier.ensure_healthy()
+                notifier.ensure_healthy(allow_restart=False)
+
+    def test_telegram_health_auto_restarts_dead_worker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            load_runtime_modules(tmp)
+            import telegram_bot
+
+            notifier = telegram_bot.TelegramNotifier()
+            notifier._ready_event.set()
+            notifier.bot_loop = mock.Mock()
+            notifier.bot_thread = mock.Mock()
+            notifier.bot_thread.is_alive.return_value = False
+
+            with mock.patch.object(notifier, "restart_bot") as restart_mock:
+                def _recover():
+                    notifier._worker_error = None
+                    notifier._ready_event.set()
+                    notifier.bot_loop = mock.Mock()
+                    notifier.bot_thread = mock.Mock()
+                    notifier.bot_thread.is_alive.return_value = True
+                    notifier.app = mock.Mock()
+                    notifier.app.updater.running = True
+
+                restart_mock.side_effect = _recover
+                notifier.ensure_healthy(allow_restart=True)
+                restart_mock.assert_called_once()
+
+    def test_telegram_health_detects_stale_polling_backlog(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            load_runtime_modules(tmp)
+            import telegram_bot
+
+            notifier = telegram_bot.TelegramNotifier()
+            notifier._ready_event.set()
+            notifier._started_at = time.time() - 120
+            notifier._last_update_at = 0.0
+            notifier.bot_loop = mock.Mock()
+            notifier.bot_thread = mock.Mock()
+            notifier.bot_thread.is_alive.return_value = True
+            notifier.app = mock.Mock()
+            notifier.app.updater.running = True
+
+            with (
+                mock.patch.object(
+                    notifier, "_polling_backlog_stale", return_value=True
+                ),
+                mock.patch.object(notifier, "restart_bot") as restart_mock,
+            ):
+                def _recover():
+                    notifier.app.updater.running = True
+                    notifier.bot_thread.is_alive.return_value = True
+                    notifier._worker_error = None
+
+                restart_mock.side_effect = _recover
+                notifier.ensure_healthy(allow_restart=True)
+                restart_mock.assert_called_once()
 
     def test_monitor_does_not_retry_dead_telegram_worker(self):
         with tempfile.TemporaryDirectory() as tmp:
