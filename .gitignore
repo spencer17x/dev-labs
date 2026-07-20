@@ -132,6 +132,9 @@ dist
 
 .idea
 
+# macOS metadata
+.DS_Store
+
 # Local git worktrees
 .worktrees/
 
