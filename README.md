@@ -22,13 +22,13 @@ Dev Lab 是一个现代化的开发实验室，专注于智能代理、消息处
 
 ### 🚀 实验项目
 
-| 项目                                                 | 技术栈      | 部署大小  | 核心功能                     |
-| ---------------------------------------------------- | ----------- | --------- | ---------------------------- |
-| **[twitter-bot](./apps/twitter-bot/)**               | TypeScript  | **2.4MB** | Twitter 到 Telegram 消息转发 |
+| 项目                                                 | 技术栈               | 部署大小   | 核心功能                     |
+| ---------------------------------------------------- | -------------------- | ---------- | ---------------------------- |
+| **[twitter-bot](./apps/twitter-bot/)**               | TypeScript           | **2.4MB**  | Twitter 到 Telegram 消息转发 |
 | **[signal-trade](./apps/signal-trade/)**             | Next.js + TypeScript | 全栈仪表盘 | 通知代币展示与前端筛选面板   |
-| **[telegram-forwarder](./apps/telegram-forwarder/)** | Python 3.11 | uv + .venv | Telegram 智能转发机器人      |
-| **[telegram-watcher](./apps/telegram-watcher/)**     | Python 3.11 | uv + .venv | Telegram 消息监听处理        |
-| **[trending-alert-bot](./apps/trending-alert-bot/)** | Python 3.11 | uv + .venv | 多链合约趋势通知             |
+| **[telegram-forwarder](./apps/telegram-forwarder/)** | Python 3.11          | uv + .venv | Telegram 智能转发机器人      |
+| **[telegram-watcher](./apps/telegram-watcher/)**     | Python 3.11          | uv + .venv | Telegram 消息监听处理        |
+| **[trending-alert-bot](./apps/trending-alert-bot/)** | Python 3.11          | uv + .venv | 多链合约趋势通知             |
 
 ## 📁 项目结构
 
@@ -54,10 +54,10 @@ dev-lab/
 
 ```bash
 # 基础环境
-Node.js 22.11.0     # 根 package.json 当前固定版本
+Node.js 24.16.0     # 根 package.json 当前固定版本
 uv ≥ 0.5.0          # Python 版本与虚拟环境管理
 Python 3.11.15      # 由仓库根 .python-version 固定
-pnpm 10.33.0        # 与根 package.json 保持一致
+pnpm 11.5.0         # 与根 package.json 保持一致
 ```
 
 ### 🚀 一键启动
@@ -103,11 +103,11 @@ uv run python main.py
 
 ### 🎯 实验场景示例
 
-| 实验场景           | 推荐组合                             | 技术价值                      |
-| ------------------ | ------------------------------------ | ----------------------------- |
-| **社交媒体自动化** | `twitter-bot` + `telegram-forwarder` | 跨平台消息流转与智能过滤      |
-| **消息处理管道**   | `telegram-watcher` + `twitter-bot`   | 多源消息监听与跨平台分发      |
-| **智能通知系统**   | `trending-alert-bot` + `twitter-bot` | 多源信息聚合与推送            |
+| 实验场景           | 推荐组合                             | 技术价值                 |
+| ------------------ | ------------------------------------ | ------------------------ |
+| **社交媒体自动化** | `twitter-bot` + `telegram-forwarder` | 跨平台消息流转与智能过滤 |
+| **消息处理管道**   | `telegram-watcher` + `twitter-bot`   | 多源消息监听与跨平台分发 |
+| **智能通知系统**   | `trending-alert-bot` + `twitter-bot` | 多源信息聚合与推送       |
 
 ## 🏗️ 核心技术栈
 
@@ -228,13 +228,13 @@ uv run python -m flake8 src/       # 代码检查
 
 ## 📚 项目文档
 
-| 项目               | 技术栈      | 部署大小  | 文档链接                                      | 核心功能                 |
-| ------------------ | ----------- | --------- | --------------------------------------------- | ------------------------ |
-| **Twitter 机器人** | TypeScript  | **2.4MB** | [README](./apps/twitter-bot/README.md)        | Twitter 到 Telegram 转发 |
+| 项目               | 技术栈               | 部署大小   | 文档链接                                      | 核心功能                 |
+| ------------------ | -------------------- | ---------- | --------------------------------------------- | ------------------------ |
+| **Twitter 机器人** | TypeScript           | **2.4MB**  | [README](./apps/twitter-bot/README.md)        | Twitter 到 Telegram 转发 |
 | **Signal Trade**   | Next.js + TypeScript | 全栈仪表盘 | [README](./apps/signal-trade/README.md)       | 通知代币展示与前端筛选   |
-| **Telegram 转发**  | Python 3.11 | uv + .venv | [README](./apps/telegram-forwarder/README.md) | 智能消息转发与过滤       |
-| **Telegram 监听**  | Python 3.11 | uv + .venv | [README](./apps/telegram-watcher/README.md)   | 消息监听与处理服务       |
-| **趋势通知**       | Python 3.11 | uv + .venv | [README](./apps/trending-alert-bot/README.md) | 多链合约趋势通知         |
+| **Telegram 转发**  | Python 3.11          | uv + .venv | [README](./apps/telegram-forwarder/README.md) | 智能消息转发与过滤       |
+| **Telegram 监听**  | Python 3.11          | uv + .venv | [README](./apps/telegram-watcher/README.md)   | 消息监听与处理服务       |
+| **趋势通知**       | Python 3.11          | uv + .venv | [README](./apps/trending-alert-bot/README.md) | 多链合约趋势通知         |
 
 ---
 

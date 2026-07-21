@@ -10,7 +10,7 @@
 
 ## Setup, Build, and Run Commands
 
-Use the versions pinned by the repository: Node.js `22.11.0`, pnpm `10.33.0`, and Python `3.11.15`.
+Use the versions pinned by the repository: Node.js `24.16.0`, pnpm `11.5.0`, and Python `3.11.15`.
 
 ```bash
 pnpm install

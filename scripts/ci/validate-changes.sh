@@ -142,18 +142,23 @@ fi
 
 if [[ "${needs_node}" -eq 1 ]]; then
   command -v node >/dev/null 2>&1 || { echo "[quality] node is required" >&2; exit 1; }
-  if command -v corepack >/dev/null 2>&1; then
-    pnpm_command=(corepack pnpm)
-  elif command -v pnpm >/dev/null 2>&1; then
+  direct_pnpm_version=""
+  if command -v pnpm >/dev/null 2>&1; then
+    direct_pnpm_version="$(pnpm --version 2>/dev/null || true)"
+  fi
+  if [[ "${direct_pnpm_version}" == "11.5.0" ]]; then
     pnpm_command=(pnpm)
+    actual_pnpm="${direct_pnpm_version}"
+  elif command -v corepack >/dev/null 2>&1; then
+    pnpm_command=(corepack pnpm)
+    actual_pnpm="$("${pnpm_command[@]}" --version)"
   else
-    echo "[quality] corepack or pnpm is required" >&2
+    echo "[quality] pnpm 11.5.0 or Corepack is required" >&2
     exit 1
   fi
   actual_node="$(node -p 'process.versions.node')"
-  actual_pnpm="$("${pnpm_command[@]}" --version)"
-  if [[ "${actual_node}" != "22.11.0" || "${actual_pnpm}" != "10.33.0" ]]; then
-    echo "[quality] expected Node 22.11.0 and pnpm 10.33.0" >&2
+  if [[ "${actual_node}" != "24.16.0" || "${actual_pnpm}" != "11.5.0" ]]; then
+    echo "[quality] expected Node 24.16.0 and pnpm 11.5.0" >&2
     echo "[quality] found Node ${actual_node} and pnpm ${actual_pnpm}" >&2
     exit 1
   fi
