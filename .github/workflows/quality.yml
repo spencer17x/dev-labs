@@ -41,6 +41,7 @@ jobs:
         with:
           python-version: 3.11.15
           enable-cache: true
+          ignore-nothing-to-cache: true
           cache-dependency-glob: |
             .python-version
             apps/*/pyproject.toml
