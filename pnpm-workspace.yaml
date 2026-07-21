@@ -3,3 +3,11 @@ packages:
   - 'chrome-extensions/*'
   - 'web/*'
   - '!**/test/**'
+
+allowBuilds:
+  '@swc/core': true
+  esbuild: true
+  leveldown: true
+  protobufjs: true
+  sharp: true
+  unrs-resolver: true
