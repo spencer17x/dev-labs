@@ -11,7 +11,7 @@ This repository uses directory-scoped releases for `apps/*`.
 
 From latest app tag to `HEAD`, only commits touching `apps/<app>` are considered:
 
-- `BREAKING CHANGE` or `type!:` -> major
+- `type!:` -> major
 - `feat:` -> minor
 - others -> patch
 
@@ -49,12 +49,31 @@ Local validation:
 bash scripts/release/check-conventional-commits.sh <base_sha> <head_sha>
 ```
 
+The validator enforces the same title-only format, type list, length, punctuation, and app-only scope rules as `.githooks/commit-msg`.
+
+## Local Git hooks
+
+Install the tracked hooks after cloning (the root `prepare` script also does this after `pnpm install`):
+
+```bash
+pnpm hooks:install
+```
+
+- `pre-commit`: staged whitespace, ignored-file, syntax, and Prettier checks
+- `commit-msg`: Conventional Commit subject and scope validation
+- `pre-push`: outgoing commit validation plus change-aware builds and tests
+
+The pre-push and remote quality workflow both call `scripts/ci/validate-changes.sh`.
+
 ## GitHub branch protection (recommended)
 
 Set `main` branch required checks to:
 
 - `Conventional Commits Check / validate`
-- `Release Preview / preview`
+- `Quality CI / validate`
+
+`Release Preview / preview` is informational and path-filtered, so it should not be a globally required check.
+Also require pull requests and block force pushes to keep invalid direct commits from reaching `main` before CI can report them.
 
 ## Local dry-run
 

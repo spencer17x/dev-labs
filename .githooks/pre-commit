@@ -2,4 +2,4 @@
 set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel)"
-exec bash "${repo_root}/scripts/quality/validate-commit-range.sh" "$@"
+exec bash "${repo_root}/scripts/git-hooks/pre-commit.sh"

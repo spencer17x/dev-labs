@@ -9,7 +9,8 @@
     "dev": "next dev",
     "build": "next build --webpack",
     "start": "next start",
-    "type-check": "next typegen && tsc --noEmit"
+    "type-check": "next typegen && tsc --noEmit",
+    "test": "bash ../../scripts/ci/run-node-tests.sh ."
   },
   "dependencies": {
     "clsx": "^2.1.1",

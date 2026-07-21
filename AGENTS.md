@@ -14,6 +14,7 @@ Use the versions pinned by the repository: Node.js `22.11.0`, pnpm `10.33.0`, an
 
 ```bash
 pnpm install
+pnpm hooks:install
 pnpm new
 pnpm --filter twitter-bot dev
 pnpm --filter twitter-bot build
@@ -37,16 +38,50 @@ Some CLIs require an argument; for example, use `uv run python main.py bsc --dry
 ## Testing and Code Style
 
 - Keep TypeScript strict, use 2-space indentation and single quotes, and follow the existing local module layout.
-- Keep TypeScript tests beside the code as `*.test.ts` or `*.test.tsx`. Run Signal Trade tests with `pnpm exec vitest run apps/signal-trade` and type-check with its package script.
+- Keep TypeScript tests beside the code as `*.test.ts` or `*.test.tsx`. Signal Trade uses `node:test` through vite-node; run it with `pnpm --filter signal-trade test` and type-check with its package script.
 - Follow PEP 8 for Python. Use `snake_case` for modules/functions and `PascalCase` for classes.
 - Python tests live under each app's `tests/`; run `uv run python -m unittest discover -s tests` from the app directory.
 - Validate only the affected app when possible, then broaden checks for shared workspace or release-script changes.
+
+## Git Hooks and Remote CI
+
+`pnpm install` installs the tracked hooks by setting `core.hooksPath=.githooks`; run `pnpm hooks:install` to repair or reinstall them. Do not bypass hooks with `--no-verify` when preparing changes for review.
+
+- `pre-commit` checks staged whitespace/conflict errors, rejects force-added ignored files, validates staged Bash/Python syntax, and checks Prettier-supported staged files without reading unstaged content.
+- `commit-msg` validates the subject format and requires the exact app directory as the scope when a commit changes only one `apps/<app>` tree.
+- `pre-push` validates every outgoing non-merge commit, rejects manual app release-tag pushes, and runs `scripts/ci/validate-changes.sh` for the affected apps.
+- `.github/workflows/quality.yml` runs the same change-aware checks for pushes and pull requests to `main`. `.github/workflows/conventional-commits.yml` independently validates each incoming commit range.
+
+Protect `main` by requiring pull requests, blocking force pushes, and requiring `Quality CI / validate` plus `Conventional Commits Check / validate`. Release Preview is informational because it only runs for release-relevant path changes.
 
 ## Security and Configuration
 
 Commit only sample configuration such as `.env.example`, `*.example.json`, or equivalent templates. Never commit real credentials, Telegram session files, local databases, logs, or runtime data. Redact chat IDs, wallet addresses, tokens, and message content from shared output. Document every new environment variable in the affected app's README and sample config.
 
 ## Commits, Pull Requests, and Releases
+
+Every non-merge commit must contain exactly one subject line in this form:
+
+```text
+<type>(<scope>)!: <description>
+```
+
+The scope and `!` are optional in the syntax, subject to these rules:
+
+- Allowed types: `feat`, `fix`, `chore`, `refactor`, `docs`, `style`, `test`, `perf`, `build`, `ci`, `revert`.
+- Use the exact app directory name as scope for an app-only commit, for example `fix(signal-trade): ...`. Omit scope for root-only or cross-app changes unless a concise shared scope materially improves clarity.
+- Add `!` immediately before `:` for a breaking change. Bodies and footers are not allowed, so do not use a `BREAKING CHANGE:` footer.
+- Keep the complete subject at 72 characters or fewer. Start the description with a lowercase imperative verb, describe what changed, and do not end with punctuation.
+- Inspect the actual staged diff before proposing a message. Split unrelated changes into separate commits.
+
+Examples:
+
+```text
+feat(trending-alert-bot): add per-chat notification modes
+fix(signal-trade): handle empty feed responses
+ci: add change-aware quality checks
+refactor(twitter-bot)!: replace the subscription storage format
+```
 
 Follow the topic-specific rules in `.github/instructions/`:
 

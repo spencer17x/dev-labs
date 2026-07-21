@@ -1,0 +1,69 @@
+name: Quality CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22.11.0
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Setup uv and Python
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          python-version: 3.11.15
+          enable-cache: true
+          cache-dependency-glob: |
+            .python-version
+            apps/*/pyproject.toml
+            apps/*/uv.lock
+
+      - name: Install Node.js dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Resolve validation range
+        id: range
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BASE_SHA: ${{ github.event.before }}
+        run: |
+          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
+            base_sha="${PR_BASE_SHA}"
+          elif [[ "${EVENT_NAME}" == "push" ]]; then
+            base_sha="${PUSH_BASE_SHA}"
+          else
+            base_sha="$(git rev-parse HEAD^ 2>/dev/null || printf '%040d' 0)"
+          fi
+          echo "base_sha=${base_sha}" >> "${GITHUB_OUTPUT}"
+
+      - name: Validate changed files
+        run: bash scripts/ci/validate-changes.sh "${{ steps.range.outputs.base_sha }}" "${{ github.sha }}"

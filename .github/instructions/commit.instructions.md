@@ -1,56 +1,74 @@
 # Commit Message Rules
 
-Commits follow Conventional Commits and only contain a title line (no body or footer). Format:
+Every non-merge commit follows Conventional Commits and contains one subject line only:
 
+```text
+<type>(<scope>)!: <description>
 ```
-<type>(<scope>): <description>
-```
 
-## Type (required)
+`scope` and `!` are optional in the syntax. Commit bodies and footers are not allowed.
 
-`feat`, `fix`, `chore`, `refactor`, `docs`, `perf`, `test`.
+## Types
 
-Append `!` after scope for breaking changes (e.g. `feat(twitter-bot)!: ...`).
+| Type       | Use for                                                  |
+| ---------- | -------------------------------------------------------- |
+| `feat`     | New user-visible behavior; produces a minor release bump |
+| `fix`      | Bug fixes                                                |
+| `chore`    | Maintenance that does not fit another type               |
+| `refactor` | Internal restructuring without behavior changes          |
+| `docs`     | Documentation only                                       |
+| `style`    | Formatting or other non-functional code style changes    |
+| `test`     | Test additions or corrections                            |
+| `perf`     | Performance improvements                                 |
+| `build`    | Build tooling or build dependency changes                |
+| `ci`       | GitHub Actions and CI automation                         |
+| `revert`   | Reverting an earlier commit                              |
+
+Use `!` immediately before `:` for breaking changes. Because messages are title-only, do not use a `BREAKING CHANGE:` footer.
 
 ## Scope
 
-Required when changes are inside a single app. Use the app directory name:
-`trending-alert-bot`, `twitter-bot`, `token-launcher`, `telegram-forwarder`, `telegram-watcher`.
-
-Omit scope only for root/cross-app changes (scripts, CI, workspace config).
+- A commit whose files are all under one `apps/<app>` directory must use that exact app directory name as its scope.
+- Root-only and cross-app commits may omit scope. If they use one, keep it lowercase and limited to letters, numbers, `.`, `_`, `/`, or `-`.
+- Do not use stale or invented app scopes. Current app scopes are `signal-trade`, `twitter-bot`, `telegram-forwarder`, `telegram-watcher`, and `trending-alert-bot`.
 
 ## Description
 
-- Imperative mood, lowercase start, no period, ≤72 chars
-- Describe *what changed*, not *how*
+- Keep the entire subject at 72 characters or fewer.
+- Start with a lowercase imperative verb.
+- Describe what changed, not how it was implemented.
+- Do not end with punctuation.
 
 ## Generating Commit Messages
 
-When asked to generate a commit message, always check the staged (`git diff --cached`) or unstaged (`git diff`) changes first. Base the message on the **actual file diffs**, not on conversation context.
+Always inspect the actual staged diff (`git diff --cached`) before suggesting a message. Use the unstaged diff only when nothing is staged. Split unrelated work into separate commits.
 
-If the working tree contains multiple unrelated changes (e.g. a feature change + a docs refactor), suggest splitting into separate commits with distinct messages.
+Examples:
 
-## Examples
+```text
+feat(trending-alert-bot): add per-chat notification modes
+fix(telegram-forwarder): handle empty forwarding rules
+docs: clarify workspace setup
+ci: add change-aware quality checks
+refactor(twitter-bot)!: replace the subscription storage format
+```
 
-- `feat(trending-alert-bot): add per-chat notification mode control`
-- `fix(telegram-forwarder): handle empty forward rules gracefully`
-- `chore: update pnpm-lock and bump dependencies`
-- `refactor(twitter-bot): extract filter logic into utils`
-- `feat(token-launcher)!: change deploy config schema`
+## Enforcement
 
-## PR Gate
-
-All commit messages on PRs to `main` are validated by `conventional-commits.yml`. Invalid messages block merge.
+- `.githooks/commit-msg` validates the local commit message and app-only scope.
+- `.githooks/pre-push` validates all outgoing non-merge commits.
+- `.github/workflows/conventional-commits.yml` validates pull-request and direct-push commit ranges.
+- Do not bypass hooks with `--no-verify` for review-bound work.
 
 ## Branch Naming
 
-Branch names should begin with `experiment/` or `fix/` plus a concise subject.
+Branch names begin with `experiment/` or `fix/` followed by a concise kebab-case subject.
 
-## PR Checklist
+## Pull Request Checklist
 
-Every PR needs:
-- Short description
-- Linked issue or task
-- Reproduced test commands (pnpm, python, curl payloads)
-- List of config or data updates (`.env`, `forward_rules.json`, `db.json`)
-- Screenshot bot dialogs or terminal output whenever behavior changes
+Every PR includes:
+
+- A short description and linked issue or task
+- The exact test commands run
+- Any configuration or data-shape changes
+- Screenshots or terminal output when behavior changes

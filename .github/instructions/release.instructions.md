@@ -10,12 +10,14 @@ Releases are directory-scoped and fully automated — **do not manually create t
 
 Based on commits touching `apps/<app>` since the last tag:
 
-| Commit pattern | Bump |
-|---|---|
-| `feat(scope)!:` or body contains `BREAKING CHANGE:` | **major** |
-| `feat(scope):` | **minor** |
-| `fix`, `chore`, `refactor`, etc. | **patch** |
-| No previous tag (first release) | **v0.1.0** |
+| Commit pattern                       | Bump       |
+| ------------------------------------ | ---------- |
+| Any allowed type with `!` before `:` | **major**  |
+| `feat(scope):`                       | **minor**  |
+| `fix`, `chore`, `refactor`, etc.     | **patch**  |
+| No previous tag (first release)      | **v0.1.0** |
+
+Commit messages are title-only. Mark breaking changes with `!`; do not add a `BREAKING CHANGE:` footer.
 
 ## Automated Workflows
 

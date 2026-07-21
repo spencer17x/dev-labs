@@ -1,11 +1,15 @@
 {
   "name": "monorepo-root",
   "version": "0.0.1",
+  "packageManager": "pnpm@10.33.0",
   "engines": {
     "node": "22.11.0",
     "pnpm": "10.33.0"
   },
   "scripts": {
+    "prepare": "bash scripts/git-hooks/install.sh",
+    "hooks:install": "bash scripts/git-hooks/install.sh",
+    "quality:changes": "bash scripts/ci/validate-changes.sh",
     "new": "vite-node scripts/create-project.ts",
     "release:dry-run": "DRY_RUN=true bash scripts/release/by-directory.sh",
     "release:check-commits": "bash scripts/release/check-conventional-commits.sh"

@@ -3,21 +3,22 @@
 ## TypeScript
 
 - Respect strict TS compiler options
-- Run `pnpm exec eslint apps/<app>/src --max-warnings=0` and `pnpm exec prettier --check "apps/<app>/src/**/*.ts"` before committing
+- Format supported files with Prettier; the pre-commit hook checks the staged snapshot
+- Run `pnpm --filter signal-trade type-check`, `pnpm --filter signal-trade test`, and the affected app build before pushing
 - 2-space indentation, single quotes
 - Descriptive folders: `utils/`, `filters/`, `services/`
 
 ## Python
 
-- PEP 8 compliant, format with Black
+- Keep code PEP 8 compliant
 - Filenames: `snake_case`
 - Classes: `PascalCase`
-- Use the repo-root `.python-version` via `uv`; create per-app `.venv` with `uv venv`
+- Use the repo-root `.python-version`; install each app with `uv sync --locked`
 
 ## Testing
 
-- TypeScript: add Vitest suites next to code (`src/__tests__/bot.test.ts`), run via `pnpm --filter <app> vitest run`
-- Python: provide smoke coverage inside `cli/` or `utils/`; when pytest modules exist, run `uv run python -m pytest`
+- TypeScript: keep `node:test` suites beside code as `*.test.ts` or `*.test.tsx`; execute them through vite-node
+- Python: keep unittest suites under `tests/` and run `uv run python -m unittest discover -s tests`
 - Cover happy paths and failure handling before submitting work
 
 ## Security & Configuration
