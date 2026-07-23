@@ -1,3 +1,5 @@
+import contextlib
+import io
 import os
 import sqlite3
 import sys
@@ -34,6 +36,30 @@ def remove_runtime_modules():
 
 
 class EntrypointConfigTests(unittest.TestCase):
+    def test_clear_all_notification_data_is_a_standalone_command(self):
+        args = main.parse_args(["--clear-all-notification-data"])
+
+        with (
+            mock.patch.object(main, "_run_clear_all_notification_data") as clear_mock,
+            mock.patch.object(main, "load_runtime_config") as config_mock,
+        ):
+            main.run(args)
+
+        clear_mock.assert_called_once_with()
+        config_mock.assert_not_called()
+
+    def test_clear_all_notification_data_rejects_runtime_options(self):
+        invalid_argv = [
+            [],
+            ["multi", "--clear-all-notification-data"],
+            ["--clear-all-notification-data", "--clear-storage", "all"],
+            ["--clear-all-notification-data", "--dry-run"],
+        ]
+        with contextlib.redirect_stderr(io.StringIO()):
+            for argv in invalid_argv:
+                with self.subTest(argv=argv), self.assertRaises(SystemExit):
+                    main.parse_args(argv)
+
     def test_main_py_is_the_only_python_entrypoint(self):
         self.assertTrue((APP_ROOT / "main.py").exists())
         self.assertFalse((APP_ROOT / "run.py").exists())

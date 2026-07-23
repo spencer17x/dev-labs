@@ -82,7 +82,12 @@ uv run python main.py multi
 
 # 单次 Dry-run，不发送 Telegram 消息
 uv run python main.py bsc --dry-run
+
+# 停止所有 Bot 后，一次性备份并清理全部单链 Bot 与 multi Bot 的通知数据
+uv run python main.py --clear-all-notification-data
 ```
+
+`--clear-all-notification-data` 是一次性管理命令，不需要 Telegram token，也不会启动 Bot。它会清理所有 target 数据库中的合约、通知消息 ID、倍数通知和 pending 倍数状态，同时保留 Telegram 群组订阅、通知模式、叙事分析缓存和汇总状态。每个被清理的数据库都会先备份到 `data/backups/notification-data-<timestamp>/`。
 
 ## PM2
 
@@ -162,6 +167,7 @@ The narrative result is cached in SQLite per `chain + token_address + provider`.
 - `db_storage.py`：SQLite 连接与 schema 初始化
 - `chat_storage.py`：群组状态存储
 - `storage.py`：合约追踪存储
+- `storage_admin.py`：跨 target 的通知数据备份与清理
 
 ## Data Files
 
