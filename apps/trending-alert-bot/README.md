@@ -33,23 +33,23 @@ uv sync --locked
 
 项目不再使用 `configs/`。支持的 target、链、数据目录和默认参数固定在 `bot_app.py`：
 
-| target | chains | data_dir |
-|--------|--------|----------|
-| `bsc` | `bsc` | `data/bsc-bot` |
-| `sol` | `sol` | `data/sol-bot` |
-| `base` | `base` | `data/base-bot` |
-| `eth` | `eth` | `data/eth-bot` |
-| `robin` | `robin` | `data/robin-bot` |
+| target  | chains                       | data_dir         |
+| ------- | ---------------------------- | ---------------- |
+| `bsc`   | `bsc`                        | `data/bsc-bot`   |
+| `sol`   | `sol`                        | `data/sol-bot`   |
+| `base`  | `base`                       | `data/base-bot`  |
+| `eth`   | `eth`                        | `data/eth-bot`   |
+| `robin` | `robin`                      | `data/robin-bot` |
 | `multi` | `bsc, sol, base, eth, robin` | `data/multi-bot` |
 
 默认参数：
 
-| 参数 | 值 |
-|------|----|
-| `check_interval` | `15` 秒 |
-| `notify_cooldown_hours` | `24` 小时 |
-| `multiplier_confirmations` | `2` |
-| `notification_types` | `trending, anomaly` |
+| 参数                       | 值                  |
+| -------------------------- | ------------------- |
+| `check_interval`           | `15` 秒             |
+| `notify_cooldown_hours`    | `24` 小时           |
+| `multiplier_confirmations` | `2`                 |
+| `notification_types`       | `trending, anomaly` |
 
 复制 `.env.example` 为 `.env`，至少填写目标 Telegram token：
 
@@ -135,21 +135,21 @@ The narrative result is cached in SQLite per `chain + token_address + provider`.
 
 每个群组可独立设置通知模式，默认接收全部通知：
 
-| 模式 | 说明 |
-|------|------|
-| `all` | 接收趋势 + 异动通知（默认） |
-| `trending` | 仅接收趋势通知 |
-| `anomaly` | 仅接收异动通知 |
+| 模式       | 说明                        |
+| ---------- | --------------------------- |
+| `all`      | 接收趋势 + 异动通知（默认） |
+| `trending` | 仅接收趋势通知              |
+| `anomaly`  | 仅接收异动通知              |
 
 **Bot 命令：**
 
-| 命令 | 权限 | 说明 |
-|------|------|------|
-| `/mode` | 所有人 | 查看当前通知模式 |
+| 命令              | 权限   | 说明                                     |
+| ----------------- | ------ | ---------------------------------------- |
+| `/mode`           | 所有人 | 查看当前通知模式                         |
 | `/setmode <mode>` | 管理员 | 切换通知模式（all / trending / anomaly） |
-| `/start` | 所有人 | 订阅并初始化 |
-| `/status` | 所有人 | 查看运行状态及通知模式 |
-| `/help` | 所有人 | 查看命令说明 |
+| `/start`          | 所有人 | 订阅并初始化                             |
+| `/status`         | 所有人 | 查看运行状态及通知模式                   |
+| `/help`           | 所有人 | 查看命令说明                             |
 
 通知模式配置存储在 `data_dir/trending_alert_bot.sqlite` 的 `telegram_chats` 表中。
 
@@ -171,15 +171,15 @@ The narrative result is cached in SQLite per `chain + token_address + provider`.
 
 SQLite 中包含：
 
-| 表 | 用途 | 隔离方式 |
-|----|------|----------|
-| `telegram_chats` | 群组订阅状态、通知模式、消息计数 | `chat_id` |
-| `contracts` | 合约初始价格、名称、符号、最后通知时间 | `chain + chat_id + token_address` |
-| `contract_message_ids` | 合约首次通知的 Telegram 消息 ID | `chain + chat_id + token_address + telegram_chat_id` |
-| `contract_notified_multipliers` | 已通知过的倍数 | `chain + chat_id + token_address + multiplier` |
-| `contract_pending_multipliers` | 等待确认的整数倍状态 | `chain + chat_id + token_address` |
-| `narrative_analysis` | narrative analysis cache / 叙事分析缓存 | `chain + token_address + provider` |
-| `runtime_state` | 汇总报告 marker 等运行状态 | `key` |
+| 表                              | 用途                                    | 隔离方式                                             |
+| ------------------------------- | --------------------------------------- | ---------------------------------------------------- |
+| `telegram_chats`                | 群组订阅状态、通知模式、消息计数        | `chat_id`                                            |
+| `contracts`                     | 合约初始价格、名称、符号、最后通知时间  | `chain + chat_id + token_address`                    |
+| `contract_message_ids`          | 合约首次通知的 Telegram 消息 ID         | `chain + chat_id + token_address + telegram_chat_id` |
+| `contract_notified_multipliers` | 已通知过的倍数                          | `chain + chat_id + token_address + multiplier`       |
+| `contract_pending_multipliers`  | 等待确认的整数倍状态                    | `chain + chat_id + token_address`                    |
+| `narrative_analysis`            | narrative analysis cache / 叙事分析缓存 | `chain + token_address + provider`                   |
+| `runtime_state`                 | 汇总报告 marker 等运行状态              | `key`                                                |
 
 ### Clear storage
 
