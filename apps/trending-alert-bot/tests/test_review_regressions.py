@@ -581,6 +581,64 @@ class ReviewRegressionTests(unittest.TestCase):
             ):
                 self.assertFalse(monitor_flow.scan_once("sol", [], {}))
 
+    def test_kol_trade_activity_requires_a_positive_buy_or_sell_count(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, _, monitor_flow, _, _ = load_runtime_modules(tmp)
+
+            self.assertFalse(
+                monitor_flow._has_kol_trade_activity(
+                    [
+                        {"buyCount": 0, "sellCount": "0"},
+                        {"buyCount": None, "sellCount": "N/A"},
+                    ]
+                )
+            )
+            self.assertTrue(
+                monitor_flow._has_kol_trade_activity(
+                    [{"buyCount": "1", "sellCount": 0}]
+                )
+            )
+            self.assertTrue(
+                monitor_flow._has_kol_trade_activity(
+                    [{"buyCount": 0, "sellCount": 2}]
+                )
+            )
+
+    def test_candidate_skips_kols_without_trade_activity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, _, monitor_flow, _, _ = load_runtime_modules(tmp)
+            inactive_contract = sample_contract(tokenAddress="INACTIVE")
+            active_contract = sample_contract(tokenAddress="ACTIVE")
+            kol_lists = {
+                "INACTIVE": [{"buyCount": 0, "sellCount": 0, "holdPercent": 1}],
+                "ACTIVE": [{"buyCount": 1, "sellCount": 0, "holdPercent": 0}],
+            }
+
+            with (
+                mock.patch.object(
+                    monitor_flow,
+                    "is_anomaly_contract",
+                    return_value=False,
+                ),
+                mock.patch.object(
+                    monitor_flow,
+                    "fetch_kol_list",
+                    side_effect=lambda contract, chain, context="": kol_lists[
+                        contract["tokenAddress"]
+                    ],
+                ),
+            ):
+                trend_contract, anomaly_contract = (
+                    monitor_flow._pick_trend_and_anomaly_contract(
+                        [inactive_contract, active_contract],
+                        "sol",
+                    )
+                )
+
+            self.assertEqual(trend_contract[0]["tokenAddress"], "ACTIVE")
+            self.assertEqual(trend_contract[1], [])
+            self.assertIsNone(anomaly_contract)
+
     def test_base_filters_ignore_audit_holder_percentages(self):
         with tempfile.TemporaryDirectory() as tmp:
             _, _, monitor_flow, _, _ = load_runtime_modules(tmp)

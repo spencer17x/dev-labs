@@ -76,6 +76,18 @@ def split_kol_positions(
     return holders, leavers
 
 
+def _has_kol_trade_activity(kol_list: Optional[List[dict]]) -> bool:
+    """至少一个 KOL 有实际买入或卖出记录。"""
+    for kol in kol_list or []:
+        if not isinstance(kol, dict):
+            continue
+        if _safe_float(kol.get("buyCount")) > 0:
+            return True
+        if _safe_float(kol.get("sellCount")) > 0:
+            return True
+    return False
+
+
 def fetch_kol_list(contract: dict, chain: str, context: str = "") -> List[dict]:
     token_address = contract.get("tokenAddress")
     pair_address = contract.get("pairAddress", "")
@@ -320,7 +332,7 @@ def _pick_trend_and_anomaly_contract(
             continue
 
         kol_list = fetch_kol_list(contract, chain, context="筛选KOL")
-        if not kol_list:
+        if not _has_kol_trade_activity(kol_list):
             continue
 
         candidate = (contract, *split_kol_positions(kol_list))
